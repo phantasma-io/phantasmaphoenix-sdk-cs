@@ -1,3 +1,5 @@
+set dotenv-load := true
+
 [private]
 just:
     just -l
@@ -20,7 +22,7 @@ b:
     dotnet build
 
 # Build packages
-[group('build')]
+[group('publish')]
 p:
     dotnet build -c Release
     dotnet pack -c Release
@@ -36,6 +38,10 @@ p:
     dotnet publish PhantasmaPhoenix.Protocol/PhantasmaPhoenix.Protocol.csproj -c Release -f netstandard2.0 -o ./output/dlls/netstandard2.0
     dotnet publish PhantasmaPhoenix.VM/PhantasmaPhoenix.VM.csproj -c Release -f net6.0 -o ./output/dlls/net6.0
     dotnet publish PhantasmaPhoenix.VM/PhantasmaPhoenix.VM.csproj -c Release -f netstandard2.0 -o ./output/dlls/netstandard2.0
+
+[group('publish')]
+publish-nugets:
+    sh ./scripts/publish-nugets.sh
 
 [group('maintenance')]
 eols:
