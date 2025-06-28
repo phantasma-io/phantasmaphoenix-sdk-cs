@@ -1,6 +1,5 @@
 using System.Text;
 using SHA256 = System.Security.Cryptography.SHA256;
-using Blake2Fast;
 
 namespace PhantasmaPhoenix.Cryptography.Extensions;
 
@@ -28,6 +27,14 @@ public static class HashExtensions
 
 	public static byte[] Blake2b_256(this byte[] value, int offset, int count)
 	{
-		return Blake2b.ComputeHash(256 / 8, new ReadOnlySpan<byte>(value, offset, count));
+#if NETSTANDARD2_0
+        var digest = new Org.BouncyCastle.Crypto.Digests.Blake2bDigest(256);
+        digest.BlockUpdate(value, offset, count);
+        byte[] result = new byte[digest.GetDigestSize()];
+        digest.DoFinal(result, 0);
+        return result;
+#else
+		return Blake2Fast.Blake2b.ComputeHash(256 / 8, new ReadOnlySpan<byte>(value, offset, count));
+#endif
 	}
 }
