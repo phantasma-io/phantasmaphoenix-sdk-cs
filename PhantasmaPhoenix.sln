@@ -1,0 +1,40 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.Core", "PhantasmaPhoenix.Core\PhantasmaPhoenix.Core.csproj", "{7E6390B7-4D30-4721-8D73-95F6DFC2B4D0}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.Cryptography", "PhantasmaPhoenix.Cryptography\PhantasmaPhoenix.Cryptography.csproj", "{4C99E302-DB5C-4FC3-9D38-0A685CF76350}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.Protocol", "PhantasmaPhoenix.Protocol\PhantasmaPhoenix.Protocol.csproj", "{38C52491-6892-45A7-B713-945D74901D74}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.VM", "PhantasmaPhoenix.VM\PhantasmaPhoenix.VM.csproj", "{43FEB240-9265-46BF-9DD5-62DC896D3AC3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7E6390B7-4D30-4721-8D73-95F6DFC2B4D0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7E6390B7-4D30-4721-8D73-95F6DFC2B4D0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7E6390B7-4D30-4721-8D73-95F6DFC2B4D0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7E6390B7-4D30-4721-8D73-95F6DFC2B4D0}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4C99E302-DB5C-4FC3-9D38-0A685CF76350}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4C99E302-DB5C-4FC3-9D38-0A685CF76350}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4C99E302-DB5C-4FC3-9D38-0A685CF76350}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4C99E302-DB5C-4FC3-9D38-0A685CF76350}.Release|Any CPU.Build.0 = Release|Any CPU
+		{38C52491-6892-45A7-B713-945D74901D74}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{38C52491-6892-45A7-B713-945D74901D74}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{38C52491-6892-45A7-B713-945D74901D74}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{38C52491-6892-45A7-B713-945D74901D74}.Release|Any CPU.Build.0 = Release|Any CPU
+		{43FEB240-9265-46BF-9DD5-62DC896D3AC3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{43FEB240-9265-46BF-9DD5-62DC896D3AC3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{43FEB240-9265-46BF-9DD5-62DC896D3AC3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{43FEB240-9265-46BF-9DD5-62DC896D3AC3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

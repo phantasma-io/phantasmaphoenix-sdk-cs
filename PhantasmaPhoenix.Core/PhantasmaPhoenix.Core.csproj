@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net6.0</TargetFrameworks>
+    <LangVersion>10.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>PhantasmaPhoenix.Core</RootNamespace>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)/../output/nupkgs</PackageOutputPath>
+    <Title>PhantasmaPhoenix.Core</Title>
+    <Description>Core types and utilities for Phantasma Phoenix SDK</Description>
+    <PackageTags>phantasma;blockchain;sdk;core;crypto</PackageTags>
+    <Authors>Phantasma Phoenix Team</Authors>
+    <Copyright>© 2025 Phantasma Phoenix Team</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://www.phantasma.info</PackageProjectUrl>
+    <PackageIcon>logo.png</PackageIcon>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/phantasma-io</RepositoryUrl>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="../logo.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+</Project>
