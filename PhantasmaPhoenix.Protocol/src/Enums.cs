@@ -133,3 +133,24 @@ public enum TokenFlags
 	Swappable = 1 << 7,
 	Burnable = 1 << 8,
 }
+
+public enum TypeAuction
+{
+    Fixed = 0,
+    Classic = 1,
+    Reserve = 2,
+    Dutch = 3,
+}
+
+public enum SaleEventKind
+{
+    Creation,
+    SoftCap,
+    HardCap,
+    AddedToWhitelist,
+    RemovedFromWhitelist,
+    Distribution,
+    Refund,
+    PriceChange,
+    Participation,
+}
