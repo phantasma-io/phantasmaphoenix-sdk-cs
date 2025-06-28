@@ -5,6 +5,8 @@ PhantasmaPhoenix.Cryptography/bin
 PhantasmaPhoenix.Cryptography/obj
 PhantasmaPhoenix.Cryptography.Legacy/bin
 PhantasmaPhoenix.Cryptography.Legacy/obj
+PhantasmaPhoenix.InteropChains.Legacy/bin
+PhantasmaPhoenix.InteropChains.Legacy/obj
 PhantasmaPhoenix.Protocol/bin
 PhantasmaPhoenix.Protocol/obj
 PhantasmaPhoenix.VM/bin

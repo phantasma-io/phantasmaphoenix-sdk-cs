@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.VM", "Phan
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.Cryptography.Legacy", "PhantasmaPhoenix.Cryptography.Legacy\PhantasmaPhoenix.Cryptography.Legacy.csproj", "{97712AD0-2079-443E-A815-1134FC0E4BBA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.InteropChains.Legacy", "PhantasmaPhoenix.InteropChains.Legacy\PhantasmaPhoenix.InteropChains.Legacy.csproj", "{368E6CD3-B960-47F0-BEA2-84CA30D944A4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -42,5 +44,9 @@ Global
 		{97712AD0-2079-443E-A815-1134FC0E4BBA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{97712AD0-2079-443E-A815-1134FC0E4BBA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{97712AD0-2079-443E-A815-1134FC0E4BBA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{368E6CD3-B960-47F0-BEA2-84CA30D944A4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{368E6CD3-B960-47F0-BEA2-84CA30D944A4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{368E6CD3-B960-47F0-BEA2-84CA30D944A4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{368E6CD3-B960-47F0-BEA2-84CA30D944A4}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

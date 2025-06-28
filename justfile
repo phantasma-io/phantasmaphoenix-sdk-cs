@@ -10,6 +10,7 @@ c:
     cd PhantasmaPhoenix.Core && just c
     cd PhantasmaPhoenix.Cryptography && just c
     cd PhantasmaPhoenix.Cryptography.Legacy && just c
+    cd PhantasmaPhoenix.InteropChains.Legacy && just c
     cd PhantasmaPhoenix.Protocol && just c
     cd PhantasmaPhoenix.VM && just c
 
@@ -29,6 +30,8 @@ p:
     dotnet publish PhantasmaPhoenix.Cryptography/PhantasmaPhoenix.Cryptography.csproj -c Release -f netstandard2.0 -o ./output/dlls/netstandard2.0
     dotnet publish PhantasmaPhoenix.Cryptography.Legacy/PhantasmaPhoenix.Cryptography.Legacy.csproj -c Release -f net6.0 -o ./output/dlls/net6.0
     dotnet publish PhantasmaPhoenix.Cryptography.Legacy/PhantasmaPhoenix.Cryptography.Legacy.csproj -c Release -f netstandard2.0 -o ./output/dlls/netstandard2.0
+    dotnet publish PhantasmaPhoenix.InteropChains.Legacy/PhantasmaPhoenix.InteropChains.Legacy.csproj -c Release -f net6.0 -o ./output/dlls/net6.0
+    dotnet publish PhantasmaPhoenix.InteropChains.Legacy/PhantasmaPhoenix.InteropChains.Legacy.csproj -c Release -f netstandard2.0 -o ./output/dlls/netstandard2.0
     dotnet publish PhantasmaPhoenix.Protocol/PhantasmaPhoenix.Protocol.csproj -c Release -f net6.0 -o ./output/dlls/net6.0
     dotnet publish PhantasmaPhoenix.Protocol/PhantasmaPhoenix.Protocol.csproj -c Release -f netstandard2.0 -o ./output/dlls/netstandard2.0
     dotnet publish PhantasmaPhoenix.VM/PhantasmaPhoenix.VM.csproj -c Release -f net6.0 -o ./output/dlls/net6.0
@@ -39,5 +42,6 @@ eols:
     cd PhantasmaPhoenix.Core && just eols
     cd PhantasmaPhoenix.Cryptography && just eols
     cd PhantasmaPhoenix.Cryptography.Legacy && just eols
+    cd PhantasmaPhoenix.InteropChains.Legacy && just eols
     cd PhantasmaPhoenix.Protocol && just eols
     cd PhantasmaPhoenix.VM && just eols

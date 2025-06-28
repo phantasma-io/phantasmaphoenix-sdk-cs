@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net6.0</TargetFrameworks>
+    <LangVersion>10.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>PhantasmaPhoenix.InteropChains.Legacy</RootNamespace>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)/../output/nupkgs</PackageOutputPath>
+    <Title>PhantasmaPhoenix.InteropChains.Legacy</Title>
+    <Description>Address generation and basic utilities for Neo2 and Ethereum chains, used for external wallet compatibility in the Phantasma Phoenix SDK. Deprecated, but still used in certain scenarios.</Description>
+    <PackageTags>phantasma;blockchain;sdk;core;crypto</PackageTags>
+    <Authors>Phantasma Phoenix Team</Authors>
+    <Copyright>© 2025 Phantasma Phoenix Team</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://www.phantasma.info</PackageProjectUrl>
+    <PackageIcon>logo.png</PackageIcon>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/phantasma-io</RepositoryUrl>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="../logo.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.NetCore" Version="2.2.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PhantasmaPhoenix.Cryptography\PhantasmaPhoenix.Cryptography.csproj" />
+    <xProjectReference Include="..\PhantasmaPhoenix.Core\PhantasmaPhoenix.Core.csproj" />
+  </ItemGroup>
+</Project>
