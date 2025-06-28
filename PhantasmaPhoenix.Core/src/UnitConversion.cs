@@ -26,8 +26,11 @@ public static class UnitConversion
 
 	public static string ToDecimalString(string amount, int tokenDecimals)
 	{
-		if (string.IsNullOrEmpty(amount) || amount == "0" || tokenDecimals == 0)
+		if (string.IsNullOrEmpty(amount) || amount == "0")
 			return "0";
+
+		if (tokenDecimals == 0)
+			return amount;
 
 		if (amount.Length <= tokenDecimals)
 		{
