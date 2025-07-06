@@ -1,4 +1,5 @@
 using PhantasmaPhoenix.Cryptography;
+using PhantasmaPhoenix.Protocol;
 
 namespace PhantasmaPhoenix.RPC.Models;
 
@@ -15,7 +16,7 @@ public class TransactionResult
 	public EventResult[] Events { get; set; }
 	public string Result { get; set; }
 	public string Fee { get; set; }
-	public string State { get; set; }
+	public ExecutionState State { get; set; }
 	public TransactionSignatureResult[]? Signatures { get; set; }
 	public string Sender { get; set; } = Address.Null.Text; // Initialized as in original Phantasma code.
 	public string GasPayer { get; set; }
