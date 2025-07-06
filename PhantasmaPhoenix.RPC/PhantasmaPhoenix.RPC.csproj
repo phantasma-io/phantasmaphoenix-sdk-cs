@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net6.0</TargetFrameworks>
+    <LangVersion>10.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>PhantasmaPhoenix.RPC</RootNamespace>
+    <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
+    <PackageOutputPath>$(MSBuildThisFileDirectory)/../output/nupkgs</PackageOutputPath>
+    <Title>PhantasmaPhoenix.RPC</Title>
+    <Description>Provides client-side types and helpers for interacting with the Phantasma Phoenix blockchain RPC and REST APIs</Description>
+    <PackageTags>phantasma;blockchain;sdk;core;crypto</PackageTags>
+    <Authors>Phantasma Phoenix Team</Authors>
+    <Copyright>© 2025 Phantasma Phoenix Team</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://www.phantasma.info</PackageProjectUrl>
+    <PackageIcon>logo.png</PackageIcon>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/phantasma-io</RepositoryUrl>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="../logo.png">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="7.3.2" />
+    <xProjectReference Include="..\PhantasmaPhoenix.Core\PhantasmaPhoenix.Core.csproj" />
+    <ProjectReference Include="..\PhantasmaPhoenix.Cryptography\PhantasmaPhoenix.Cryptography.csproj" />
+    <ProjectReference Include="..\PhantasmaPhoenix.Protocol\PhantasmaPhoenix.Protocol.csproj" />
+  </ItemGroup>
+</Project>

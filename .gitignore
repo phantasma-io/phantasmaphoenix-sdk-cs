@@ -10,5 +10,7 @@ PhantasmaPhoenix.InteropChains.Legacy/bin
 PhantasmaPhoenix.InteropChains.Legacy/obj
 PhantasmaPhoenix.Protocol/bin
 PhantasmaPhoenix.Protocol/obj
+PhantasmaPhoenix.RPC/bin
+PhantasmaPhoenix.RPC/obj
 PhantasmaPhoenix.VM/bin
 PhantasmaPhoenix.VM/obj
