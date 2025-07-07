@@ -41,4 +41,6 @@ public class TokenResult
 
 	// [ApiDescription("Cosmic swap historic data")]
 	// public TokenPriceResult[] price { get; set; }
+
+	public TokenResult() { }
 }

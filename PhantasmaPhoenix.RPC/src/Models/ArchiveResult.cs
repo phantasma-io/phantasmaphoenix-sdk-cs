@@ -27,4 +27,6 @@ public class ArchiveResult
 
 	[ApiDescription("List of addresses who own the file")]
 	public string[] Owners { get; set; }
+
+	public ArchiveResult() { }
 }

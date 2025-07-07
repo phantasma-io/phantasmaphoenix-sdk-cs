@@ -16,4 +16,6 @@ public class ScriptResult
 
 	[ApiDescription("List of oracle reads that were triggered in the transaction")]
 	public OracleResult[] Oracles { get; set; }
+
+	public ScriptResult() { }
 }

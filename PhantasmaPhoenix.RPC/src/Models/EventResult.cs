@@ -11,6 +11,8 @@ public class EventResult
 	public string Name { get; set; }
 	public string Data { get; set; }
 
+	public EventResult() { }
+
 	public EventResult(string address, string contract, string kind, string name, string data)
 	{
 		Address = address;

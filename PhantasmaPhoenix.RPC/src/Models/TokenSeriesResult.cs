@@ -21,4 +21,6 @@ public class TokenSeriesResult
 
 	[ApiDescription("List of methods")]
 	public ABIMethodResult[] Methods { get; set; }
+
+	public TokenSeriesResult() { }
 }

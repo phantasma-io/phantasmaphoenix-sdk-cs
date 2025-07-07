@@ -18,5 +18,7 @@ public class ContractResult
 
 	[ApiDescription("List of events")]
 	public ABIEventResult[] Events { get; set; }
+
+	public ContractResult() { }
 }
 

@@ -25,4 +25,6 @@ public class NexusResult
 
 	[ApiDescription("List of organizations")]
 	public string[] Organizations { get; set; }
+
+	public NexusResult() { }
 }

@@ -11,4 +11,6 @@ public class ABIMethodResult
 
 	[ApiDescription("Type of parameters")]
 	public ABIParameterResult[] Parameters { get; set; }
+
+	public ABIMethodResult() { }
 }

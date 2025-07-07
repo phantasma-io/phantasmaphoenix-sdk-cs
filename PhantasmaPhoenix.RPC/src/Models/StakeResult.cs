@@ -12,4 +12,6 @@ public class StakeResult
 
 	[ApiDescription("Amount of claimable KCAL")]
 	public string Unclaimed { get; set; }
+
+	public StakeResult() { }
 }

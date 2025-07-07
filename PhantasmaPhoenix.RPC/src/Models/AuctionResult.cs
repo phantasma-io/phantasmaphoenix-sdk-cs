@@ -23,4 +23,6 @@ public class AuctionResult
 	public string Ram { get; set; }
 	public string ListingFee { get; set; }
 	public string CurrentWinner { get; set; }
+
+	public AuctionResult() { }
 }

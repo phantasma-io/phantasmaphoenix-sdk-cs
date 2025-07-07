@@ -9,4 +9,6 @@ public class OracleResult
 
 	[ApiDescription("Byte array content read by the oracle, encoded as hex string")]
 	public string Content { get; set; }
+
+	public OracleResult() { }
 }

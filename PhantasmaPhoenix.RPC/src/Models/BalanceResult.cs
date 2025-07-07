@@ -7,4 +7,6 @@ public class BalanceResult
 	public string Symbol { get; set; }
 	public uint Decimals { get; set; }
 	public string[] Ids { get; set; }
+
+	public BalanceResult() { }
 }

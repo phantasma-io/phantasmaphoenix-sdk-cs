@@ -25,8 +25,5 @@ public class TransactionResult
 	public string GasLimit { get; set; }
 	public UInt64 Expiration { get; set; }
 
-	// TODO check later if still needed
-	public TransactionResult()
-	{
-	}
+	public TransactionResult() { }
 }

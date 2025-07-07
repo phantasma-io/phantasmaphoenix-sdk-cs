@@ -21,4 +21,6 @@ public class ChainResult
 
 	[ApiDescription("Dapps deployed in the chain")]
 	public string[] Dapps { get; set; }
+
+	public ChainResult() { }
 }

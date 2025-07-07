@@ -15,4 +15,6 @@ public class StorageResult
 
 	[ApiDescription("List of stored files")]
 	public ArchiveResult[] Archives { get; set; }
+
+	public StorageResult() { }
 }

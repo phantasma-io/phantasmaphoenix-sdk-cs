@@ -8,4 +8,6 @@ public class AccountTransactionsResult
 
 	[ApiDescription("List of transactions")]
 	public TransactionResult[] Txs { get; set; }
+
+	public AccountTransactionsResult() { }
 }

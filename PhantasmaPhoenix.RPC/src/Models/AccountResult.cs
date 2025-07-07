@@ -26,5 +26,7 @@ public class AccountResult
 
 	[Obsolete("The txs property is deprecated and will be removed in future versions.")]
 	public string[] Txs { get; set; }
+
+	public AccountResult() { }
 }
 

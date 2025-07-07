@@ -18,7 +18,7 @@
     <PackageIcon>logo.png</PackageIcon>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/phantasma-io</RepositoryUrl>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
   </PropertyGroup>
   <ItemGroup>
     <None Include="../logo.png">

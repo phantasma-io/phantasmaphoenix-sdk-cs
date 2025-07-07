@@ -34,4 +34,6 @@ public class TokenDataResult
 	public TokenPropertyResult[] Infusion { get; set; }
 
 	public TokenPropertyResult[] Properties { get; set; }
+
+	public TokenDataResult() { }
 }

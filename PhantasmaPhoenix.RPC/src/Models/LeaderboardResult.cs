@@ -4,4 +4,6 @@ public class LeaderboardResult
 {
 	public string Name { get; set; }
 	public LeaderboardRowResult[] Rows { get; set; }
+
+	public LeaderboardResult() { }
 }

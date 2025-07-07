@@ -33,4 +33,6 @@ public class BlockResult
 
 	[ApiDescription("Block oracles")]
 	public OracleResult[] Oracles { get; set; }
+
+	public BlockResult() { }
 }
