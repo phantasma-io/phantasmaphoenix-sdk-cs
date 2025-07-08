@@ -14,4 +14,6 @@ public class ABIEventResult
 
 	[ApiDescription("Description script (base16 encoded)")]
 	public string Description { get; set; }
+
+	public ABIEventResult() { }
 }

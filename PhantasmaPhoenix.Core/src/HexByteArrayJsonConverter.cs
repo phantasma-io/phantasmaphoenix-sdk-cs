@@ -4,6 +4,8 @@ namespace PhantasmaPhoenix.Core;
 
 public class HexByteArrayJsonConverter : JsonConverter<byte[]>
 {
+	public HexByteArrayJsonConverter() { }
+
 	public override void WriteJson(JsonWriter writer, byte[]? value, JsonSerializer serializer)
 	{
 		writer.WriteValue(BitConverter.ToString(value).Replace("-", "").ToLower());
