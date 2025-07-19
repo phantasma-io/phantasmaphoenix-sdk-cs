@@ -69,10 +69,16 @@ public struct WebSocketReceiveResult
 		this.Bytes = new byte[count];
 		this.CloseStatus = WebSocketCloseStatus.None;
 		this.CloseStatusDescription = null;
+
+		if (bytes.Array == null)
+		{
+			throw new InvalidOperationException("bytes.Array is null");
+		}
+
 		Buffer.BlockCopy(bytes.Array, bytes.Offset, this.Bytes, 0, count);
 	}
 
-	public WebSocketReceiveResult(int count, WebSocketMessageType messageType, bool endOfMessage, WebSocketCloseStatus closeStatus, string closeStatusDescription)
+	public WebSocketReceiveResult(int count, WebSocketMessageType messageType, bool endOfMessage, WebSocketCloseStatus closeStatus, string? closeStatusDescription)
 	{
 		this.Count = count;
 		this.MessageType = messageType;
@@ -86,12 +92,12 @@ public struct WebSocketReceiveResult
 	public WebSocketCloseStatus CloseStatus { get; }
 
 	//     Returns the optional description that describes why the close handshake has been initiated by the remote endpoint.
-	public string CloseStatusDescription { get; }
+	public string? CloseStatusDescription { get; }
 
 	//     Indicates the number of bytes that the WebSocket received.
 	public int Count { get; }
 
-	public byte[] Bytes { get; }
+	public byte[]? Bytes { get; }
 
 	//     Indicates whether the message has been received completely.
 	public bool EndOfMessage { get; }
@@ -106,18 +112,18 @@ public class WebSocket
 	private readonly Stream _stream;
 	private readonly bool _includeExceptionInCloseResponse;
 	private readonly bool _isClient;
-	private readonly string _subProtocol;
+	private readonly string? _subProtocol;
 	private WebSocketState _state;
 	private bool _isContinuationFrame;
 	private WebSocketMessageType _continuationFrameMessageType = WebSocketMessageType.Binary;
 	private readonly bool _usePerMessageDeflate = false;
 	const int MAX_PING_PONG_PAYLOAD_LEN = 125;
 	private WebSocketCloseStatus? _closeStatus;
-	private string _closeStatusDescription;
+	private string? _closeStatusDescription;
 
 	private ArraySegment<byte> _receiveBuffer = new ArraySegment<byte>(new byte[1024 * 64]);
 
-	public WebSocket(Func<MemoryStream> recycledStreamFactory, Stream stream, int keepAliveInterval, string secWebSocketExtensions, bool includeExceptionInCloseResponse, bool isClient, string subProtocol)
+	public WebSocket(Func<MemoryStream> recycledStreamFactory, Stream stream, int keepAliveInterval, string? secWebSocketExtensions, bool includeExceptionInCloseResponse, bool isClient, string? subProtocol)
 	{
 		_recycledStreamFactory = recycledStreamFactory;
 		_stream = stream;
@@ -145,11 +151,11 @@ public class WebSocket
 
 	public WebSocketCloseStatus? CloseStatus => _closeStatus;
 
-	public string CloseStatusDescription => _closeStatusDescription;
+	public string? CloseStatusDescription => _closeStatusDescription;
 
 	public WebSocketState State { get { return _state; } }
 
-	public string SubProtocol => _subProtocol;
+	public string? SubProtocol => _subProtocol;
 
 	public int KeepAliveInterval { get; private set; }
 
@@ -158,7 +164,7 @@ public class WebSocket
 	public bool IsOpen => State == WebSocketState.Open;
 
 	private int _pingCounter;
-	private byte[] _pingPayload;
+	private byte[]? _pingPayload;
 
 	public WebSocketReceiveResult Receive()
 	{
@@ -168,7 +174,7 @@ public class WebSocket
 			while (true)
 			{
 				// allow this operation to be cancelled from iniside OR outside this instance
-				WebSocketFrame frame = null;
+				WebSocketFrame? frame = null;
 				try
 				{
 					frame = WebSocketFrameReader.Read(_stream, _receiveBuffer);
@@ -206,12 +212,33 @@ public class WebSocket
 						return RespondToCloseFrame(frame, _receiveBuffer);
 
 					case WebSocketOpCode.Ping:
+						if (_receiveBuffer.Array == null)
+						{
+							throw new InvalidOperationException("_receiveBuffer.Array is null");
+						}
+
 						ArraySegment<byte> pingPayload = new ArraySegment<byte>(_receiveBuffer.Array, _receiveBuffer.Offset, frame.Count);
 						SendPong(pingPayload);
 						break;
 
 					case WebSocketOpCode.Pong:
+						if (_receiveBuffer.Array == null)
+						{
+							throw new InvalidOperationException("_receiveBuffer.Array is null");
+						}
+
 						ArraySegment<byte> pongBuffer = new ArraySegment<byte>(_receiveBuffer.Array, frame.Count, _receiveBuffer.Offset);
+
+						if (pongBuffer.Array == null)
+						{
+							throw new InvalidOperationException("pongBuffer.Array is null");
+						}
+
+						if (_pingPayload == null)
+						{
+							throw new InvalidOperationException("_pingPayload is null");
+						}
+
 						if (pongBuffer.Array.SequenceEqual(_pingPayload))
 						{
 
@@ -285,6 +312,12 @@ public class WebSocket
 				using (MemoryStream temp = new MemoryStream())
 				{
 					DeflateStream deflateStream = new DeflateStream(temp, CompressionMode.Compress);
+
+					if (buffer.Array == null)
+					{
+						throw new InvalidOperationException("buffer.Array is null");
+					}
+
 					deflateStream.Write(buffer.Array, buffer.Offset, buffer.Count);
 					deflateStream.Flush();
 					var compressedBuffer = new ArraySegment<byte>(temp.ToArray());
@@ -469,6 +502,11 @@ public class WebSocket
 			buffer = new ArraySegment<byte>(array, 0, array.Length);
 		}
 
+		if (buffer.Array == null)
+		{
+			throw new InvalidOperationException("buffer.Array is null");
+		}
+
 		return new ArraySegment<byte>(buffer.Array, buffer.Offset, (int)stream.Position);
 	}
 
@@ -476,6 +514,12 @@ public class WebSocket
 	private void WriteStreamToNetwork(MemoryStream stream)
 	{
 		ArraySegment<byte> buffer = GetBuffer(stream);
+
+		if (buffer.Array == null)
+		{
+			throw new InvalidOperationException("buffer.Array is null");
+		}
+
 		_stream.Write(buffer.Array, buffer.Offset, buffer.Count);
 	}
 

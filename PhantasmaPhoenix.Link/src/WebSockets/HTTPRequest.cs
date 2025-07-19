@@ -25,13 +25,13 @@ public class HTTPRequest
 	}
 
 	public Method method;
-	public string url;
-	public string path;
-	public string version;
+	public string? url;
+	public string? path;
+	public string? version;
 
-	public byte[] bytes;
+	public byte[]? bytes;
 
-	public string postBody;
+	public string? postBody;
 
 	public Dictionary<string, string> headers = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase);
 	public Dictionary<string, string> args = new Dictionary<string, string>();
@@ -41,7 +41,7 @@ public class HTTPRequest
 		return args != null && args.ContainsKey(name);
 	}
 
-	public string GetVariable(string name)
+	public string? GetVariable(string name)
 	{
 		if (HasVariable(name))
 		{

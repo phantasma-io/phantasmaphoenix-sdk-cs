@@ -16,6 +16,11 @@ internal class BinaryReaderWriter
 			throw new InternalBufferOverflowException($"Unable to read {length} bytes into buffer (offset: {buffer.Offset} size: {buffer.Count}). Use a larger read buffer");
 		}
 
+		if (buffer.Array == null)
+		{
+			throw new InvalidOperationException("buffer.Array is null");
+		}
+
 		int offset = 0;
 		do
 		{
@@ -35,6 +40,11 @@ internal class BinaryReaderWriter
 	{
 		ReadExactly(2, stream, buffer);
 
+		if (buffer.Array == null)
+		{
+			throw new InvalidOperationException("buffer.Array is null");
+		}
+
 		if (!isLittleEndian)
 		{
 			Array.Reverse(buffer.Array, buffer.Offset, 2); // big endian
@@ -47,6 +57,11 @@ internal class BinaryReaderWriter
 	{
 		ReadExactly(8, stream, buffer);
 
+		if (buffer.Array == null)
+		{
+			throw new InvalidOperationException("buffer.Array is null");
+		}
+
 		if (!isLittleEndian)
 		{
 			Array.Reverse(buffer.Array, buffer.Offset, 8); // big endian
@@ -58,6 +73,11 @@ internal class BinaryReaderWriter
 	public static long ReadLongExactly(Stream stream, bool isLittleEndian, ArraySegment<byte> buffer)
 	{
 		ReadExactly(8, stream, buffer);
+
+		if (buffer.Array == null)
+		{
+			throw new InvalidOperationException("buffer.Array is null");
+		}
 
 		if (!isLittleEndian)
 		{

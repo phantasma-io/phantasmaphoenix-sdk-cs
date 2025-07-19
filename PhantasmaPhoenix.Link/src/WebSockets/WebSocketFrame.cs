@@ -10,7 +10,7 @@ internal class WebSocketFrame
 
 	public WebSocketCloseStatus CloseStatus { get; private set; }
 
-	public string CloseStatusDescription { get; private set; }
+	public string? CloseStatusDescription { get; private set; }
 
 	public WebSocketFrame(bool isFinBitSet, WebSocketOpCode webSocketOpCode, int count)
 	{
@@ -21,7 +21,7 @@ internal class WebSocketFrame
 		CloseStatusDescription = null;
 	}
 
-	public WebSocketFrame(bool isFinBitSet, WebSocketOpCode webSocketOpCode, int count, WebSocketCloseStatus closeStatus, string closeStatusDescription) : this(isFinBitSet, webSocketOpCode, count)
+	public WebSocketFrame(bool isFinBitSet, WebSocketOpCode webSocketOpCode, int count, WebSocketCloseStatus closeStatus, string? closeStatusDescription) : this(isFinBitSet, webSocketOpCode, count)
 	{
 		CloseStatus = closeStatus;
 		CloseStatusDescription = closeStatusDescription;
@@ -46,11 +46,20 @@ internal static class WebSocketFrameExtensions
 			throw new Exception($"MaskKey key must be {MaskKeyLength} bytes");
 		}
 
-		byte[] buffer = payload.Array;
-		byte[] maskKeyArray = maskKey.Array;
+		byte[]? buffer = payload.Array;
+		byte[]? maskKeyArray = maskKey.Array;
 		int payloadOffset = payload.Offset;
 		int payloadCount = payload.Count;
 		int maskKeyOffset = maskKey.Offset;
+
+		if (buffer == null)
+		{
+			throw new InvalidOperationException("buffer is null");
+		}
+		if (maskKeyArray == null)
+		{
+			throw new InvalidOperationException("maskKeyArray is null");
+		}
 
 		// apply the mask key (this is a reversible process so no need to copy the payload)
 		// NOTE: this is a hot function

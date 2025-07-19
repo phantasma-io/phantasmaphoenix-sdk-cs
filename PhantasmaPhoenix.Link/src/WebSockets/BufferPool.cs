@@ -43,12 +43,12 @@ public class BufferPool
 
 		public override long Length => base.Length;
 
-		public override IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback callback, object state)
+		public override IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state)
 		{
 			return _ms.BeginRead(buffer, offset, count, callback, state);
 		}
 
-		public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback callback, object state)
+		public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state)
 		{
 			return _ms.BeginWrite(buffer, offset, count, callback, state);
 		}
@@ -154,11 +154,6 @@ public class BufferPool
 			return _ms.WriteAsync(buffer, offset, count);
 		}
 
-		public override object InitializeLifetimeService()
-		{
-			return _ms.InitializeLifetimeService();
-		}
-
 		public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
 		{
 			return _ms.ReadAsync(buffer, offset, count, cancellationToken);
@@ -213,7 +208,7 @@ public class BufferPool
 	/// </summary>
 	public MemoryStream GetBuffer()
 	{
-		if (!_bufferPoolStack.TryPop(out byte[] buffer))
+		if (!_bufferPoolStack.TryPop(out byte[]? buffer))
 		{
 			buffer = new byte[_bufferSize];
 		}

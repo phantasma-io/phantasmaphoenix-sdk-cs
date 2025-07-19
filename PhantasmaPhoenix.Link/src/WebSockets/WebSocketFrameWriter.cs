@@ -69,6 +69,11 @@ internal static class WebSocketFrameWriter
 			WebSocketFrameExtensions.ToggleMask(maskKeyArraySegment, fromPayload);
 		}
 
+		if (fromPayload.Array == null)
+		{
+			throw new InvalidOperationException("fromPayload.Array is null");
+		}
+
 		memoryStream.Write(fromPayload.Array, fromPayload.Offset, fromPayload.Count);
 	}
 }

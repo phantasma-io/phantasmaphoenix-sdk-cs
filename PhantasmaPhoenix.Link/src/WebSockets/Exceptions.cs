@@ -23,11 +23,11 @@ public class EntityTooLargeException : Exception
 
 public class InvalidHttpResponseCodeException : Exception
 {
-	public string ResponseCode { get; private set; }
+	public string? ResponseCode { get; private set; }
 
-	public string ResponseHeader { get; private set; }
+	public string? ResponseHeader { get; private set; }
 
-	public string ResponseDetails { get; private set; }
+	public string? ResponseDetails { get; private set; }
 
 	public InvalidHttpResponseCodeException() : base()
 	{

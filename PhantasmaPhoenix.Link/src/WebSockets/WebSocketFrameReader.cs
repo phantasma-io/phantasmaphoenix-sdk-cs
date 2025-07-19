@@ -21,6 +21,12 @@ internal static class WebSocketFrameReader
 		var smallBuffer = new ArraySegment<byte>(new byte[8]);
 
 		BinaryReaderWriter.ReadExactly(2, fromStream, smallBuffer);
+
+		if (smallBuffer.Array == null)
+		{
+			throw new InvalidOperationException("smallBuffer.Array is null");
+		}
+
 		byte byte1 = smallBuffer.Array[0];
 		byte byte2 = smallBuffer.Array[1];
 
@@ -44,6 +50,12 @@ internal static class WebSocketFrameReader
 				ArraySegment<byte> maskKey = new ArraySegment<byte>(smallBuffer.Array, 0, WebSocketFrameExtensions.MaskKeyLength);
 				BinaryReaderWriter.ReadExactly(maskKey.Count, fromStream, maskKey);
 				BinaryReaderWriter.ReadExactly(count, fromStream, intoBuffer);
+
+				if (intoBuffer.Array == null)
+				{
+					throw new InvalidOperationException("intoBuffer.Array is null");
+				}
+
 				ArraySegment<byte> payloadToMask = new ArraySegment<byte>(intoBuffer.Array, intoBuffer.Offset, count);
 				WebSocketFrameExtensions.ToggleMask(maskKey, payloadToMask);
 			}
@@ -74,10 +86,15 @@ internal static class WebSocketFrameReader
 	private static WebSocketFrame DecodeCloseFrame(bool isFinBitSet, WebSocketOpCode opCode, int count, ArraySegment<byte> buffer)
 	{
 		WebSocketCloseStatus closeStatus;
-		string closeStatusDescription;
+		string? closeStatusDescription;
 
 		if (count >= 2)
 		{
+			if (buffer.Array == null)
+			{
+				throw new InvalidOperationException("buffer.Array is null");
+			}
+
 			Array.Reverse(buffer.Array, buffer.Offset, 2); // network byte order
 			int closeStatusCode = (int)BitConverter.ToUInt16(buffer.Array, buffer.Offset);
 			if (Enum.IsDefined(typeof(WebSocketCloseStatus), closeStatusCode))

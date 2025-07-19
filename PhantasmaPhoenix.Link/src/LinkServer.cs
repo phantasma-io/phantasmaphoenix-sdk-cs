@@ -72,6 +72,11 @@ public class LinkServer
 
 				if (msg.CloseStatus == WebSocketCloseStatus.None)
 				{
+					if (msg.Bytes == null)
+					{
+						throw new InvalidOperationException("Received WebSocket message with null payload.");
+					}
+
 					var str = Encoding.UTF8.GetString(msg.Bytes);
 
 					OnUI?.Invoke(() =>
@@ -91,7 +96,7 @@ public class LinkServer
 							}
 							catch (Exception e)
 							{
-								// Log.WriteWarning("websocket send failure, while answering phantasma link request: " + str + "\nExcepion: " + e.Message);
+								System.Diagnostics.Debug.WriteLine("websocket send failure, while answering phantasma link request: " + str + "\nExcepion: " + e.Message);
 							}
 						});
 					});
@@ -105,7 +110,7 @@ public class LinkServer
 		}
 		catch (Exception e)
 		{
-			// Log.WriteWarning(e.ToString());
+			System.Diagnostics.Debug.WriteLine($"BeginAccept failed: {e.Message}");
 		}
 	}
 
@@ -146,14 +151,19 @@ public class LinkServer
 	{
 		// Log.Write("Incoming client connecting");
 
+		if (listener == null)
+		{
+			throw new InvalidOperationException("listener is null");
+		}
+
 		Socket client;
 		try
 		{
 			client = listener.EndAccept(result);
 		}
-		catch (System.Exception e)
+		catch (Exception e)
 		{
-			// Log.WriteWarning("Exception when accepting incoming connection: " + e);
+			System.Diagnostics.Debug.WriteLine("Exception when accepting incoming connection: " + e);
 			return;
 		}
 
@@ -161,9 +171,9 @@ public class LinkServer
 		{
 			listener.BeginAccept(new System.AsyncCallback(OnClientConnect), listener);
 		}
-		catch (System.Exception e)
+		catch (Exception e)
 		{
-			// Log.WriteWarning("Exception when starting new accept process: " + e);
+			System.Diagnostics.Debug.WriteLine("Exception when starting new accept process: " + e);
 		}
 
 		try
@@ -200,7 +210,7 @@ public class LinkServer
 							do
 							{
 								var lines = new List<string>();
-								HTTPRequest request = null;
+								HTTPRequest? request = null;
 
 								var line = new StringBuilder();
 								char prevChar;
@@ -291,8 +301,8 @@ public class LinkServer
 
 										if (isWebSocket)
 										{
-											Action<WebSocket> handler = null;
-											string targetProtocol = null;
+											Action<WebSocket>? handler = null;
+											string? targetProtocol = null;
 
 											var protocolHeader = "Sec-WebSocket-Protocol";
 
@@ -339,9 +349,15 @@ public class LinkServer
 												var bytes = Encoding.ASCII.GetBytes(sb.ToString());
 												writer.Write(bytes);
 
-												string secWebSocketExtensions = null;
+												string? secWebSocketExtensions = null;
 												var keepAliveInterval = 5000;
 												var includeExceptionInCloseResponse = true;
+
+												if (_bufferFactory == null)
+												{
+													throw new InvalidOperationException("_bufferFactory is null");
+												}
+
 												var webSocket = new WebSocket(_bufferFactory, stream, keepAliveInterval, secWebSocketExtensions, includeExceptionInCloseResponse, false, targetProtocol);
 												lock (_activeWebsockets)
 												{
@@ -385,7 +401,7 @@ public class LinkServer
 		}
 		catch (Exception e)
 		{
-			// Log.Write(e.ToString());
+			System.Diagnostics.Debug.WriteLine(e.ToString());
 		}
 		finally
 		{
