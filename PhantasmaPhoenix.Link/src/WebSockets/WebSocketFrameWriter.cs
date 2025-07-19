@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+
 namespace PhantasmaPhoenix.Link.WebSockets;
 
 // see http://tools.ietf.org/html/rfc6455 for specification
@@ -12,11 +14,11 @@ internal static class WebSocketFrameWriter
 	/// This is used for data masking so that web proxies don't cache the data
 	/// Therefore, there are no cryptographic concerns
 	/// </summary>
-	private static readonly Random _random;
+	private static readonly RandomNumberGenerator _random;
 
 	static WebSocketFrameWriter()
 	{
-		_random = new Random((int)DateTime.Now.Ticks);
+		_random = RandomNumberGenerator.Create();
 	}
 
 	/// <summary>
@@ -59,7 +61,7 @@ internal static class WebSocketFrameWriter
 		if (isClient)
 		{
 			byte[] maskKey = new byte[WebSocketFrameExtensions.MaskKeyLength];
-			_random.NextBytes(maskKey);
+			_random.GetBytes(maskKey);
 			memoryStream.Write(maskKey, 0, maskKey.Length);
 
 			// mask the payload
