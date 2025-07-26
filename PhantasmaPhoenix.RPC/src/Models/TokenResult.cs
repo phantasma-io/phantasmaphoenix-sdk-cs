@@ -1,3 +1,4 @@
+using PhantasmaPhoenix.Protocol;
 using PhantasmaPhoenix.RPC.Annotations;
 
 namespace PhantasmaPhoenix.RPC.Models;
@@ -43,4 +44,17 @@ public class TokenResult
 	// public TokenPriceResult[] price { get; set; }
 
 	public TokenResult() { }
+
+	public bool IsBurnable()
+	{
+		return Flags.Contains(TokenFlags.Burnable.ToString());
+	}
+	public bool IsFungible()
+	{
+		return Flags.Contains(TokenFlags.Fungible.ToString());
+	}
+	public bool IsTransferable()
+	{
+		return Flags.Contains(TokenFlags.Transferable.ToString());
+	}
 }
