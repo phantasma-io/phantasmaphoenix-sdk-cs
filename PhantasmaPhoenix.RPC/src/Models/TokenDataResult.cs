@@ -1,3 +1,4 @@
+using PhantasmaPhoenix.Protocol;
 using PhantasmaPhoenix.RPC.Annotations;
 
 namespace PhantasmaPhoenix.RPC.Models;
@@ -29,7 +30,7 @@ public class TokenDataResult
 	public string Rom { get; set; }
 
 	[ApiDescription("Status of nft")]
-	public string Status { get; set; }
+	public TokenStatus Status { get; set; }
 
 	public TokenPropertyResult[] Infusion { get; set; }
 
