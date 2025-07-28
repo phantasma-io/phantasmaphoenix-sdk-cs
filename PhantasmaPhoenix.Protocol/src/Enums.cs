@@ -134,12 +134,18 @@ public enum TokenFlags
 	Burnable = 1 << 8,
 }
 
+public enum TokenStatus
+{
+	Active,
+	Infused
+}
+
 public enum TypeAuction
 {
-    Fixed = 0,
-    Classic = 1,
-    Reserve = 2,
-    Dutch = 3,
+	Fixed = 0,
+	Classic = 1,
+	Reserve = 2,
+	Dutch = 3,
 }
 
 public enum SaleEventKind
