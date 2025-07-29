@@ -28,7 +28,6 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="7.3.2" />
-    <xProjectReference Include="..\PhantasmaPhoenix.Core\PhantasmaPhoenix.Core.csproj" />
     <ProjectReference Include="..\PhantasmaPhoenix.Cryptography\PhantasmaPhoenix.Cryptography.csproj" />
     <ProjectReference Include="..\PhantasmaPhoenix.Protocol\PhantasmaPhoenix.Protocol.csproj" />
   </ItemGroup>

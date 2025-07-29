@@ -27,7 +27,6 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <xProjectReference Include="..\PhantasmaPhoenix.Cryptography\PhantasmaPhoenix.Cryptography.csproj" />
     <ProjectReference Include="..\PhantasmaPhoenix.Protocol\PhantasmaPhoenix.Protocol.csproj" />
   </ItemGroup>
 </Project>
