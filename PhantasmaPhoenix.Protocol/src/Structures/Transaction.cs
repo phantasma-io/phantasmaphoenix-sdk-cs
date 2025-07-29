@@ -208,35 +208,13 @@ public sealed class Transaction : ITransaction, ISerializable
 		return hash;
 	}
 
-	public void Sign(IKeyPair keypair, Func<byte[], byte[], byte[], byte[]>? customSignFunction = null)
-	{
-		if (keypair == null)
-		{
-			throw new ChainException("Cannot sign with a null keypair");
-		}
-
-		var msg = this.ToByteArray(false);
-
-		Signature sig = keypair.Sign(msg, customSignFunction);
-
-		var sigs = new List<Signature>();
-
-		if (this.Signatures != null && this.Signatures.Length > 0)
-		{
-			sigs.AddRange(this.Signatures);
-		}
-
-		sigs.Add(sig);
-		this.Signatures = sigs.ToArray();
-	}
-
-	public Hash SignEx(IKeyPair keypair, Func<byte[], byte[], byte[], byte[]>? customSignFunction = null)
+	public Hash Sign(IKeyPair keypair, Func<byte[], byte[], byte[], byte[]>? customSignFunction = null)
 	{
 		Throw.If(keypair == null, "invalid keypair");
 
 		var msg = this.ToByteArray(false);
 
-		Signature sig = keypair.Sign(msg, customSignFunction);
+		Signature sig = keypair!.Sign(msg, customSignFunction);
 
 		var sigs = new List<Signature>();
 

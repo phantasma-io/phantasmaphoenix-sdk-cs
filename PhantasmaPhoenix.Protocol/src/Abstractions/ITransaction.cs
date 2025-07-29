@@ -21,7 +21,7 @@ public interface ITransaction
 
 	byte[] ToByteArray(bool withSignature);
 
-	void Sign(IKeyPair keypair, Func<byte[], byte[], byte[], byte[]>? customSignFunction = null);
+	Hash Sign(IKeyPair keypair, Func<byte[], byte[], byte[], byte[]>? customSignFunction = null);
 	void AddSignature(Signature signature);
 
 	Signature GetTransactionSignature(IKeyPair keypair,
