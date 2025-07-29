@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.RPC", "Pha
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.Link", "PhantasmaPhoenix.Link\PhantasmaPhoenix.Link.csproj", "{8D60D2B9-F42C-4A3C-BD0C-4C04909D75BA}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.NFT", "PhantasmaPhoenix.NFT\PhantasmaPhoenix.NFT.csproj", "{EC658218-295C-43F8-B9EB-C565E19B126C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -60,5 +62,9 @@ Global
 		{8D60D2B9-F42C-4A3C-BD0C-4C04909D75BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8D60D2B9-F42C-4A3C-BD0C-4C04909D75BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8D60D2B9-F42C-4A3C-BD0C-4C04909D75BA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EC658218-295C-43F8-B9EB-C565E19B126C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EC658218-295C-43F8-B9EB-C565E19B126C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EC658218-295C-43F8-B9EB-C565E19B126C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EC658218-295C-43F8-B9EB-C565E19B126C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
