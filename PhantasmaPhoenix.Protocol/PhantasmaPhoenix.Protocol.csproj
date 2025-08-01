@@ -9,7 +9,7 @@
     <GeneratePackageOnBuild>True</GeneratePackageOnBuild>
     <PackageOutputPath>$(MSBuildThisFileDirectory)/../output/nupkgs</PackageOutputPath>
     <Title>PhantasmaPhoenix.Protocol</Title>
-    <Description>Core types and utilities for Phantasma Phoenix SDK</Description>
+    <Description>Protocol types, enums, and constants for the Phantasma Phoenix SDK</Description>
     <PackageTags>phantasma;blockchain;sdk;core;crypto</PackageTags>
     <Authors>Phantasma Phoenix Team</Authors>
     <Copyright>© 2025 Phantasma Phoenix Team</Copyright>
@@ -18,7 +18,7 @@
     <PackageIcon>logo.png</PackageIcon>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/phantasma-io</RepositoryUrl>
-    <Version>0.1.4</Version>
+    <Version>0.1.5</Version>
   </PropertyGroup>
   <ItemGroup>
     <None Include="../logo.png">
