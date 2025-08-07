@@ -11,7 +11,7 @@ public class TokenResult
 	public string Name { get; set; }
 
 	[ApiDescription("Amount of decimals when converting from fixed point format to decimal format")]
-	public int Decimals { get; set; }
+	public uint Decimals { get; set; }
 
 	[ApiDescription("Amount of minted tokens")]
 	public string CurrentSupply { get; set; }

@@ -33,7 +33,7 @@ public abstract class WalletLink
 	{
 		public string symbol;
 		public string value;
-		public int decimals;
+		public uint decimals;
 		public string[] ids;
 	}
 
