@@ -8,10 +8,10 @@ public static class UnitConversion
 	private static readonly string s_NumberDecimalSeparator = ".";
 	private static readonly NumberFormatInfo s_NumberFormatInfo = new() { NumberDecimalSeparator = s_NumberDecimalSeparator };
 
-	private static BigInteger GetMultiplier(int units)
+	private static BigInteger GetMultiplier(uint units)
 	{
 #if NET7_0_OR_GREATER
-            return BigInteger.Pow(10, units);
+            return BigInteger.Pow(10, (int)units);
 #else
 		BigInteger unitMultiplier = 1;
 		while (units > 0)
@@ -24,7 +24,7 @@ public static class UnitConversion
 #endif
 	}
 
-	public static string ToDecimalString(string amount, int tokenDecimals)
+	public static string ToDecimalString(string amount, uint tokenDecimals)
 	{
 		if (string.IsNullOrEmpty(amount) || amount == "0")
 			return "0";
@@ -34,26 +34,26 @@ public static class UnitConversion
 
 		if (amount.Length <= tokenDecimals)
 		{
-			var fraction = amount.PadLeft(tokenDecimals, '0').TrimEnd('0');
+			var fraction = amount.PadLeft((int)tokenDecimals, '0').TrimEnd('0');
 			return "0" + s_NumberDecimalSeparator + (fraction.Length > 0 ? fraction : "0");
 		}
 
-		var whole = amount.Substring(0, amount.Length - tokenDecimals);
-		var fractionPart = amount.Substring(amount.Length - tokenDecimals).TrimEnd('0');
+		var whole = amount.Substring(0, amount.Length - (int)tokenDecimals);
+		var fractionPart = amount.Substring(amount.Length - (int)tokenDecimals).TrimEnd('0');
 		return whole + (fractionPart.Length > 0 ? s_NumberDecimalSeparator + fractionPart : "");
 	}
 
-	public static decimal ToDecimal(string amount, int tokenDecimals)
+	public static decimal ToDecimal(string amount, uint tokenDecimals)
 	{
 		return decimal.Parse(ToDecimalString(amount, tokenDecimals), s_NumberFormatInfo);
 	}
 
-	public static decimal ToDecimal(BigInteger value, int tokenDecimals)
+	public static decimal ToDecimal(BigInteger value, uint tokenDecimals)
 	{
 		return ToDecimal(value.ToString(), tokenDecimals);
 	}
 
-	public static BigInteger ToBigInteger(decimal n, int units)
+	public static BigInteger ToBigInteger(decimal n, uint units)
 	{
 		var multiplier = GetMultiplier(units);
 		var A = new BigInteger((long)n);
@@ -71,7 +71,7 @@ public static class UnitConversion
 		return A * B + C;
 	}
 
-	public static BigInteger ConvertDecimals(BigInteger value, int decimalFrom, int decimalTo)
+	public static BigInteger ConvertDecimals(BigInteger value, uint decimalFrom, uint decimalTo)
 	{
 		if (decimalFrom == decimalTo)
 		{
@@ -86,7 +86,7 @@ public static class UnitConversion
 		return value * toFactor / fromFactor;
 	}
 
-	public static BigInteger GetUnitValue(int decimals)
+	public static BigInteger GetUnitValue(uint decimals)
 	{
 		return ToBigInteger(1, decimals);
 	}
