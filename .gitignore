@@ -1,5 +1,7 @@
 .env
 output
+Examples/bin
+Examples/obj
 PhantasmaPhoenix.Core/bin
 PhantasmaPhoenix.Core/obj
 PhantasmaPhoenix.Cryptography/bin

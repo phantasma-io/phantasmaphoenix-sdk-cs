@@ -24,6 +24,11 @@ c:
 b:
     dotnet build
 
+# Run examples
+[group('run')]
+e:
+    just b && cd Examples/bin/Debug/net9.0 && ./Examples
+
 # Build packages
 [group('publish')]
 p:

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- SDK project references -->
+    <ProjectReference Include="..\PhantasmaPhoenix.Core\PhantasmaPhoenix.Core.csproj" />
+    <ProjectReference Include="..\PhantasmaPhoenix.Cryptography\PhantasmaPhoenix.Cryptography.csproj" />
+    <ProjectReference Include="..\PhantasmaPhoenix.Protocol\PhantasmaPhoenix.Protocol.csproj" />
+    <ProjectReference Include="..\PhantasmaPhoenix.RPC\PhantasmaPhoenix.RPC.csproj" />
+    <ProjectReference Include="..\PhantasmaPhoenix.VM\PhantasmaPhoenix.VM.csproj" />
+    <ProjectReference Include="..\PhantasmaPhoenix.NFT\PhantasmaPhoenix.NFT.csproj" />
+  </ItemGroup>
+</Project>
