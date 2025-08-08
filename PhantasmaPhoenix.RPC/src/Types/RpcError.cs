@@ -22,6 +22,10 @@ public class RpcError
 		Message = rpcErrorDescription.Message + additionalErrorInfo;
 	}
 
+	public RpcError()
+	{
+	}
+
 	public int Code { get; set; }
 	public string Message { get; set; }
 }

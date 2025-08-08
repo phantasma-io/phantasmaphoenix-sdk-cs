@@ -16,4 +16,8 @@ public class RpcResponse
 		Result = result;
 		Error = error;
 	}
+
+	public RpcResponse()
+	{
+	}
 }
