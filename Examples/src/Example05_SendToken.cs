@@ -65,7 +65,7 @@ public static class Example05_SendToken
 			throw new Exception($"Could not build transaction script: {e.Message}");
 		}
 
-        // Signing transaction with private key and sending it to the chain
+		// Signing transaction with private key and sending it to the chain
 		var txHash = await api.SignAndSendTransactionAsync(keys, nexus, script, chain, "example5-tx-payload");
 		if (!string.IsNullOrEmpty(txHash))
 		{

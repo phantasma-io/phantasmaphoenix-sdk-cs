@@ -89,7 +89,7 @@ public static class Example06_CheckTransactionState
 				Console.WriteLine($"Error querying tx: {ex.Message}");
 			}
 
-            // If still running (or DebugComment is unavailable), wait 1 second before checking again
+			// If still running (or DebugComment is unavailable), wait 1 second before checking again
 			if (!done)
 			{
 				// Stop retrying if status check exceeded max allowed attempts
