@@ -52,7 +52,7 @@ public class PhantasmaAPI : IDisposable
 	#region Account
 
 	/// <summary>
-	/// Gets account info including balances for the specified address
+	/// Gets account information, including balances, for the specified address
 	/// </summary>
 	/// <param name="address">Account address</param>
 	/// <returns>Account data or null if not found</returns>
@@ -60,7 +60,7 @@ public class PhantasmaAPI : IDisposable
 		_rpc.SendRpcAsync<AccountResult>(Host, "getAccount", address);
 
 	/// <summary>
-	/// Gets account info for multiple addresses
+	/// Gets account information for multiple addresses
 	/// </summary>
 	/// <param name="addresses">Array of account addresses</param>
 	/// <returns>Array of account results or null</returns>
@@ -80,7 +80,7 @@ public class PhantasmaAPI : IDisposable
 	#region Auction
 
 	/// <summary>
-	/// Gets the number of auctions for a symbol in the specified chain
+	/// Gets the number of auctions currently available in the market contract for a given token
 	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="chainAddressOrName">Chain address or name</param>
@@ -93,7 +93,7 @@ public class PhantasmaAPI : IDisposable
 	}
 
 	/// <summary>
-	/// Gets auctions with pagination
+	/// Gets all auctions currently available in the market contract for a given token, with pagination
 	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="chainAddressOrName">Chain address or name</param>
@@ -110,7 +110,7 @@ public class PhantasmaAPI : IDisposable
 	}
 
 	/// <summary>
-	/// Gets a single auction by symbol and id
+	/// Gets a single auction by symbol and auction id
 	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="chainAddressOrName">Chain address or name</param>
@@ -172,7 +172,7 @@ public class PhantasmaAPI : IDisposable
 		_rpc.SendRpcAsync<BlockResult>(Host, "getLatestBlock", chain);
 
 	/// <summary>
-	/// Gets a transaction by block hash and index
+	/// Gets a transaction by block hash and transaction index
 	/// </summary>
 	/// <param name="blockHash">Block hash</param>
 	/// <param name="index">Transaction index within the block</param>
@@ -185,7 +185,7 @@ public class PhantasmaAPI : IDisposable
 	#region Chain
 
 	/// <summary>
-	/// Gets all chains available in the nexus
+	/// Gets an array of all chains deployed on Phantasma
 	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <returns>Array of chains or null</returns>
@@ -206,7 +206,7 @@ public class PhantasmaAPI : IDisposable
 		_rpc.SendRpcAsync<ContractResult>(Host, "getContract", PhantasmaPhoenix.Protocol.DomainSettings.RootChainName, contractName);
 
 	/// <summary>
-	/// Gets all contracts from the main chain
+	/// Gets all contracts deployed on the main chain
 	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <returns>Array of contracts or null</returns>
@@ -231,7 +231,7 @@ public class PhantasmaAPI : IDisposable
 	#region Nexus
 
 	/// <summary>
-	/// Gets nexus metadata
+	/// Gets nexus metadata including an array of all chains deployed on Phantasma
 	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <returns>Nexus data or null</returns>
@@ -261,7 +261,7 @@ public class PhantasmaAPI : IDisposable
 		_rpc.SendRpcAsync<OrganizationResult>(Host, "getOrganizationByName", name);
 
 	/// <summary>
-	/// Gets all organizations
+	/// Gets all organizations deployed on Phantasma
 	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <returns>Array of organizations or null</returns>
@@ -281,14 +281,14 @@ public class PhantasmaAPI : IDisposable
 		_rpc.SendRpcAsync<TokenResult>(Host, "getToken", symbol);
 
 	/// <summary>
-	/// Gets all tokens
+	/// Gets an array of all tokens deployed on Phantasma
 	/// </summary>
 	/// <returns>Array of token metadata or null</returns>
 	public Task<TokenResult[]?> GetTokensAsync() =>
 		_rpc.SendRpcAsync<TokenResult[]>(Host, "getTokens");
 
 	/// <summary>
-	/// Gets token balance for an address on a chain
+	/// Gets the token balance for a given address and token symbol
 	/// </summary>
 	/// <param name="address">Account address</param>
 	/// <param name="symbol">Token symbol</param>
@@ -360,7 +360,7 @@ public class PhantasmaAPI : IDisposable
 	}
 
 	/// <summary>
-	/// Gets a transaction by its hash
+	/// Gets a transaction by its hash if available
 	/// </summary>
 	/// <param name="txHash">Transaction hash</param>
 	/// <returns>Transaction data or null</returns>
@@ -368,7 +368,7 @@ public class PhantasmaAPI : IDisposable
 		_rpc.SendRpcAsync<TransactionResult>(Host, "getTransaction", txHash);
 
 	/// <summary>
-	/// Broadcasts a raw transaction in hex encoding
+	/// Broadcasts a transaction in hexadecimal encoding
 	/// </summary>
 	/// <param name="txData">Hex encoded transaction bytes</param>
 	/// <returns>Transaction hash text or null</returns>
@@ -376,7 +376,7 @@ public class PhantasmaAPI : IDisposable
 		_rpc.SendRpcAsync<string>(Host, "sendRawTransaction", txData);
 
 	/// <summary>
-	/// Invokes a raw VM script on a chain and returns its result
+	/// Invokes a VM script without state changes and returns its result
 	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="chain">Chain name</param>
@@ -479,7 +479,7 @@ public class PhantasmaAPI : IDisposable
 	#region Validation helpers
 
 	/// <summary>
-	/// Validates a WIF private key string
+	/// Validates a WIF-formatted private key string
 	/// </summary>
 	/// <param name="key">WIF string</param>
 	/// <returns>True if the key format looks valid</returns>
@@ -491,7 +491,7 @@ public class PhantasmaAPI : IDisposable
 	}
 
 	/// <summary>
-	/// Validates a Phantasma address string
+	/// Validates the format of a Phantasma address string
 	/// </summary>
 	/// <param name="address">Address text</param>
 	/// <returns>True if the address format looks valid</returns>
