@@ -81,6 +81,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets the number of auctions for a symbol in the specified chain
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="chainAddressOrName">Chain address or name</param>
 	/// <param name="symbol">Token symbol</param>
@@ -93,6 +94,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets auctions with pagination
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="chainAddressOrName">Chain address or name</param>
 	/// <param name="symbol">Token symbol</param>
@@ -109,6 +111,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets a single auction by symbol and id
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="chainAddressOrName">Chain address or name</param>
 	/// <param name="symbol">Token symbol</param>
@@ -183,6 +186,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets all chains available in the nexus
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <returns>Array of chains or null</returns>
 	public Task<ChainResult[]?> GetChainsAsync() =>
@@ -194,6 +198,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets contract metadata by name from the main chain
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="contractName">Contract name</param>
 	/// <returns>Contract data or null</returns>
@@ -202,6 +207,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets all contracts from the main chain
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <returns>Array of contracts or null</returns>
 	public Task<ContractResult[]?> GetContractsAsync() =>
@@ -213,6 +219,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets a leaderboard by name
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="name">Leaderboard name</param>
 	/// <returns>Leaderboard data or null</returns>
@@ -225,6 +232,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets nexus metadata
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <returns>Nexus data or null</returns>
 	public Task<NexusResult?> GetNexusAsync() =>
@@ -236,6 +244,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets organization data by id
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="id">Organization id</param>
 	/// <returns>Organization data or null</returns>
@@ -244,6 +253,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets organization data by name
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="name">Organization name</param>
 	/// <returns>Organization data or null</returns>
@@ -252,6 +262,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets all organizations
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <returns>Array of organizations or null</returns>
 	public Task<OrganizationResult[]?> GetOrganizationsAsync() =>
@@ -288,6 +299,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets token data for a specific token id
+	/// <para><b>⚠️ This functionality is only partially implemented - some features may be missing or incomplete. See the roadmap for planned updates: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="symbol">Token symbol</param>
 	/// <param name="tokenId">Token id</param>
@@ -297,6 +309,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets NFT data and optionally loads properties
+	/// <para><b>⚠️ This functionality is only partially implemented - some features may be missing or incomplete. See the roadmap for planned updates: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="symbol">NFT symbol</param>
 	/// <param name="tokenId">Token id</param>
@@ -307,6 +320,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets NFT data for multiple token ids
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="symbol">NFT symbol</param>
 	/// <param name="tokenIds">Array of token ids</param>
@@ -363,6 +377,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Invokes a raw VM script on a chain and returns its result
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="chain">Chain name</param>
 	/// <param name="scriptData">Hex encoded script bytes</param>
@@ -427,6 +442,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets archive metadata by its hash
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="hash">Archive hash</param>
 	/// <returns>Archive data or null</returns>
@@ -435,6 +451,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Writes a single archive block
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="hash">Archive hash</param>
 	/// <param name="blockIndex">Block index</param>
@@ -449,6 +466,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Reads a single archive block as a base64 string
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="hash">Archive hash</param>
 	/// <param name="blockIndex">Block index</param>
