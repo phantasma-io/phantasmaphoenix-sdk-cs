@@ -1,8 +1,8 @@
-using PhantasmaPhoenix.Cryptography;
-using PhantasmaPhoenix.RPC;
-using PhantasmaPhoenix.Protocol;
-using PhantasmaPhoenix.VM;
 using PhantasmaPhoenix.Core;
+using PhantasmaPhoenix.Cryptography;
+using PhantasmaPhoenix.Protocol;
+using PhantasmaPhoenix.RPC;
+using PhantasmaPhoenix.VM;
 
 // Demonstrates how to unstake SOUL tokens
 public static class Example08_UnstakeSoul

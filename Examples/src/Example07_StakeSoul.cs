@@ -1,8 +1,8 @@
-using PhantasmaPhoenix.Cryptography;
-using PhantasmaPhoenix.RPC;
-using PhantasmaPhoenix.Protocol;
-using PhantasmaPhoenix.VM;
 using PhantasmaPhoenix.Core;
+using PhantasmaPhoenix.Cryptography;
+using PhantasmaPhoenix.Protocol;
+using PhantasmaPhoenix.RPC;
+using PhantasmaPhoenix.VM;
 
 // Demonstrates how to stake SOUL tokens
 public static class Example07_StakeSoul

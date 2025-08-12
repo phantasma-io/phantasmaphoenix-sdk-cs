@@ -1,6 +1,6 @@
 using Newtonsoft.Json;
-using PhantasmaPhoenix.RPC;
 using PhantasmaPhoenix.Core;
+using PhantasmaPhoenix.RPC;
 
 // Demonstrates how to query specific token balance for a given address
 public static class Example04_GetAddressTokenBalance

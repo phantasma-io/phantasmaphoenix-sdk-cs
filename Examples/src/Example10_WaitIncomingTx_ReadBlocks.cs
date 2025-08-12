@@ -1,7 +1,7 @@
-using PhantasmaPhoenix.RPC;
-using PhantasmaPhoenix.Protocol;
 using PhantasmaPhoenix.Core;
 using PhantasmaPhoenix.Cryptography;
+using PhantasmaPhoenix.Protocol;
+using PhantasmaPhoenix.RPC;
 
 // Reliable monitoring of incoming transactions by scanning blocks sequentially by height
 public static class Example10_WaitIncomingTx_ReadBlocks

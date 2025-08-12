@@ -1,5 +1,5 @@
-using PhantasmaPhoenix.RPC;
 using PhantasmaPhoenix.Protocol;
+using PhantasmaPhoenix.RPC;
 
 // Demonstrates how to check the status of a transaction until completion
 public static class Example06_CheckTransactionState
