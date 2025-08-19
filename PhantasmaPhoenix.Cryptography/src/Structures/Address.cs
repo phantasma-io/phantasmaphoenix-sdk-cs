@@ -51,8 +51,6 @@ public struct Address : ISerializable, IComparable<Address>
 
 	private string _text;
 
-	private static Dictionary<byte[], string> _keyToTextCache = new Dictionary<byte[], string>(new ByteArrayComparer());
-
 	public string Text
 	{
 		get
@@ -64,14 +62,6 @@ public struct Address : ISerializable, IComparable<Address>
 
 			if (string.IsNullOrEmpty(_text))
 			{
-				lock (_keyToTextCache)
-				{
-					if (_keyToTextCache.ContainsKey(_bytes))
-					{
-						_text = _keyToTextCache[_bytes];
-					}
-				}
-
 				if (string.IsNullOrEmpty(_text))
 				{
 					char prefix;
@@ -84,10 +74,6 @@ public struct Address : ISerializable, IComparable<Address>
 					}
 
 					_text = prefix + Base58.Encode(_bytes);
-					lock (_keyToTextCache)
-					{
-						_keyToTextCache[_bytes] = _text;
-					}
 				}
 			}
 
