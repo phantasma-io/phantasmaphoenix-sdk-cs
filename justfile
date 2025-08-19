@@ -16,6 +16,7 @@ c:
     cd PhantasmaPhoenix.Link && just c
     cd PhantasmaPhoenix.NFT && just c
     cd PhantasmaPhoenix.Protocol && just c
+    cd PhantasmaPhoenix.Protocol.Carbon && just c
     cd PhantasmaPhoenix.RPC && just c
     cd PhantasmaPhoenix.VM && just c
 
@@ -48,6 +49,8 @@ p:
     dotnet publish PhantasmaPhoenix.NFT/PhantasmaPhoenix.NFT.csproj -c Release -f netstandard2.0 -o ./output/dlls/netstandard2.0
     dotnet publish PhantasmaPhoenix.Protocol/PhantasmaPhoenix.Protocol.csproj -c Release -f net6.0 -o ./output/dlls/net6.0
     dotnet publish PhantasmaPhoenix.Protocol/PhantasmaPhoenix.Protocol.csproj -c Release -f netstandard2.0 -o ./output/dlls/netstandard2.0
+    dotnet publish PhantasmaPhoenix.Protocol.Carbon/PhantasmaPhoenix.Protocol.Carbon.csproj -c Release -f net6.0 -o ./output/dlls/net6.0
+    dotnet publish PhantasmaPhoenix.Protocol.Carbon/PhantasmaPhoenix.Protocol.Carbon.csproj -c Release -f netstandard2.0 -o ./output/dlls/netstandard2.0
     dotnet publish PhantasmaPhoenix.RPC/PhantasmaPhoenix.RPC.csproj -c Release -f net6.0 -o ./output/dlls/net6.0
     dotnet publish PhantasmaPhoenix.RPC/PhantasmaPhoenix.RPC.csproj -c Release -f netstandard2.0 -o ./output/dlls/netstandard2.0
     dotnet publish PhantasmaPhoenix.VM/PhantasmaPhoenix.VM.csproj -c Release -f net6.0 -o ./output/dlls/net6.0
@@ -66,5 +69,6 @@ eols:
     cd PhantasmaPhoenix.Link && just eols
     cd PhantasmaPhoenix.NFT && just eols
     cd PhantasmaPhoenix.Protocol && just eols
+    cd PhantasmaPhoenix.Protocol.Carbon && just eols
     cd PhantasmaPhoenix.RPC && just eols
     cd PhantasmaPhoenix.VM && just eols

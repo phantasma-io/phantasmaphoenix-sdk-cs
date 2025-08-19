@@ -1,0 +1,12 @@
+[private]
+just:
+    just -l
+
+# Clean
+[group('build')]
+c:
+    rm -r --force bin obj
+
+[group('maintenance')]
+eols:
+    cd src && find ./ -name "*.cs" -exec dos2unix --keepdate --keep-bom {} +
