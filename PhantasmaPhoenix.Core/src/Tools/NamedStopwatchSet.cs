@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using Microsoft.Extensions.Logging;
 
 namespace PhantasmaPhoenix.Core.Tools;
 
@@ -13,7 +12,7 @@ public sealed class NamedStopwatchSet
 	private uint _reportMinElapsedLimitInMilliseconds = 0;
 	private DateTime _lastReported;
 	public long ElapsedMilliseconds => _totalStopwatch?.ElapsedMilliseconds ?? 0;
-	public NamedStopwatchSet(bool enabled = true, bool startTotal = true)
+	public NamedStopwatchSet(bool enabled, bool startTotal = true)
 	{
 		_enabled = enabled;
 		_stopwatches = new();
@@ -122,22 +121,24 @@ public sealed class NamedStopwatchSet
 		return _totalStopwatch != null ? NamedStopwatch.StopwatchesToString(_stopwatches, _totalStopwatch) : "";
 	}
 
-	public void Report(string messagePrefix, ILogger logger)
+	public string? GetReportIfReady(string messagePrefix)
 	{
 		if (!_enabled)
 		{
-			return;
+			return null;
 		}
 		if (_reportFrequencyLimitInSeconds > 0 && (DateTime.Now - _lastReported).TotalSeconds < _reportFrequencyLimitInSeconds)
 		{
-			return;
+			return null;
 		}
 		if (_reportMinElapsedLimitInMilliseconds > 0 && ElapsedMilliseconds < _reportMinElapsedLimitInMilliseconds)
 		{
-			return;
+			return null;
 		}
 
-		logger.LogInformation(messagePrefix + " Elapsed times:" + ToString());
+		var result = messagePrefix + " Elapsed times:" + ToString();
 		_lastReported = DateTime.Now;
+
+		return result;
 	}
 }
