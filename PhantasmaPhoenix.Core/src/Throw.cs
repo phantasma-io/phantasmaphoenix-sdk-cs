@@ -245,4 +245,13 @@ public static class Throw
 
 		return ex;
 	}
+
+	public static void Assert(
+#if NET6_0_OR_GREATER
+		[DoesNotReturnIf(false)]
+#endif
+		bool condition, string message="assertion failure")
+	{
+		Throw.If(!condition, message);
+	}
 }
