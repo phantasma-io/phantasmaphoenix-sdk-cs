@@ -68,7 +68,8 @@ public enum EventKind
 	ExecutionFailure = 63,
 	Custom = 64,
 	Custom_V2 = 65,
-	GovernanceSetGasEvent = 66
+	GovernanceSetGasConfig = 66,
+	GovernanceSetChainConfig = 67
 }
 
 public enum ExecutionState
