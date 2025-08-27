@@ -104,6 +104,7 @@ class Program
 							await Example10_WaitIncomingTx_ReadBlocks.Run(api, address, Chain, cts.Token);
 							break;
 						}
+					case 11: await Example11_SeedPhrase.Run(); break;
 					default:
 						Console.WriteLine("Unknown choice");
 						break;
@@ -159,6 +160,7 @@ class Program
 		Console.WriteLine("  8  = UnstakeSoul");
 		Console.WriteLine("  9  = ClaimKcal");
 		Console.WriteLine("  10 = WaitIncomingTx (scan blocks)");
+		Console.WriteLine("  11  = SeedPhrase");
 		Console.WriteLine("  0  = Exit");
 	}
 }
