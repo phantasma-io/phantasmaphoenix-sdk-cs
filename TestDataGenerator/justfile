@@ -1,0 +1,21 @@
+[private]
+just:
+    just -l
+
+# Build
+[group('build')]
+b:
+    dotnet build
+
+# Clean
+[group('build')]
+c:
+    rm -r --force bin obj
+
+[group('run')]
+r:
+    dotnet run -- ./carbon_vectors.tsv
+
+[group('maintenance')]
+eols:
+    cd src && find ./ -name "*.cs" -exec dos2unix --keepdate --keep-bom {} +
