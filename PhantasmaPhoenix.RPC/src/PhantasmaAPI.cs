@@ -376,6 +376,14 @@ public class PhantasmaAPI : IDisposable
 		_rpc.SendRpcAsync<string>(Host, "sendRawTransaction", txData);
 
 	/// <summary>
+	/// Broadcasts a carbon transaction in hexadecimal encoding
+	/// </summary>
+	/// <param name="txData">Hex encoded carbon transaction bytes</param>
+	/// <returns>Transaction hash text or null</returns>
+	public Task<string?> SendCarbonTransactionAsync(string txData) =>
+		_rpc.SendRpcAsync<string>(Host, "sendCarbonTransaction", txData);
+
+	/// <summary>
 	/// Invokes a VM script without state changes and returns its result
 	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
