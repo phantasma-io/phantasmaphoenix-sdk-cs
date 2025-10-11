@@ -1,14 +1,12 @@
 #!/usr/bin/env sh
+set -eu
 
-# Load .env file
-if [ -f ".env" ]; then
-  export $(grep -v '^#' .env | xargs)
-fi
+[ -f ".env" ] && export $(grep -v '^#' .env | xargs || true)
+: "${NUGET_API_KEY:?Missing NUGET_API_KEY in .env or environment}"
 
-if [ -z "$NUGET_API_KEY" ]; then
-  echo "Missing NUGET_API_KEY in .env or environment"
-  exit 1
-fi
+just c
+
+just p
 
 for pkg in ./output/nupkgs/*.nupkg; do
   echo "Publishing $pkg..."
@@ -17,11 +15,6 @@ for pkg in ./output/nupkgs/*.nupkg; do
     --source "https://api.nuget.org/v3/index.json" \
     --skip-duplicate \
     --no-symbols
-
-  if [ $? -ne 0 ]; then
-    echo "Failed to publish $pkg"
-    exit 1
-  fi
 done
 
-echo "All packages published successfully."
+echo "Done"
