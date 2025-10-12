@@ -160,6 +160,15 @@ class Program
 		var tx2 = TxGenerators.Tx2Gen();
 		Emit("TX2", tx2, tx2);
 
+		var txCreateToken = TxGenerators.TxCreateToken();
+		Emit("TX-CREATE-TOKEN", txCreateToken, txCreateToken);
+
+		var txCreateTokenSeries = TxGenerators.TxCreateTokenSeries();
+		Emit("TX-CREATE-TOKEN-SERIES", txCreateTokenSeries, txCreateTokenSeries);
+
+		var txMintNonFungible = TxGenerators.TxMintNonFungible();
+		Emit("TX-MINT-NON-FUNGIBLE", txMintNonFungible, txMintNonFungible);
+
 		TestGeneratorHelpers.Uninit();
 	}
 }
