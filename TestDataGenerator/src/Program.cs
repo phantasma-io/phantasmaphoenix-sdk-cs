@@ -143,6 +143,25 @@ class Program
 		bi = (BigInteger.One << 256) - 1; // will clamp to 32 bytes and read as -1
 		Big("BI", bi.ToString(), bi);
 
+		foreach (var intx in IntXGenerators.IntXGen())
+		{
+			if (Int64.TryParse(intx, out long result))
+			{
+				IntXEmit("INTX", intx, new IntX(result));
+			}
+			else
+			{
+				if (BigInteger.TryParse(intx, out BigInteger resultBI))
+				{
+					IntXEmit("INTX", intx, new IntX(resultBI));
+				}
+				else
+				{
+					Console.WriteLine($"Cannot parse IntX value '{intx}'");
+				}
+			}
+		}
+
 		// --- Array of BigInt --------------------------------------------
 		{
 			var arr = new BigInteger[] { 0, 1, -1, 255, -255, (BigInteger.One << 200) + 5, -((BigInteger.One << 199) + 7) };

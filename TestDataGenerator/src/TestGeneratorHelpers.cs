@@ -34,16 +34,26 @@ public static class TestGeneratorHelpers
 		Emit(kind, value, hex);
 	}
 
-    public static void Big(string kind, string value, BigInteger v)
-    {
-        using var ms = new MemoryStream();
-        using var w  = new BinaryWriter(ms);
-        w.WriteBigInt(v);
-        var hex = ms.ToArray().ToHex();
+	public static void Big(string kind, string value, BigInteger v)
+	{
+		using var ms = new MemoryStream();
+		using var w = new BinaryWriter(ms);
+		w.WriteBigInt(v);
+		var hex = ms.ToArray().ToHex();
 
-        // also compute back via reader
-        var back = ReadBackBigInt(ms.ToArray());
-        Output.WriteLine($"{kind}\t{value}\t{hex}\t{v.ToString(CultureInfo.InvariantCulture)}\t{back.ToString(CultureInfo.InvariantCulture)}");
+		// also compute back via reader
+		var back = ReadBackBigInt(ms.ToArray());
+		Output.WriteLine($"{kind}\t{value}\t{hex}\t{v.ToString(CultureInfo.InvariantCulture)}\t{back.ToString(CultureInfo.InvariantCulture)}");
+	}
+
+	public static void IntXEmit(string kind, string value, IntX v)
+	{
+		var serialized = CarbonBlob.Serialize(v);
+		var hex = serialized.ToHex();
+
+		// also compute back via reader
+		var back = CarbonBlob.New<IntX>(serialized);
+        Output.WriteLine($"{kind}\t{value}\t{hex}\t{v.ToString()}\t{back.ToString()}");
     }
 
 	public static BigInteger ReadBackBigInt(byte[] bytes)
