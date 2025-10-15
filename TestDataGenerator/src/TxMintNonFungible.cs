@@ -1,10 +1,8 @@
 using System.Numerics;
-using Newtonsoft.Json;
 using PhantasmaPhoenix.Core.Extensions;
 using PhantasmaPhoenix.Cryptography;
 using PhantasmaPhoenix.Protocol.Carbon;
 using PhantasmaPhoenix.Protocol.Carbon.Blockchain;
-using PhantasmaPhoenix.Protocol.Carbon.Blockchain.Modules;
 using PhantasmaPhoenix.Protocol.Carbon.Blockchain.Vm;
 
 public static partial class TxGenerators
@@ -14,21 +12,11 @@ public static partial class TxGenerators
 		var wif = "KwPpBSByydVKqStGHAnZzQofCqhDmD2bfRgc9BmZqM3ZmsdWJw4d";
 		ulong carbonTokenId = ulong.MaxValue;
 		uint carbonSeriesId = uint.MaxValue;
-		var fieldsJson = "{\"name\": \"My test token!\", \"url\": \"http://example.com\"}";
 		var romHex = "";
 		ulong maxData = 100000000;
 		ulong gasFeeBase = 10000;
 
 		var txSender = PhantasmaKeys.FromWIF(wif);
-
-		Dictionary<string, string>? fields =
-			JsonConvert.DeserializeObject<Dictionary<string, string>>(
-				fieldsJson
-			);
-		if(fields == null)
-        {
-			throw new("Could not deserialize fields");
-        }
 
 		BigInteger phantasmaId = (BigInteger.One << 256) - 1; // Arbitrary phantasma ID
 		byte[] phantasmaRomData = [0x01, 0x42]; // todo - arbitrary / TOMB data

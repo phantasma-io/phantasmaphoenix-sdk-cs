@@ -172,6 +172,11 @@ class Program
 			});
 		}
 
+		var vmStruct1 = VmStructsGenerator.VmStruct1Generate();
+		Emit("VMSTRUCT01", vmStruct1, vmStruct1);
+		var vmStruct2 = VmStructsGenerator.VmStruct2Generate();
+		Emit("VMSTRUCT02", vmStruct2, vmStruct2);
+
 		// --- Carbon tx serialization ------------------------------------
 		var tx1 = TxGenerators.Tx1Gen();
 		Emit("TX1", tx1, tx1);
