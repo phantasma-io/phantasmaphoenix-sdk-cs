@@ -13,21 +13,11 @@ public static partial class TxGenerators
 	{
 		var wif = "KwPpBSByydVKqStGHAnZzQofCqhDmD2bfRgc9BmZqM3ZmsdWJw4d";
 		ulong tokenId = ulong.MaxValue;
-		var fieldsJson = "{\"name\": \"My test token!\", \"url\": \"http://example.com\"}";
 		ulong maxData = 100000000;
 		ulong gasFeeBase = 10000;
 		ulong gasFeeCreateTokenSeries = 2500000000;
 
 		var txSender = PhantasmaKeys.FromWIF(wif);
-
-		Dictionary<string, string>? fields =
-			JsonConvert.DeserializeObject<Dictionary<string, string>>(
-				fieldsJson
-			);
-		if(fields == null)
-        {
-			throw new("Could not deserialize fields");
-        }
 
 		var newPhantasmaSeriesId = (BigInteger.One << 256) - 1; // Phantasma series ID
 		byte[] sharedRom = [];// todo

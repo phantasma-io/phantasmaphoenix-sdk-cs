@@ -12,7 +12,6 @@ public static partial class TxGenerators
 		var wif = "KwPpBSByydVKqStGHAnZzQofCqhDmD2bfRgc9BmZqM3ZmsdWJw4d";
 		ulong carbonTokenId = ulong.MaxValue;
 		uint carbonSeriesId = uint.MaxValue;
-		var romHex = "";
 		ulong maxData = 100000000;
 		ulong gasFeeBase = 10000;
 
@@ -20,11 +19,6 @@ public static partial class TxGenerators
 
 		BigInteger phantasmaId = (BigInteger.One << 256) - 1; // Arbitrary phantasma ID
 		byte[] phantasmaRomData = [0x01, 0x42]; // todo - arbitrary / TOMB data
-
-		if (!string.IsNullOrWhiteSpace(romHex))
-		{
-			phantasmaRomData = Convert.FromHexString(romHex);
-		}
 
 		// Write out the variables that are expected for a new NFT instance (encoded with respect to the rom schema used when creating the token)
 		var tokenSchemas = PrepareTokenSchemas();
