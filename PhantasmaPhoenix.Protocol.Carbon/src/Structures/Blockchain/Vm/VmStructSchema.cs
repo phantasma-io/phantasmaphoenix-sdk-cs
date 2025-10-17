@@ -18,6 +18,15 @@ public struct VmStructSchema : ICarbonBlob
 	//	fields.OrderBy(x => x.name)
 	//}
 
+	public static VmStructSchema CreateEmpty()
+	{
+		return new VmStructSchema
+		{
+			fields = new VmNamedVariableSchema[0],
+			flags = Flags.None
+		};
+	}
+
 	public void Write(BinaryWriter w)
 	{
 		w.WriteArray(fields);

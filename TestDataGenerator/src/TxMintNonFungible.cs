@@ -2,8 +2,8 @@ using System.Numerics;
 using PhantasmaPhoenix.Core.Extensions;
 using PhantasmaPhoenix.Cryptography;
 using PhantasmaPhoenix.Protocol.Carbon;
-using PhantasmaPhoenix.Protocol.Carbon.Blockchain;
-using PhantasmaPhoenix.Protocol.Carbon.Blockchain.Vm;
+using PhantasmaPhoenix.Protocol.Carbon.Blockchain.Modules.Builders;
+using PhantasmaPhoenix.Protocol.Carbon.Blockchain.TxHelpers;
 
 public static partial class TxGenerators
 {
@@ -14,42 +14,31 @@ public static partial class TxGenerators
 		uint carbonSeriesId = uint.MaxValue;
 		ulong maxData = 100000000;
 		ulong gasFeeBase = 10000;
+		ulong feeMultiplier = 1000;
 
 		var txSender = PhantasmaKeys.FromWIF(wif);
 
 		BigInteger phantasmaId = (BigInteger.One << 256) - 1; // Arbitrary phantasma ID
 		byte[] phantasmaRomData = [0x01, 0x42]; // todo - arbitrary / TOMB data
 
-		// Write out the variables that are expected for a new NFT instance (encoded with respect to the rom schema used when creating the token)
-		var tokenSchemas = PrepareTokenSchemas();
-		using MemoryStream romBuffer = new();
-		using BinaryWriter wRom = new(romBuffer);
-		new VmDynamicStruct
-		{
-			fields = [
-				new VmNamedDynamicVariable{ name = StandardMeta.id, value = new VmDynamicVariable(phantasmaId) },
-				new VmNamedDynamicVariable{ name = new SmallString("rom"), value = new VmDynamicVariable(phantasmaRomData) },
-			]
-		}.Write(tokenSchemas.rom, wRom);
+		var rom = NftRomBuilder.BuildAndSerialize(phantasmaId, phantasmaRomData, null);
 
-		TxMsg tx = new TxMsg
-		{
-			type = TxTypes.MintNonFungible, // Specialized minting TX
-			expiry = 1759711416000,
-			maxGas = gasFeeBase * 1000,
-			maxData = maxData,
-			gasFrom = new Bytes32(txSender.PublicKey),
-			payload = SmallString.Empty,
-			msg = new TxMsgMintNonFungible
-			{
-				tokenId = carbonTokenId,
-				seriesId = carbonSeriesId,
-				to = new Bytes32(txSender.PublicKey),
-				rom = romBuffer.ToArray(),
-				ram = []
-			}
-		};
+		var feeOptions = new MintNftFeeOptions(
+			gasFeeBase,
+			feeMultiplier
+		);
 
+		var tx = MintNonFungibleTxHelper.BuildTx(
+			carbonTokenId,
+			carbonSeriesId,
+			new Bytes32(txSender.PublicKey),
+			rom,
+			Array.Empty<byte>(),
+			new Bytes32(txSender.PublicKey),
+			feeOptions,
+			maxData,
+			1759711416000
+		);
 		return CarbonBlob.Serialize(tx).ToHex();
 	}
 }

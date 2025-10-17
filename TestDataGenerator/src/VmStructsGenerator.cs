@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 using PhantasmaPhoenix.Core.Extensions;
 using PhantasmaPhoenix.Protocol.Carbon;
+using PhantasmaPhoenix.Protocol.Carbon.Blockchain.Modules.Builders;
 using PhantasmaPhoenix.Protocol.Carbon.Blockchain.Vm;
 
 public static partial class VmStructsGenerator
@@ -8,7 +9,7 @@ public static partial class VmStructsGenerator
 	public static string VmStruct1Generate()
 	{
 		// Create a carbon structure to describe the schema for these tokens -- i.e. the variables our NFTs will have
-		var tokenSchemas = TxGenerators.PrepareTokenSchemas();
+		var tokenSchemas = TokenSchemasBuilder.PrepareStandardTokenSchemas();
 		using MemoryStream schemaBuffer = new();
 		using BinaryWriter wSchemas = new(schemaBuffer);
 		wSchemas.Write(tokenSchemas);
