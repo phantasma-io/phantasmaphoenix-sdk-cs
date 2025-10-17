@@ -13,6 +13,7 @@ public static partial class TxGenerators
 		var symbol = "MYNFT";
 		var fieldsJson = "{\"name\": \"My test token!\", \"url\": \"http://example.com\"}";
 		ulong maxData = 100000000;
+		ulong gasFeeBase = 10000;
 		ulong gasFeeCreateTokenBase = 10000000000;
 		ulong gasFeeCreateTokenSymbol = 10000000000;
 		ulong feeMultiplier = 10000;
@@ -37,6 +38,7 @@ public static partial class TxGenerators
 			TokenMetadataBuilder.BuildAndSerialize(fields));
 
 		var feeOptions = new CreateTokenFeeOptions(
+			gasFeeBase,
 			gasFeeCreateTokenBase,
 			gasFeeCreateTokenSymbol,
 			feeMultiplier

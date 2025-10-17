@@ -12,6 +12,7 @@ public static partial class TxGenerators
 		var wif = "KwPpBSByydVKqStGHAnZzQofCqhDmD2bfRgc9BmZqM3ZmsdWJw4d";
 		ulong tokenId = ulong.MaxValue;
 		ulong maxData = 100000000;
+		ulong gasFeeBase = 10000;
 		ulong gasFeeCreateTokenSeries = 2500000000;
 		ulong feeMultiplier = 10000;
 
@@ -26,6 +27,7 @@ public static partial class TxGenerators
 			txSenderPubKey);
 
 		var feeOptions = new CreateSeriesFeeOptions(
+			gasFeeBase,
 			gasFeeCreateTokenSeries,
 			feeMultiplier
 		);
