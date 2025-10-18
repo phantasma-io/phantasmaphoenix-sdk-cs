@@ -5,7 +5,7 @@ public static class Base16
 {
 	private const string hexAlphabet = "0123456789ABCDEF";
 
-	public static byte[] Decode(this string input, bool allowExceptions = true)
+	public static byte[]? Decode(this string input, bool allowExceptions = true)
 	{
 		if (input == null || input.Length == 0)
 		{
@@ -17,7 +17,7 @@ public static class Base16
 			return input.Substring(2).Decode(allowExceptions);
 		}
 
-		byte[] result = null;
+		byte[]? result = null;
 
 		if (input.Length % 2 == 0)
 		{

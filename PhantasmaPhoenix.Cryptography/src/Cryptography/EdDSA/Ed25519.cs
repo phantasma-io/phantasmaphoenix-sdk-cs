@@ -17,15 +17,15 @@ public static class Ed25519
 		Throw.If(signature == null, "signature");
 		Throw.If(message == null, "message");
 		Throw.If(publicKey == null, "publicKey");
-		Throw.If(signature.Length != SignatureSizeInBytes, $"Signature size must be {SignatureSizeInBytes}");
-		Throw.If(publicKey.Length != PublicKeySizeInBytes, $"Public key size must be {PublicKeySizeInBytes}");
+		Throw.If(signature!.Length != SignatureSizeInBytes, $"Signature size must be {SignatureSizeInBytes}");
+		Throw.If(publicKey!.Length != PublicKeySizeInBytes, $"Public key size must be {PublicKeySizeInBytes}");
 
 		var signer = new Ed25519Signer();
 
 		var publicKeyParameters = new Ed25519PublicKeyParameters(publicKey, 0);
 
 		signer.Init(false, publicKeyParameters);
-		signer.BlockUpdate(message, 0, message.Length);
+		signer.BlockUpdate(message, 0, message!.Length);
 		return signer.VerifySignature(signature);
 	}
 

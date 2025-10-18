@@ -44,7 +44,7 @@ public sealed class PhantasmaKeys : IKeyPair
     {
         Throw.If(wif == null, "WIF required");
 
-        byte[] data = wif.Base58CheckDecode();
+        byte[] data = wif!.Base58CheckDecode();
         Throw.If(data.Length != 34 || data[0] != 0x80 || data[33] != 0x01, "Invalid WIF format");
 
         byte[] privateKey = new byte[32];

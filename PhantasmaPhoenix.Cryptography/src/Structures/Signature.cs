@@ -32,7 +32,7 @@ public abstract class Signature : ISerializable
 		}
 	}
 
-	public override bool Equals(object obj)
+	public override bool Equals(object? obj)
 	{
 		if (!(obj is Signature))
 			return false;

@@ -49,7 +49,7 @@ public struct Address : ISerializable, IComparable<Address>
 		}
 	}
 
-	private string _text;
+	private string? _text;
 
 	public string Text
 	{
@@ -379,7 +379,7 @@ public struct Address : ISerializable, IComparable<Address>
 
 		var bytes = new byte[LengthInBytes];
 		bytes[0] = (byte)(AddressKind.Interop + platformID - 1);
-		ByteArrayUtils.CopyBytes(publicKey, 0, bytes, 1, publicKey.Length);
+		ByteArrayUtils.CopyBytes(publicKey!, 0, bytes, 1, publicKey!.Length);
 		return new Address(bytes);
 	}
 
