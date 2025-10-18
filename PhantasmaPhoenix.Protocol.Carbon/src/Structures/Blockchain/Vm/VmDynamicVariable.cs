@@ -50,9 +50,13 @@ public struct VmDynamicVariable : ICarbonBlob
 
 	public VmDynamicVariable() { type = VmType.Dynamic; data = null; }
 	public VmDynamicVariable(byte[] b) { type = VmType.Bytes; data = b; }
-	public VmDynamicVariable(byte i) { type = VmType.Int8; data = i; }
+	public VmDynamicVariable(byte i) { type = VmType.Int8; data = (sbyte)i; }
+	public VmDynamicVariable(sbyte i) { type = VmType.Int8; data = i; }
+	public VmDynamicVariable(UInt16 i) { type = VmType.Int16; data = (Int16)i; }
 	public VmDynamicVariable(Int16 i) { type = VmType.Int16; data = i; }
+	public VmDynamicVariable(UInt32 i) { type = VmType.Int32; data = (Int32)i; }
 	public VmDynamicVariable(Int32 i) { type = VmType.Int32; data = i; }
+	public VmDynamicVariable(UInt64 i) { type = VmType.Int64; data = (Int64)i; }
 	public VmDynamicVariable(Int64 i) { type = VmType.Int64; data = i; }
 	public VmDynamicVariable(BigInteger i) { type = VmType.Int256; data = i; }
 	public VmDynamicVariable(Bytes16 b) { type = VmType.Bytes16; data = b; }
