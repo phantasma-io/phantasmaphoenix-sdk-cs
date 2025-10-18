@@ -41,6 +41,26 @@ public static class TokenSchemasBuilder
 					new VmNamedVariableSchema { // Phantasma feature: If this is NOT a duplicated series, store the individual ROM here:
 						name = new SmallString("rom"),
 						schema = new VmVariableSchema{ type = VmType.Bytes }
+					},
+					new VmNamedVariableSchema {
+						name = new SmallString("name"),
+						schema = new VmVariableSchema{ type = VmType.String }
+					},
+					new VmNamedVariableSchema {
+						name = new SmallString("description"),
+						schema = new VmVariableSchema{ type = VmType.String }
+					},
+					new VmNamedVariableSchema {
+						name = new SmallString("imageURL"),
+						schema = new VmVariableSchema{ type = VmType.String }
+					},
+					new VmNamedVariableSchema {
+						name = new SmallString("infoURL"),
+						schema = new VmVariableSchema{ type = VmType.String }
+					},
+					new VmNamedVariableSchema {
+						name = new SmallString("royalties"),
+						schema = new VmVariableSchema{ type = VmType.Int32 }
 					}
 				},
 				flags = VmStructSchema.Flags.None
