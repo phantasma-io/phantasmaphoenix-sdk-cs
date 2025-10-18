@@ -50,8 +50,8 @@ public struct VmDynamicVariable : ICarbonBlob
 
 	public VmDynamicVariable() { type = VmType.Dynamic; data = null; }
 	public VmDynamicVariable(byte[] b) { type = VmType.Bytes; data = b; }
-	public VmDynamicVariable(byte i) { type = VmType.Int8; data = (sbyte)i; }
-	public VmDynamicVariable(sbyte i) { type = VmType.Int8; data = i; }
+	public VmDynamicVariable(byte i) { type = VmType.Int8; data = i; }
+	public VmDynamicVariable(sbyte i) { type = VmType.Int8; data = (byte)i; }
 	public VmDynamicVariable(UInt16 i) { type = VmType.Int16; data = (Int16)i; }
 	public VmDynamicVariable(Int16 i) { type = VmType.Int16; data = i; }
 	public VmDynamicVariable(UInt32 i) { type = VmType.Int32; data = (Int32)i; }
@@ -99,17 +99,17 @@ public struct VmDynamicVariable : ICarbonBlob
 		}
 	}
 
-	public byte[] GetBytes(string e = "not Bytes") { VmExpect(type == VmType.Bytes, e); VmAssert(data != null, "bad variable"); return (byte[])data; }
-	public string GetString(string e = "not String") { VmExpect(type == VmType.String, e); VmAssert(data != null, "bad variable"); return (string)data; }
-	public byte GetUInt8(string e = "not Int8") { VmExpect(type == VmType.Int8, e); VmAssert(data != null, "bad variable"); return (byte)(sbyte)data; }
-	public sbyte GetInt8(string e = "not Int8") { VmExpect(type == VmType.Int8, e); VmAssert(data != null, "bad variable"); return (sbyte)data; }
-	public UInt16 GetUInt16(string e = "not Int16") { VmExpect(type == VmType.Int16, e); VmAssert(data != null, "bad variable"); return (UInt16)(Int16)data; }
-	public Int16 GetInt16(string e = "not Int16") { VmExpect(type == VmType.Int16, e); VmAssert(data != null, "bad variable"); return (Int16)data; }
-	public UInt32 GetUInt32(string e = "not Int32") { VmExpect(type == VmType.Int32, e); VmAssert(data != null, "bad variable"); return (UInt32)(Int32)data; }
-	public Int32 GetInt32(string e = "not Int32") { VmExpect(type == VmType.Int32, e); VmAssert(data != null, "bad variable"); return (Int32)data; }
-	public UInt64 GetUInt64(string e = "not Int64") { VmExpect(type == VmType.Int64, e); VmAssert(data != null, "bad variable"); return (UInt64)(Int64)data; }
-	public Int64 GetInt64(string e = "not Int64") { VmExpect(type == VmType.Int64, e); VmAssert(data != null, "bad variable"); return (Int64)data; }
-	public BigInteger GetInt256(string e = "not Int256") { VmExpect(type == VmType.Int256, e); VmAssert(data != null, "bad variable"); return (BigInteger)data; }
+	public byte[] GetBytes(string e = "not Bytes") { VmExpect(type == VmType.Bytes, e); VmAssert(data != null, "bad variable"); return (byte[])data!; }
+	public string GetString(string e = "not String") { VmExpect(type == VmType.String, e); VmAssert(data != null, "bad variable"); return (string)data!; }
+	public byte GetUInt8(string e = "not Int8") { VmExpect(type == VmType.Int8, e); VmAssert(data != null, "bad variable"); return (byte)(sbyte)data!; }
+	public sbyte GetInt8(string e = "not Int8") { VmExpect(type == VmType.Int8, e); VmAssert(data != null, "bad variable"); return (sbyte)data!; }
+	public UInt16 GetUInt16(string e = "not Int16") { VmExpect(type == VmType.Int16, e); VmAssert(data != null, "bad variable"); return (UInt16)(Int16)data!; }
+	public Int16 GetInt16(string e = "not Int16") { VmExpect(type == VmType.Int16, e); VmAssert(data != null, "bad variable"); return (Int16)data!; }
+	public UInt32 GetUInt32(string e = "not Int32") { VmExpect(type == VmType.Int32, e); VmAssert(data != null, "bad variable"); return (UInt32)(Int32)data!; }
+	public Int32 GetInt32(string e = "not Int32") { VmExpect(type == VmType.Int32, e); VmAssert(data != null, "bad variable"); return (Int32)data!; }
+	public UInt64 GetUInt64(string e = "not Int64") { VmExpect(type == VmType.Int64, e); VmAssert(data != null, "bad variable"); return (UInt64)(Int64)data!; }
+	public Int64 GetInt64(string e = "not Int64") { VmExpect(type == VmType.Int64, e); VmAssert(data != null, "bad variable"); return (Int64)data!; }
+	public BigInteger GetInt256(string e = "not Int256") { VmExpect(type == VmType.Int256, e); VmAssert(data != null, "bad variable"); return (BigInteger)data!; }
 	public BigInteger GetUInt256(string e = "not Int256")
 	{
 		BigInteger i = GetInt256(e);
@@ -295,27 +295,27 @@ public struct VmDynamicVariable : ICarbonBlob
 
 		switch (type)
 		{
-			case VmType.Bytes: w.WriteArray((byte[])v.data); return true;
+			case VmType.Bytes: w.WriteArray((byte[])v.data!); return true;
 			case VmType.Struct:
-				VmDynamicStruct s = (VmDynamicStruct)v.data;
+				VmDynamicStruct s = (VmDynamicStruct)v.data!;
 				if (schema != null)
 					return s.Write(schema.Value, w);
 				else
 					s.Write(w);
 				return true;
-			case VmType.Int8: w.Write1((byte)v.data); return true;
-			case VmType.Int16: w.Write2((Int16)v.data); return true;
-			case VmType.Int32: w.Write4((Int32)v.data); return true;
-			case VmType.Int64: w.Write8((Int64)v.data); return true;
-			case VmType.Int256: w.WriteBigInt((BigInteger)v.data); return true;
-			case VmType.Bytes16: w.Write((Bytes16)v.data); return true;
-			case VmType.Bytes32: w.Write((Bytes32)v.data); return true;
-			case VmType.Bytes64: w.Write((Bytes64)v.data); return true;
-			case VmType.String: w.WriteSz((string)v.data); return true;
-			case VmType.Array | VmType.Dynamic: w.WriteArray((VmDynamicVariable[])v.data); return true;
-			case VmType.Array | VmType.Bytes: w.WriteArray((byte[][])v.data); return true;
+			case VmType.Int8: w.Write1((byte)v.data!); return true;
+			case VmType.Int16: w.Write2((Int16)v.data!); return true;
+			case VmType.Int32: w.Write4((Int32)v.data!); return true;
+			case VmType.Int64: w.Write8((Int64)v.data!); return true;
+			case VmType.Int256: w.WriteBigInt((BigInteger)v.data!); return true;
+			case VmType.Bytes16: w.Write((Bytes16)v.data!); return true;
+			case VmType.Bytes32: w.Write((Bytes32)v.data!); return true;
+			case VmType.Bytes64: w.Write((Bytes64)v.data!); return true;
+			case VmType.String: w.WriteSz((string)v.data!); return true;
+			case VmType.Array | VmType.Dynamic: w.WriteArray((VmDynamicVariable[])v.data!); return true;
+			case VmType.Array | VmType.Bytes: w.WriteArray((byte[][])v.data!); return true;
 			case VmType.Array | VmType.Struct:
-				VmStructArray sa = (VmStructArray)v.data;
+				VmStructArray sa = (VmStructArray)v.data!;
 				w.Write4(sa.structs.Length);
 				bool ok = true;
 				if (schema == null)
@@ -332,15 +332,15 @@ public struct VmDynamicVariable : ICarbonBlob
 						w.Write(sa.structs[i]);
 				}
 				return ok;
-			case VmType.Array | VmType.Int8: w.WriteArray((byte[])v.data); return true;
-			case VmType.Array | VmType.Int16: w.WriteArray16((Int16[])v.data); return true;
-			case VmType.Array | VmType.Int32: w.WriteArray32((Int32[])v.data); return true;
-			case VmType.Array | VmType.Int64: w.WriteArray64((Int64[])v.data); return true;
-			case VmType.Array | VmType.Int256: w.WriteArrayBigInt((BigInteger[])v.data); return true;
-			case VmType.Array | VmType.Bytes16: w.WriteArray((Bytes16[])v.data); return true;
-			case VmType.Array | VmType.Bytes32: w.WriteArray((Bytes32[])v.data); return true;
-			case VmType.Array | VmType.Bytes64: w.WriteArray((Bytes64[])v.data); return true;
-			case VmType.Array | VmType.String: w.WriteArraySz((string[])v.data); return true;
+			case VmType.Array | VmType.Int8: w.WriteArray((byte[])v.data!); return true;
+			case VmType.Array | VmType.Int16: w.WriteArray16((Int16[])v.data!); return true;
+			case VmType.Array | VmType.Int32: w.WriteArray32((Int32[])v.data!); return true;
+			case VmType.Array | VmType.Int64: w.WriteArray64((Int64[])v.data!); return true;
+			case VmType.Array | VmType.Int256: w.WriteArrayBigInt((BigInteger[])v.data!); return true;
+			case VmType.Array | VmType.Bytes16: w.WriteArray((Bytes16[])v.data!); return true;
+			case VmType.Array | VmType.Bytes32: w.WriteArray((Bytes32[])v.data!); return true;
+			case VmType.Array | VmType.Bytes64: w.WriteArray((Bytes64[])v.data!); return true;
+			case VmType.Array | VmType.String: w.WriteArraySz((string[])v.data!); return true;
 			default:
 				VmAssert(false, "invalid VmDynamicVariable");
 				return false;
