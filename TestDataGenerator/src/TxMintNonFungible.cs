@@ -21,7 +21,14 @@ public static partial class TxGenerators
 		BigInteger phantasmaId = (BigInteger.One << 256) - 1; // Arbitrary phantasma ID
 		byte[] phantasmaRomData = [0x01, 0x42]; // todo - arbitrary / TOMB data
 
-		var rom = NftRomBuilder.BuildAndSerialize(phantasmaId, phantasmaRomData, null);
+		var rom = NftRomBuilder.BuildAndSerialize(phantasmaId,
+			"My NFT #1",
+			"This is my first NFT!",
+			"images-assets.nasa.gov/image/PIA13227/PIA13227~orig.jpg",
+			"https://images.nasa.gov/details/PIA13227",
+			10000000,
+			phantasmaRomData,
+			null);
 
 		var feeOptions = new MintNftFeeOptions(
 			gasFeeBase,
