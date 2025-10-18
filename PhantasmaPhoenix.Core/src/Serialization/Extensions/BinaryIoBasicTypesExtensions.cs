@@ -207,7 +207,7 @@ public static class BinaryIoBasicTypesExtensions
 			bool isNull = item is null;
 			writer.Write(!isNull);
 			if (isNull) continue;
-			item.SerializeData(writer);
+			item!.SerializeData(writer);
 		}
 	}
 

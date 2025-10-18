@@ -167,17 +167,17 @@ public static class Serialization
 		}
 	}
 
-	public static T Unserialize<T>(byte[] bytes)
+	public static T? Unserialize<T>(byte[] bytes)
 	{
 		if (bytes == null || bytes.Length == 0)
 		{
 			return default(T);
 		}
 
-		return (T)Unserialize(bytes, typeof(T));
+		return (T?)Unserialize(bytes, typeof(T));
 	}
 
-	public static object Unserialize(byte[] bytes, Type type)
+	public static object? Unserialize(byte[] bytes, Type type)
 	{
 		if (type == typeof(byte[]))
 		{
@@ -198,12 +198,12 @@ public static class Serialization
 		}
 	}
 
-	public static T Unserialize<T>(BinaryReader reader)
+	public static T? Unserialize<T>(BinaryReader reader)
 	{
-		return (T)Unserialize(reader, typeof(T));
+		return (T?)Unserialize(reader, typeof(T));
 	}
 
-	public static object Unserialize(BinaryReader reader, Type type)
+	public static object? Unserialize(BinaryReader reader, Type type)
 	{
 		if (_customSerializers.ContainsKey(type))
 		{
@@ -313,7 +313,7 @@ public static class Serialization
 			{
 				var fieldType = field.FieldType;
 
-				object val = Unserialize(reader, fieldType);
+				object? val = Unserialize(reader, fieldType);
 				field.SetValue(obj, val);
 			}
 
@@ -325,7 +325,7 @@ public static class Serialization
 
 				if (prop.CanWrite)
 				{
-					object val = Unserialize(reader, propType);
+					object? val = Unserialize(reader, propType);
 					prop.SetValue(obj, val);
 				}
 			}
