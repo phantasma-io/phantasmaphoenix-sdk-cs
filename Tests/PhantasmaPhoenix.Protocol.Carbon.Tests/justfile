@@ -1,0 +1,26 @@
+[private]
+just:
+    just -l
+
+# Build
+[group('build')]
+b:
+    dotnet build
+
+# Clean
+[group('build')]
+c:
+    rm -r --force bin obj
+
+# List outdated packages
+[group('manage')]
+o:
+    dotnet list package --outdated
+
+[group('run')]
+r:
+    dotnet test -c Debug
+
+[group('maintenance')]
+eols:
+    cd src && find ./ -name "*.cs" -exec dos2unix --keepdate --keep-bom {} +

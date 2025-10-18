@@ -27,6 +27,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.Protocol.C
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TestDataGenerator", "TestDataGenerator\TestDataGenerator.csproj", "{D9FA27B3-E917-4E8F-9A33-E7927C1C27FB}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Tests", "Tests", "{A8C485D7-952E-4CF9-9CC8-4E4334E5DE05}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.Protocol.Carbon.Tests", "Tests\PhantasmaPhoenix.Protocol.Carbon.Tests\PhantasmaPhoenix.Protocol.Carbon.Tests.csproj", "{BBCBC3BF-D948-4E40-86C0-3E8F4C5CE95D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -84,5 +88,12 @@ Global
 		{D9FA27B3-E917-4E8F-9A33-E7927C1C27FB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D9FA27B3-E917-4E8F-9A33-E7927C1C27FB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D9FA27B3-E917-4E8F-9A33-E7927C1C27FB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BBCBC3BF-D948-4E40-86C0-3E8F4C5CE95D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BBCBC3BF-D948-4E40-86C0-3E8F4C5CE95D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BBCBC3BF-D948-4E40-86C0-3E8F4C5CE95D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BBCBC3BF-D948-4E40-86C0-3E8F4C5CE95D}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{BBCBC3BF-D948-4E40-86C0-3E8F4C5CE95D} = {A8C485D7-952E-4CF9-9CC8-4E4334E5DE05}
 	EndGlobalSection
 EndGlobal
