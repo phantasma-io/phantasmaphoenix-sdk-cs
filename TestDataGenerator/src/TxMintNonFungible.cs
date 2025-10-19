@@ -39,9 +39,9 @@ public static partial class TxGenerators
 			carbonTokenId,
 			carbonSeriesId,
 			new Bytes32(txSender.PublicKey),
+			new Bytes32(txSender.PublicKey),
 			rom,
 			Array.Empty<byte>(),
-			new Bytes32(txSender.PublicKey),
 			feeOptions,
 			maxData,
 			1759711416000
