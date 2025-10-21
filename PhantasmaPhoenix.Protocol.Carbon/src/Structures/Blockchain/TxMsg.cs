@@ -12,14 +12,8 @@ public struct TxMsg : ICarbonBlob
 	public SmallString payload;
 	public object msg;
 
-	public void Write(BinaryWriter w)
+	static void WriteDataByType(BinaryWriter w, TxTypes type, object msg)
 	{
-		w.Write1(type);
-		w.Write8(expiry);
-		w.Write8(maxGas);
-		w.Write8(maxData);
-		w.Write32(gasFrom);
-		w.Write(payload);
 		switch (type)
 		{
 			case TxTypes.Call: w.Write((TxMsgCall)msg); break;
@@ -43,14 +37,21 @@ public struct TxMsg : ICarbonBlob
 		}
 	}
 
-	public void Read(BinaryReader r)
+	public void Write(BinaryWriter w)
 	{
-		r.Read1(out type);
-		r.Read8(out expiry);
-		r.Read8(out maxGas);
-		r.Read8(out maxData);
-		r.Read32(out gasFrom);
-		r.Read(out payload);
+		w.Write1(type);
+		w.Write8(expiry);
+		w.Write8(maxGas);
+		w.Write8(maxData);
+		w.Write32(gasFrom);
+		w.Write(payload);
+
+		WriteDataByType(w, type, msg);
+	}
+
+	static object? ReadDataByType(BinaryReader r, TxTypes type)
+	{
+		object? msg = null;
 		switch (type)
 		{
 			case TxTypes.Call: msg = r.Read<TxMsgCall>(); break;
@@ -72,6 +73,20 @@ public struct TxMsg : ICarbonBlob
 			case TxTypes.Phantasma_Raw: msg = r.Read<TxMsgPhantasma_Raw>(); break;
 			default: Throw.Assert(false); break;
 		}
+
+		return msg;
+	}
+
+	public void Read(BinaryReader r)
+	{
+		r.Read1(out type);
+		r.Read8(out expiry);
+		r.Read8(out maxGas);
+		r.Read8(out maxData);
+		r.Read32(out gasFrom);
+		r.Read(out payload);
+
+		msg = ReadDataByType(r, type)!; // It's never null, limitation of netstandard 2
 	}
 
 	public static TxMsg FromPhantasmaRaw(byte[] rawTransaction)
