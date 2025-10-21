@@ -11,6 +11,8 @@ public class TransactionResult
 	public UInt64 BlockHeight { get; set; }
 	public string BlockHash { get; set; }
 	public string Script { get; set; }
+	public byte CarbonTxType { get; set; }
+	public string CarbonTxData { get; set; }
 	public string Payload { get; set; }
 	public string? DebugComment { get; set; }
 	public EventResult[] Events { get; set; }
