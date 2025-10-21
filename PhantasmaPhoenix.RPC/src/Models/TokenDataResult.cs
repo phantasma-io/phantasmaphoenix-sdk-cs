@@ -5,16 +5,22 @@ namespace PhantasmaPhoenix.RPC.Models;
 
 public class TokenDataResult
 {
-	[ApiDescription("id of token")]
+	[ApiDescription("Phantasma NFT ID")]
 	public string Id { get; set; }
 
-	[ApiDescription("series id of token")]
+	[ApiDescription("Phantasma series ID to which this NFT belongs")]
 	public string Series { get; set; }
 
-	[ApiDescription("mint number of token")]
+	[ApiDescription("Carbon token ID to which this NFT belongs")]
+	public ulong carbonTokenId { get; set; }
+
+	[ApiDescription("Carbon NFT address (hex encoded, 32 bytes)")]
+	public string carbonNftAddress { get; set; }
+
+	[ApiDescription("NFT mint number")]
 	public string Mint { get; set; }
 
-	[ApiDescription("Chain where currently is stored")]
+	[ApiDescription("NFT's chain")]
 	public string ChainName { get; set; }
 
 	[ApiDescription("Address who currently owns the token")]
@@ -29,7 +35,7 @@ public class TokenDataResult
 	[ApiDescription("Read-only data of token, hex encoded")]
 	public string Rom { get; set; }
 
-	[ApiDescription("Status of nft")]
+	[ApiDescription("Status of NFT")]
 	public TokenStatus Status { get; set; }
 
 	public TokenPropertyResult[] Infusion { get; set; }

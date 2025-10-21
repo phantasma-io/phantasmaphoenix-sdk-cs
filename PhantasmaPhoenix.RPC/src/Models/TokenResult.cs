@@ -36,7 +36,7 @@ public class TokenResult
 	[ApiDescription("Series info. NFT only")]
 	public TokenSeriesResult[] Series { get; set; }
 
-	[ApiDescription("Internal carbon token id")]
+	[ApiDescription("Carbon token ID")]
 	public ulong CarbonId { get; set; }
 
 	// TODO Commented: TokenExternalResult[], TokenPriceResult[], should we still implement it somehow?
