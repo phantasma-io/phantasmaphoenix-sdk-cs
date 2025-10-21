@@ -12,7 +12,7 @@ public struct TxMsg : ICarbonBlob
 	public SmallString payload;
 	public object msg;
 
-	static void WriteDataByType(BinaryWriter w, TxTypes type, object msg)
+	public static void WriteDataByType(BinaryWriter w, TxTypes type, object msg)
 	{
 		switch (type)
 		{
@@ -49,7 +49,7 @@ public struct TxMsg : ICarbonBlob
 		WriteDataByType(w, type, msg);
 	}
 
-	static object? ReadDataByType(BinaryReader r, TxTypes type)
+	public static object? ReadDataByType(BinaryReader r, TxTypes type)
 	{
 		object? msg = null;
 		switch (type)
