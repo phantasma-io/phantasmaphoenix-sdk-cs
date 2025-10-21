@@ -5,7 +5,7 @@ public static class SystemAddress
 	public static Bytes32 Null = new Bytes32 { bytes = new byte[32] }; // All elements default to 0
 }
 
-public static class Token
+public static class TokenHelper
 {
 	public static Bytes32 GetNftAddress(UInt64 tokenId, UInt64 instanceId)
 	{
