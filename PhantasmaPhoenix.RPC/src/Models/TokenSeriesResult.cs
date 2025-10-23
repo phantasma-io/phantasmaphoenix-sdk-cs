@@ -26,9 +26,6 @@ public class TokenSeriesResult
 
 	public string Script { get; set; }
 
-	[ApiDescription("Cursor to request next page of results")]
-	public string Cursor { get; set; }
-
 	[ApiDescription("List of methods")]
 	public ABIMethodResult[] Methods { get; set; }
 
