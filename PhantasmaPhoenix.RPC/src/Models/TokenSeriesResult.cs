@@ -4,7 +4,8 @@ namespace PhantasmaPhoenix.RPC.Models;
 
 public class TokenSeriesResult
 {
-	public uint SeriesId { get; set; }
+	[ApiDescription("Phantasma series ID, up to 32 bytes")]
+	public string SeriesId { get; set; }
 
 	[ApiDescription("Carbon token ID to which this series belongs")]
 	public ulong carbonTokenId { get; set; }
@@ -24,6 +25,9 @@ public class TokenSeriesResult
 	public string Mode { get; set; }
 
 	public string Script { get; set; }
+
+	[ApiDescription("Cursor to request next page of results")]
+	public string Cursor { get; set; }
 
 	[ApiDescription("List of methods")]
 	public ABIMethodResult[] Methods { get; set; }
