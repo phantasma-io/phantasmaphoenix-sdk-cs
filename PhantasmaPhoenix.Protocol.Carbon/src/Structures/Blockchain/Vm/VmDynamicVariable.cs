@@ -101,8 +101,8 @@ public struct VmDynamicVariable : ICarbonBlob
 
 	public byte[] GetBytes(string e = "not Bytes") { VmExpect(type == VmType.Bytes, e); VmAssert(data != null, "bad variable"); return (byte[])data!; }
 	public string GetString(string e = "not String") { VmExpect(type == VmType.String, e); VmAssert(data != null, "bad variable"); return (string)data!; }
-	public byte GetUInt8(string e = "not Int8") { VmExpect(type == VmType.Int8, e); VmAssert(data != null, "bad variable"); return (byte)(sbyte)data!; }
-	public sbyte GetInt8(string e = "not Int8") { VmExpect(type == VmType.Int8, e); VmAssert(data != null, "bad variable"); return (sbyte)data!; }
+	public byte GetUInt8(string e = "not Int8") { VmExpect(type == VmType.Int8, e); VmAssert(data != null, "bad variable"); return (byte)data!; }
+	public sbyte GetInt8(string e = "not Int8") { VmExpect(type == VmType.Int8, e); VmAssert(data != null, "bad variable"); return (sbyte)(byte)data!; }
 	public UInt16 GetUInt16(string e = "not Int16") { VmExpect(type == VmType.Int16, e); VmAssert(data != null, "bad variable"); return (UInt16)(Int16)data!; }
 	public Int16 GetInt16(string e = "not Int16") { VmExpect(type == VmType.Int16, e); VmAssert(data != null, "bad variable"); return (Int16)data!; }
 	public UInt32 GetUInt32(string e = "not Int32") { VmExpect(type == VmType.Int32, e); VmAssert(data != null, "bad variable"); return (UInt32)(Int32)data!; }
