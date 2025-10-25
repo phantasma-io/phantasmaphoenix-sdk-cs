@@ -16,6 +16,7 @@ public class TransactionResult
 	public string Payload { get; set; }
 	public string? DebugComment { get; set; }
 	public EventResult[] Events { get; set; }
+	public EventExResult[] ExtendedEvents { get; set; }
 	public string Result { get; set; }
 	public string Fee { get; set; }
 	public ExecutionState State { get; set; }
