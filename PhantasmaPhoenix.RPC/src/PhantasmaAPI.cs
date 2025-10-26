@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
 using PhantasmaPhoenix.Cryptography;
+using PhantasmaPhoenix.Protocol.Carbon;
+using PhantasmaPhoenix.Protocol.Carbon.Blockchain;
 using PhantasmaPhoenix.RPC.Models;
 using PhantasmaPhoenix.RPC.Types;
 
@@ -441,6 +443,34 @@ public class PhantasmaAPI : IDisposable
 			throw new Exception($"Error: RPC returned different hash {txHashFromRpc}, expected {txHash}");
 		}
 
+		return txHashFromRpc;
+	}
+
+	/// <summary>
+	/// Signs, serializes and broadcasts a carbon transaction
+	/// </summary>
+	/// <param name="keys">Key pair used to sign a transaction</param>
+	/// <param name="txMsg">Carbon TxMsg struct</param>
+	/// <returns>Transaction hash text or null</returns>
+	public async Task<string?> SignAndSendCarbonTransactionAsync(
+		IKeyPair keys, TxMsg txMsg)
+	{
+		var signedTxMsg = new SignedTxMsg
+		{
+			msg = txMsg,
+			witnesses = new Witness[] {
+				new Witness
+				{
+					address = new Bytes32(keys.PublicKey),
+					signature = new Bytes64(Ed25519.Sign(CarbonBlob.Serialize(txMsg), keys.PrivateKey))
+				}
+			}
+		};
+
+		var signedTxBytes = CarbonBlob.Serialize(signedTxMsg);
+		var encoded = Base16.Encode(signedTxBytes);
+
+		var txHashFromRpc = await SendCarbonTransactionAsync(encoded);
 		return txHashFromRpc;
 	}
 
