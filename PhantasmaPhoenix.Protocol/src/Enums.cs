@@ -69,7 +69,8 @@ public enum EventKind
 	Custom = 64,
 	Custom_V2 = 65,
 	GovernanceSetGasConfig = 66,
-	GovernanceSetChainConfig = 67
+	GovernanceSetChainConfig = 67,
+	TokenSeriesCreate = 68,
 }
 
 public enum ExecutionState
