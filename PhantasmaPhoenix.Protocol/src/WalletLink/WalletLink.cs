@@ -13,7 +13,7 @@ public enum WalletStatus
 public abstract class WalletLink
 {
 	public const int WebSocketPort = 7090;
-	public const int LinkProtocol = 3;
+	public const int LinkProtocol = 4;
 
 	public struct Error : IAPIResult
 	{
@@ -171,6 +171,8 @@ public abstract class WalletLink
 		SignatureKind kind, int id, Action<bool, string> callback);
 
 	protected abstract void SignTransaction(string platform, SignatureKind kind, string chain, byte[] script, byte[] payload, int id, ProofOfWork pow, Action<Hash, string> callback);
+
+	protected abstract void SignCarbonTransactionAndBroadcast(byte[] transaction, Action<Hash, string> callback);
 
 	protected abstract void WriteArchive(Hash hash, int blockIndex, byte[] data, Action<bool, string> callback);
 
@@ -577,6 +579,53 @@ public abstract class WalletLink
 
 	#endregion
 
+	#region Sign Carbon Tx And Broadcast
+
+	private void HandleSignCarbonTxAndBroadcast(string[] args, Connection connection, int id, Action<int, JToken, bool> callback)
+	{
+		int index = 0;
+		JToken answer;
+		bool success = false;
+
+		if (args.Length != 1)
+		{
+			answer = APIUtils.FromAPIResult(new Error() { message = $"signCarbonTxAndBroadcast: Invalid amount of arguments: {args.Length}" });
+			callback(id, answer, false);
+			_isPendingRequest = false;
+			return;
+		}
+
+		var txHex = args[index]; index++;
+
+		var txBytes = Base16.Decode(txHex, false);
+
+		if (txBytes == null)
+		{
+			answer = APIUtils.FromAPIResult(new Error() { message = $"signCarbonTxAndBroadcast: Invalid tx data" });
+			callback(id, answer, false);
+			_isPendingRequest = false;
+			return;
+		}
+
+		SignCarbonTransactionAndBroadcast(txBytes, (hash, txError) =>
+		{
+			if (hash != Hash.Null)
+			{
+				success = true;
+				answer = APIUtils.FromAPIResult(new Transaction() { hash = hash.ToString() });
+			}
+			else
+			{
+				answer = APIUtils.FromAPIResult(new Error() { message = txError });
+			}
+
+			callback(id, answer, success);
+			_isPendingRequest = false;
+		});
+	}
+
+	#endregion
+
 	#region SignTxSignature
 
 	private void HandleSignTxSignature(string[] args, Connection connection, int id,
@@ -920,6 +969,12 @@ public abstract class WalletLink
 			case "signTx":
 				{
 					HandleSignTx(args, connection, id, callback);
+					return;
+				}
+
+			case "signCarbonTxAndBroadcast":
+				{
+					HandleSignCarbonTxAndBroadcast(args, connection, id, callback);
 					return;
 				}
 
