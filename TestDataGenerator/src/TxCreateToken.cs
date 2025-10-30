@@ -11,7 +11,7 @@ public static partial class TxGenerators
 	{
 		var wif = "KwPpBSByydVKqStGHAnZzQofCqhDmD2bfRgc9BmZqM3ZmsdWJw4d";
 		var symbol = "MYNFT";
-		var fieldsJson = "{\"name\": \"My test token!\", \"url\": \"http://example.com\"}";
+		var fieldsJson = "{\"name\":\"My test token!\",\"icon\":\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23F44336' d='M7 4h5a5 5 0 010 10H9v6H7zM9 6v6h3a3 3 0 000-6z'/%3E%3C/svg%3E\",\"url\":\"http://example.com\",\"description\":\"My test token description\"}";
 		ulong maxData = 100000000;
 		ulong gasFeeBase = 10000;
 		ulong gasFeeCreateTokenBase = 10000000000;

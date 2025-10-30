@@ -5,19 +5,33 @@ namespace PhantasmaPhoenix.Protocol.Carbon.Blockchain.Modules.Builders;
 
 public static class TokenMetadataBuilder
 {
-	public static byte[] BuildAndSerialize(Dictionary<string, string>? fields)
+	public static byte[] BuildAndSerialize(Dictionary<string, string> fields)
 	{
-		fields ??= new Dictionary<string, string>();
+		var requiredFields = new[] { "name", "icon", "url", "description" };
 
-		var metadataFields = new VmNamedDynamicVariable[] { };
-		foreach (var f in fields)
+		if (fields == null || fields.Count < requiredFields.Length)
 		{
-			metadataFields = metadataFields.Append(new VmNamedDynamicVariable
+			throw new ArgumentException("Token metadata is mandatory", nameof(fields));
+		}
+
+		var missing = requiredFields
+			.Where(field => !fields.TryGetValue(field, out var value) || string.IsNullOrWhiteSpace(value))
+			.ToArray();
+
+		if (missing.Length > 0)
+		{
+			throw new ArgumentException(
+				$"Token metadata is missing required fields: {string.Join(", ", missing)}",
+				nameof(fields));
+		}
+
+		var metadataFields = fields
+			.Select(f => new VmNamedDynamicVariable
 			{
 				name = new SmallString(f.Key),
 				value = new VmDynamicVariable(f.Value)
-			}).ToArray();
-		}
+			})
+			.ToArray();
 
 		// Create a carbon structure for the token metadata
 		using MemoryStream metadataBuffer = new();
@@ -26,7 +40,6 @@ public static class TokenMetadataBuilder
 		{
 			fields = metadataFields
 		});
-		// ^ There's no standard for token metadata field names yet!
 
 		return metadataBuffer.ToArray();
 	}

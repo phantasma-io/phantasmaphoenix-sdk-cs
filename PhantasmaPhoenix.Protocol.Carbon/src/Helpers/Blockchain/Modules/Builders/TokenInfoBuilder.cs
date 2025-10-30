@@ -2,7 +2,7 @@ namespace PhantasmaPhoenix.Protocol.Carbon.Blockchain.Modules.Builders;
 
 public static class TokenInfoBuilder
 {
-	public static TokenInfo Build(string symbol, IntX maxSupply, bool isNFT, uint decimals, Bytes32 creatorPublicKey, byte[]? metadata = null, byte[]? tokenSchemas = null)
+	public static TokenInfo Build(string symbol, IntX maxSupply, bool isNFT, uint decimals, Bytes32 creatorPublicKey, byte[] metadata, byte[]? tokenSchemas = null)
 	{
 		return new TokenInfo
 		{
@@ -11,7 +11,7 @@ public static class TokenInfoBuilder
 			decimals = decimals,
 			owner = creatorPublicKey,
 			symbol = new SmallString(symbol),
-			metadata = metadata ?? TokenMetadataBuilder.BuildAndSerialize(null),
+			metadata = metadata,
 			tokenSchemas = tokenSchemas ?? TokenSchemasBuilder.BuildAndSerialize(null)
 		};
 	}
