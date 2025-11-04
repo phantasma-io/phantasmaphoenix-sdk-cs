@@ -39,6 +39,9 @@ public class TokenResult
 	[ApiDescription("Carbon token ID")]
 	public ulong CarbonId { get; set; }
 
+	[ApiDescription("Token schemas (NFT tokens only)")]
+	public TokenSchemasResult? TokenSchemas { get; set; }
+
 	// TODO Commented: TokenExternalResult[], TokenPriceResult[], should we still implement it somehow?
 	// [ApiDescription("External platforms info")]
 	// public TokenExternalResult[] external { get; set; }
