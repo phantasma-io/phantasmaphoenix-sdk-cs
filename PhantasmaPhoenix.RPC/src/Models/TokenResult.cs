@@ -37,7 +37,7 @@ public class TokenResult
 	public TokenSeriesResult[] Series { get; set; }
 
 	[ApiDescription("Carbon token ID")]
-	public ulong CarbonId { get; set; }
+	public string CarbonId { get; set; }
 
 	[ApiDescription("Token schemas (NFT tokens only)")]
 	public TokenSchemasResult? TokenSchemas { get; set; }

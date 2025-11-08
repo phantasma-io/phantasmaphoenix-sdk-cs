@@ -8,10 +8,10 @@ public class TokenSeriesResult
 	public string SeriesId { get; set; }
 
 	[ApiDescription("Carbon token ID to which this series belongs")]
-	public ulong carbonTokenId { get; set; }
+	public string carbonTokenId { get; set; }
 
 	[ApiDescription("Carbon series ID")]
-	public uint carbonSeriesId { get; set; }
+	public string carbonSeriesId { get; set; }
 
 	[ApiDescription("Current amount of tokens in circulation")]
 	public string CurrentSupply { get; set; }

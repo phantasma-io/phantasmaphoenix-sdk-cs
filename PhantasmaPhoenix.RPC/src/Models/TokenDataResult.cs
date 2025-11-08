@@ -12,7 +12,7 @@ public class TokenDataResult
 	public string Series { get; set; }
 
 	[ApiDescription("Carbon token ID to which this NFT belongs")]
-	public ulong carbonTokenId { get; set; }
+	public string carbonTokenId { get; set; }
 
 	[ApiDescription("Carbon NFT address (hex encoded, 32 bytes)")]
 	public string carbonNftAddress { get; set; }
