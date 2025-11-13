@@ -39,6 +39,9 @@ public class TokenResult
 	[ApiDescription("Carbon token ID")]
 	public string CarbonId { get; set; }
 
+	[ApiDescription("Token metadata")]
+	public TokenPropertyResult[]? Metadata { get; set; }
+
 	[ApiDescription("Token schemas (NFT tokens only)")]
 	public TokenSchemasResult? TokenSchemas { get; set; }
 
