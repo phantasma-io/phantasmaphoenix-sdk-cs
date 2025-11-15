@@ -54,16 +54,21 @@ public class TokenResult
 
 	public TokenResult() { }
 
+	private bool HasFlag(TokenFlags flag)
+	{
+		return !string.IsNullOrEmpty(Flags) && Flags.Contains(flag.ToString());
+	}
+
 	public bool IsBurnable()
 	{
-		return Flags.Contains(TokenFlags.Burnable.ToString());
+		return HasFlag(TokenFlags.Burnable);
 	}
 	public bool IsFungible()
 	{
-		return Flags.Contains(TokenFlags.Fungible.ToString());
+		return HasFlag(TokenFlags.Fungible);
 	}
 	public bool IsTransferable()
 	{
-		return Flags.Contains(TokenFlags.Transferable.ToString());
+		return HasFlag(TokenFlags.Transferable);
 	}
 }
