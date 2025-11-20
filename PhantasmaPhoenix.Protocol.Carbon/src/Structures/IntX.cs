@@ -1,3 +1,4 @@
+using System;
 using System.Numerics;
 using PhantasmaPhoenix.Core;
 
@@ -100,11 +101,27 @@ public struct IntX : ICarbonBlob
 		Throw.If((header & 0x3F) < 8, "invalid intx packing");
 		if ((header & 0x3F) == 8) // it's an 8 byte value
 		{
-			isBig = false;
 			r.Read8(out small);
 			bool headerIsNegative = (header & 0x80) != 0;
 			bool valueIsNegative = small < 0;
-			Throw.Assert(headerIsNegative == valueIsNegative);
+			if (headerIsNegative == valueIsNegative)
+			{
+				isBig = false;
+			}
+			else
+			{
+				byte[] rawBytes = BitConverter.GetBytes(small);
+				byte fill = headerIsNegative ? (byte)0xFF : (byte)0x00;
+				byte[] bigBytes = new byte[32];
+				Array.Copy(rawBytes, bigBytes, rawBytes.Length);
+				for (int i = rawBytes.Length; i < bigBytes.Length; i++)
+				{
+					bigBytes[i] = fill;
+				}
+
+				isBig = true;
+				big = new BigInteger(bigBytes);
+			}
 		}
 		else
 		{
