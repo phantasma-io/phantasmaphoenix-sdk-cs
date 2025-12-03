@@ -2,14 +2,14 @@ namespace PhantasmaPhoenix.Protocol.ExtendedEvents;
 
 public struct TokenSeriesCreateData
 {
-	public readonly string Symbol;
-	public readonly string SeriesId;
-	public readonly uint MaxMint;
-	public readonly uint MaxSupply;
-	public readonly string Owner;
-	public readonly UInt64 CarbonTokenId;
-	public readonly UInt32 CarbonSeriesId;
-	public readonly Dictionary<string, string> Metadata;
+	public string Symbol;
+	public string SeriesId;
+	public uint MaxMint;
+	public uint MaxSupply;
+	public string Owner;
+	public UInt64 CarbonTokenId;
+	public UInt32 CarbonSeriesId;
+	public Dictionary<string, string> Metadata;
 
 	public TokenSeriesCreateData(string symbol, string seriesId, uint maxMint, uint maxSupply, string owner, UInt64 carbonTokenId, UInt32 carbonSeriesId, Dictionary<string, string> metadata)
 	{

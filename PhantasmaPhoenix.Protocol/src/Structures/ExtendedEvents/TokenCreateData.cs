@@ -2,12 +2,12 @@ namespace PhantasmaPhoenix.Protocol.ExtendedEvents;
 
 public struct TokenCreateData
 {
-	public readonly string Symbol;
-	public readonly string MaxSupply;
-	public readonly uint Decimals;
-	public readonly bool IsNonFungible;
-	public readonly UInt64 CarbonTokenId;
-	public readonly Dictionary<string, string> Metadata;
+	public string Symbol;
+	public string MaxSupply;
+	public uint Decimals;
+	public bool IsNonFungible;
+	public UInt64 CarbonTokenId;
+	public Dictionary<string, string> Metadata;
 
 	public TokenCreateData(string symbol, string maxSupply, uint decimals, bool isNonFungible, UInt64 carbonTokenId, Dictionary<string, string> metadata)
 	{
