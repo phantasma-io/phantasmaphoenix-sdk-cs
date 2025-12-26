@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
@@ -76,18 +77,38 @@ public sealed class RpcClient : IDisposable
 
 		// Serialize request
 		var body = JsonConvert.SerializeObject(req, _jsonSerializerSettings);
-		_logger?.LogDebug("[RPC][Request] {Url} {Method} params={Params}", url, method, parameters);
+		if (_logger?.IsEnabled(LogLevel.Information) == true)
+		{
+			var paramCount = parameters?.Length ?? 0;
+			_logger.LogInformation("[RPC][Request] {Url} {Method} id={RequestId} params={ParamCount} bodyBytes={BodyBytes}", url, method, req.id, paramCount, Encoding.UTF8.GetByteCount(body));
+		}
+
+		if (_logger?.IsEnabled(LogLevel.Debug) == true)
+		{
+			_logger.LogDebug("[RPC][Request][Body] {Url} {Method} id={RequestId} {Json}", url, method, req.id, body);
+		}
 
 		for (int attempt = 0; attempt <= _maxRetries; attempt++)
 		{
 			try
 			{
+				var stopwatch = Stopwatch.StartNew();
 				using var content = new StringContent(body, Encoding.UTF8, "application/json");
 				using var resp = await _httpClient.PostAsync(url, content).ConfigureAwait(false);
 
 				// Read raw response JSON
 				var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-				_logger?.LogDebug("[RPC][Response] {Url} {Status} {Json}", url, resp.StatusCode, text);
+				stopwatch.Stop();
+				if (_logger?.IsEnabled(LogLevel.Information) == true)
+				{
+					var bodyBytes = text == null ? 0 : Encoding.UTF8.GetByteCount(text);
+					_logger.LogInformation("[RPC][Response] {Url} {Status} id={RequestId} elapsedMs={ElapsedMs} bodyBytes={BodyBytes}", url, resp.StatusCode, req.id, stopwatch.ElapsedMilliseconds, bodyBytes);
+				}
+
+				if (_logger?.IsEnabled(LogLevel.Debug) == true)
+				{
+					_logger.LogDebug("[RPC][Response][Body] {Url} {Status} id={RequestId} {Json}", url, resp.StatusCode, req.id, text);
+				}
 
 				var env = JsonConvert.DeserializeObject<RpcResponse>(text, _jsonSerializerSettings);
 				if (env?.Error != null)
@@ -129,16 +150,30 @@ public sealed class RpcClient : IDisposable
 	/// <returns>Deserialized result of type T or default if the body is empty</returns>
 	public async Task<T?> RestGetAsync<T>(string url)
 	{
-		_logger?.LogDebug("[REST][GET] {Url}", url);
+		if (_logger?.IsEnabled(LogLevel.Information) == true)
+		{
+			_logger.LogInformation("[REST][GET] {Url}", url);
+		}
 
 		for (int attempt = 0; attempt <= _maxRetries; attempt++)
 		{
 			try
 			{
+				var stopwatch = Stopwatch.StartNew();
 				using var resp = await _httpClient.GetAsync(url).ConfigureAwait(false);
 				var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-				_logger?.LogDebug("[REST][GET][Response] {Url} {Status} {Json}", url, resp.StatusCode, text);
+				stopwatch.Stop();
+				if (_logger?.IsEnabled(LogLevel.Information) == true)
+				{
+					var bodyBytes = text == null ? 0 : Encoding.UTF8.GetByteCount(text);
+					_logger.LogInformation("[REST][GET][Response] {Url} {Status} elapsedMs={ElapsedMs} bodyBytes={BodyBytes}", url, resp.StatusCode, stopwatch.ElapsedMilliseconds, bodyBytes);
+				}
+
+				if (_logger?.IsEnabled(LogLevel.Debug) == true)
+				{
+					_logger.LogDebug("[REST][GET][Response][Body] {Url} {Json}", url, text);
+				}
 
 				if (!resp.IsSuccessStatusCode)
 					throw new Exception($"HTTP error {resp.StatusCode}: {text}");
@@ -169,17 +204,36 @@ public sealed class RpcClient : IDisposable
 	{
 		// Serialize provided body if needed
 		var bodySerialized = body is string s ? s : JsonConvert.SerializeObject(body, _jsonSerializerSettings);
-		_logger?.LogDebug("[REST][POST] {Url} Body={Body}", url, bodySerialized);
+		if (_logger?.IsEnabled(LogLevel.Information) == true)
+		{
+			_logger.LogInformation("[REST][POST] {Url} bodyBytes={BodyBytes}", url, Encoding.UTF8.GetByteCount(bodySerialized));
+		}
+
+		if (_logger?.IsEnabled(LogLevel.Debug) == true)
+		{
+			_logger.LogDebug("[REST][POST][Body] {Url} {Json}", url, bodySerialized);
+		}
 
 		for (int attempt = 0; attempt <= _maxRetries; attempt++)
 		{
 			try
 			{
+				var stopwatch = Stopwatch.StartNew();
 				using var content = new StringContent(bodySerialized, Encoding.UTF8, "application/json");
 				using var resp = await _httpClient.PostAsync(url, content).ConfigureAwait(false);
 				var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-				_logger?.LogDebug("[REST][POST][Response] {Url} {Status} {Json}", url, resp.StatusCode, text);
+				stopwatch.Stop();
+				if (_logger?.IsEnabled(LogLevel.Information) == true)
+				{
+					var bodyBytes = text == null ? 0 : Encoding.UTF8.GetByteCount(text);
+					_logger.LogInformation("[REST][POST][Response] {Url} {Status} elapsedMs={ElapsedMs} bodyBytes={BodyBytes}", url, resp.StatusCode, stopwatch.ElapsedMilliseconds, bodyBytes);
+				}
+
+				if (_logger?.IsEnabled(LogLevel.Debug) == true)
+				{
+					_logger.LogDebug("[REST][POST][Response][Body] {Url} {Json}", url, text);
+				}
 
 				if (!resp.IsSuccessStatusCode)
 					throw new Exception($"HTTP error {resp.StatusCode}: {text}");
