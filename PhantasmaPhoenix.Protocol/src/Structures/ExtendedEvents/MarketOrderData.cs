@@ -12,6 +12,8 @@ public struct MarketOrderData
 	public string Buyer;
 	public string Price;
 	public string EndPrice;
+	public long StartDate;
+	public long EndDate;
 	public string Type;
 
 	public MarketOrderData(
@@ -25,6 +27,8 @@ public struct MarketOrderData
 		string buyer,
 		string price,
 		string endPrice,
+		long startDate,
+		long endDate,
 		string type)
 	{
 		BaseSymbol = baseSymbol;
@@ -37,6 +41,8 @@ public struct MarketOrderData
 		Buyer = buyer;
 		Price = price;
 		EndPrice = endPrice;
+		StartDate = startDate;
+		EndDate = endDate;
 		Type = type;
 	}
 }
