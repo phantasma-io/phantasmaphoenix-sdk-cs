@@ -19,7 +19,7 @@ public static partial class VmStructsGenerator
 
 	public static string VmStruct2Generate()
 	{
-		var fieldsJson = "{\"name\":\"My test token!\",\"icon\":\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCc+PHBhdGggZmlsbD0nI0Y0NDMzNicgZD0nTTcgNGg1YTUgNSAwIDAxMCAxMEg5djZIN3pNOSA2djZoM2EzIDMgMCAwMDAtNnonLz48L3N2Zz4=\",\"url\":\"http://example.com\",\"description\":\"My test token description\"}";
+		var fieldsJson = "{\"name\":\"My test token!\",\"icon\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==\",\"url\":\"http://example.com\",\"description\":\"My test token description\"}";
 
 		Dictionary<string, string>? fields =
 			JsonConvert.DeserializeObject<Dictionary<string, string>>(

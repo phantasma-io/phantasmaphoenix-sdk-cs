@@ -25,6 +25,14 @@ c:
 b:
     dotnet build
 
+# Test ALL
+[group('test')]
+test:
+    dotnet test PhantasmaPhoenix.sln
+
+[group('test')]
+t: test
+
 # Run examples
 [group('run')]
 e:

@@ -11,7 +11,7 @@ public static partial class TxGenerators
 	{
 		var wif = "KwPpBSByydVKqStGHAnZzQofCqhDmD2bfRgc9BmZqM3ZmsdWJw4d";
 		var symbol = "MYNFT";
-		var fieldsJson = "{\"name\":\"My test token!\",\"icon\":\"data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAyNCAyNCc+PHBhdGggZmlsbD0nI0Y0NDMzNicgZD0nTTcgNGg1YTUgNSAwIDAxMCAxMEg5djZIN3pNOSA2djZoM2EzIDMgMCAwMDAtNnonLz48L3N2Zz4=\",\"url\":\"http://example.com\",\"description\":\"My test token description\"}";
+		var fieldsJson = "{\"name\":\"My test token!\",\"icon\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==\",\"url\":\"http://example.com\",\"description\":\"My test token description\"}";
 		ulong maxData = 100000000;
 		ulong gasFeeBase = 10000;
 		ulong gasFeeCreateTokenBase = 10000000000;
@@ -35,7 +35,8 @@ public static partial class TxGenerators
 			true,
 			0,
 			txSenderPubKey,
-			TokenMetadataBuilder.BuildAndSerialize(fields));
+			TokenMetadataBuilder.BuildAndSerialize(fields),
+			TokenSchemasBuilder.BuildAndSerialize(null));
 
 		var feeOptions = new CreateTokenFeeOptions(
 			gasFeeBase,

@@ -5,30 +5,46 @@ namespace PhantasmaPhoenix.Protocol.Carbon.Blockchain.Modules.Builders;
 
 public static class NftRomBuilder
 {
-	public static byte[] BuildAndSerialize(BigInteger phantasmaNftId,
-		string name,
-		string description,
-		string imageURL,
-		string infoURL,
-		uint royalties,
-		byte[] rom, TokenSchemas? tokenSchemas)
+	public static byte[] BuildAndSerialize(
+		VmStructSchema nftRomSchema,
+		BigInteger phantasmaNftId,
+		IReadOnlyList<MetadataField> metadata)
 	{
-		var ts = tokenSchemas ?? TokenSchemasBuilder.PrepareStandardTokenSchemas();
+		if (metadata == null)
+		{
+			throw new ArgumentNullException(nameof(metadata));
+		}
+
+		var rom = MetadataHelper.GetOptionalBytesField(metadata, "rom");
+
+		var fields = new List<VmNamedDynamicVariable>
+		{
+			new VmNamedDynamicVariable{ name = StandardMeta.id, value = new VmDynamicVariable(phantasmaNftId) },
+			new VmNamedDynamicVariable{ name = new SmallString("rom"), value = new VmDynamicVariable(rom) },
+		};
+
+		var defaultFieldNames = new HashSet<string>(
+			MetadataHelper.NftDefaultMetadataFields.Select(f => f.Name),
+			StringComparer.Ordinal);
+
+		foreach (var schemaField in nftRomSchema.fields ?? Array.Empty<VmNamedVariableSchema>())
+		{
+			if (defaultFieldNames.Contains(schemaField.name.data))
+			{
+				continue;
+			}
+
+			MetadataHelper.PushMetadataField(schemaField, fields, metadata);
+		}
+
 		using MemoryStream romBuffer = new();
 		using BinaryWriter wRom = new(romBuffer);
 		new VmDynamicStruct
 		{
-			fields = new[]{
-				new VmNamedDynamicVariable{ name = StandardMeta.id, value = new VmDynamicVariable(phantasmaNftId) },
-				new VmNamedDynamicVariable{ name = new SmallString("name"), value = new VmDynamicVariable(name) },
-				new VmNamedDynamicVariable{ name = new SmallString("description"), value = new VmDynamicVariable(description) },
-				new VmNamedDynamicVariable{ name = new SmallString("imageURL"), value = new VmDynamicVariable(imageURL) },
-				new VmNamedDynamicVariable{ name = new SmallString("infoURL"), value = new VmDynamicVariable(infoURL) },
-				new VmNamedDynamicVariable{ name = new SmallString("royalties"), value = new VmDynamicVariable(royalties) },
-				new VmNamedDynamicVariable{ name = new SmallString("rom"), value = new VmDynamicVariable(rom) },
-			}
-		}.Write(ts.rom, wRom);
+			fields = fields.ToArray()
+		}.Write(nftRomSchema, wRom);
 
 		return romBuffer.ToArray();
 	}
+
 }
