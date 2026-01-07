@@ -30,6 +30,11 @@ public static class TokenInfoBuilder
 			symbol = new SmallString(symbol)
 		};
 
+		if (metadata == null)
+		{
+			throw new ArgumentException("metadata is required", nameof(metadata));
+		}
+
 		if (isNFT)
 		{
 			// NFTs must fit inside Int64 to match Carbon contract constraints.
@@ -40,10 +45,6 @@ public static class TokenInfoBuilder
 
 			tokenInfo.flags = TokenFlags.NonFungible;
 
-			if (metadata == null)
-			{
-				throw new ArgumentException("metadata is required for NFTs", nameof(metadata));
-			}
 			if (tokenSchemas == null)
 			{
 				throw new ArgumentException("tokenSchemas is required for NFTs", nameof(tokenSchemas));
@@ -59,7 +60,7 @@ public static class TokenInfoBuilder
 				tokenInfo.flags = TokenFlags.BigFungible;
 			}
 
-			tokenInfo.metadata = metadata ?? Array.Empty<byte>();
+			tokenInfo.metadata = metadata;
 		}
 
 		return tokenInfo;
