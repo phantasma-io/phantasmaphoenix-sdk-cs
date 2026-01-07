@@ -40,6 +40,9 @@ public static class StringExtensions
 		if (value == null)
 			return null;
 
+		if (value.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+			value = value.Substring(2);
+
 #if NET5_0_OR_GREATER
 		return Convert.FromHexString(value);
 #else

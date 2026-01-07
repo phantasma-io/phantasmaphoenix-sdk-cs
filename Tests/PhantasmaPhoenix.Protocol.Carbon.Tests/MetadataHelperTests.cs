@@ -83,6 +83,19 @@ public class MetadataHelperTests
 	}
 
 	[Fact]
+	public void Accepts_0x_Prefixed_Hex_Strings_For_Byte_Fields()
+	{
+		var schema = CreateSchema("payload", VmType.Bytes);
+		var fields = new List<VmNamedDynamicVariable>();
+		var metadata = new List<MetadataField> { new("payload", "0x0a0b") };
+
+		MetadataHelper.PushMetadataField(schema, fields, metadata);
+
+		fields[0].value.type.ShouldBe(VmType.Bytes);
+		((byte[])fields[0].value.data!).ShouldBe(new byte[] { 0x0a, 0x0b });
+	}
+
+	[Fact]
 	public void Accepts_Unsigned_Range_Values_For_Int8()
 	{
 		var schema = CreateSchema("level", VmType.Int8);
