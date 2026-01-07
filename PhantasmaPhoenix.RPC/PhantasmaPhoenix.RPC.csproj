@@ -18,7 +18,7 @@
     <PackageIcon>logo.png</PackageIcon>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/phantasma-io</RepositoryUrl>
-    <Version>0.2.18</Version>
+    <Version>0.2.19</Version>
   </PropertyGroup>
   <ItemGroup>
     <None Include="../logo.png">
@@ -27,7 +27,6 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Swashbuckle.AspNetCore.Annotations" Version="7.3.2" />
     <ProjectReference Include="..\PhantasmaPhoenix.Cryptography\PhantasmaPhoenix.Cryptography.csproj" />
     <ProjectReference Include="..\PhantasmaPhoenix.Protocol\PhantasmaPhoenix.Protocol.csproj" />
     <ProjectReference Include="..\PhantasmaPhoenix.Protocol.Carbon\PhantasmaPhoenix.Protocol.Carbon.csproj" />

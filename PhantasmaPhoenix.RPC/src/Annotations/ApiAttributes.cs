@@ -1,7 +1,3 @@
-#if NET6_0_OR_GREATER
-using Swashbuckle.AspNetCore.Annotations;
-#endif
-
 namespace PhantasmaPhoenix.RPC.Annotations;
 
 public class ApiDescriptionAttribute : Attribute
@@ -14,10 +10,11 @@ public class ApiDescriptionAttribute : Attribute
 	}
 }
 
-#if NET6_0_OR_GREATER
-public class ApiParameterAttribute : SwaggerParameterAttribute
+[AttributeUsage(AttributeTargets.Parameter | AttributeTargets.Property, AllowMultiple = false)]
+public class ApiParameterAttribute : ApiDescriptionAttribute
 {
 	public readonly string? Value;
+	public bool? Required { get; set; }
 
 	public ApiParameterAttribute(string description, string value) : base(description)
 	{
@@ -29,25 +26,6 @@ public class ApiParameterAttribute : SwaggerParameterAttribute
 		Value = null;
 	}
 }
-#else
-public class ApiParameterAttribute
-{
-	public readonly string Description;
-	public readonly string? Value;
-
-	public ApiParameterAttribute(string description, string value)
-	{
-		Description = description;
-		Value = value;
-	}
-
-	public ApiParameterAttribute(string description)
-	{
-		Description = description;
-		Value = null;
-	}
-}
-#endif
 
 
 public class ApiInfoAttribute : ApiDescriptionAttribute
