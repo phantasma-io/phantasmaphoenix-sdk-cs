@@ -77,6 +77,120 @@ public class PhantasmaAPI : IDisposable
 	public Task<string?> LookUpNameAsync(string name) =>
 		_rpc.SendRpcAsync<string>(Host, "lookUpName", name);
 
+	/// <summary>
+	/// Gets fungible token balances owned by an address (cursor pagination)
+	/// </summary>
+	/// <param name="account">Account address</param>
+	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
+	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
+	/// <param name="pageSize">Items per page</param>
+	/// <param name="cursor">Cursor for the next page</param>
+	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <returns>Cursor paginated balances or null</returns>
+	public Task<CursorPaginatedResult<BalanceResult[]>?> GetAccountFungibleTokensAsync(
+		string account,
+		string tokenSymbol = "",
+		ulong carbonTokenId = 0,
+		uint pageSize = 10,
+		string cursor = "",
+		bool checkAddressReservedByte = true) =>
+		_rpc.SendRpcAsync<CursorPaginatedResult<BalanceResult[]>>(
+			Host,
+			"getAccountFungibleTokens",
+			account,
+			tokenSymbol,
+			carbonTokenId,
+			pageSize,
+			cursor,
+			checkAddressReservedByte);
+
+	/// <summary>
+	/// Gets NFTs owned by an address (cursor pagination)
+	/// </summary>
+	/// <param name="account">Account address</param>
+	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
+	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
+	/// <param name="carbonSeriesId">Carbon series id filter (optional)</param>
+	/// <param name="pageSize">Items per page</param>
+	/// <param name="cursor">Cursor for the next page</param>
+	/// <param name="extended">True to include properties</param>
+	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <returns>Cursor paginated NFT data or null</returns>
+	public Task<CursorPaginatedResult<TokenDataResult[]>?> GetAccountNFTsAsync(
+		string account,
+		string tokenSymbol = "",
+		ulong carbonTokenId = 0,
+		uint carbonSeriesId = 0,
+		uint pageSize = 10,
+		string cursor = "",
+		bool extended = false,
+		bool checkAddressReservedByte = true) =>
+		_rpc.SendRpcAsync<CursorPaginatedResult<TokenDataResult[]>>(
+			Host,
+			"getAccountNFTs",
+			account,
+			tokenSymbol,
+			carbonTokenId,
+			carbonSeriesId,
+			pageSize,
+			cursor,
+			extended,
+			checkAddressReservedByte);
+
+	/// <summary>
+	/// Gets NFT tokens for which the account owns at least one NFT instance (cursor pagination)
+	/// </summary>
+	/// <param name="account">Account address</param>
+	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
+	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
+	/// <param name="pageSize">Items per page</param>
+	/// <param name="cursor">Cursor for the next page</param>
+	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <returns>Cursor paginated token data or null</returns>
+	public Task<CursorPaginatedResult<TokenResult[]>?> GetAccountOwnedTokensAsync(
+		string account,
+		string tokenSymbol = "",
+		ulong carbonTokenId = 0,
+		uint pageSize = 10,
+		string cursor = "",
+		bool checkAddressReservedByte = true) =>
+		_rpc.SendRpcAsync<CursorPaginatedResult<TokenResult[]>>(
+			Host,
+			"getAccountOwnedTokens",
+			account,
+			tokenSymbol,
+			carbonTokenId,
+			pageSize,
+			cursor,
+			checkAddressReservedByte);
+
+	/// <summary>
+	/// Gets NFT series for which the account owns at least one NFT instance (cursor pagination)
+	/// </summary>
+	/// <param name="account">Account address</param>
+	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
+	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
+	/// <param name="pageSize">Items per page</param>
+	/// <param name="cursor">Cursor for the next page</param>
+	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <returns>Cursor paginated series data or null</returns>
+	public Task<CursorPaginatedResult<TokenSeriesResult[]>?> GetAccountOwnedTokenSeriesAsync(
+		string account,
+		string tokenSymbol = "",
+		ulong carbonTokenId = 0,
+		uint pageSize = 10,
+		string cursor = "",
+		bool checkAddressReservedByte = true) =>
+		_rpc.SendRpcAsync<CursorPaginatedResult<TokenSeriesResult[]>>(
+			Host,
+			"getAccountOwnedTokenSeries",
+			account,
+			tokenSymbol,
+			carbonTokenId,
+			pageSize,
+			cursor,
+			checkAddressReservedByte);
+
 	#endregion
 
 	#region Auction
@@ -194,6 +308,15 @@ public class PhantasmaAPI : IDisposable
 	public Task<ChainResult[]?> GetChainsAsync() =>
 		_rpc.SendRpcAsync<ChainResult[]>(Host, "getChains");
 
+	/// <summary>
+	/// Gets chain information by name
+	/// </summary>
+	/// <param name="name">Chain name</param>
+	/// <param name="extended">True to include extended data</param>
+	/// <returns>Chain data or null</returns>
+	public Task<ChainResult?> GetChainAsync(string name = "main", bool extended = true) =>
+		_rpc.SendRpcAsync<ChainResult>(Host, "getChain", name, extended);
+
 	#endregion
 
 	#region Contract
@@ -206,6 +329,15 @@ public class PhantasmaAPI : IDisposable
 	/// <returns>Contract data or null</returns>
 	public Task<ContractResult?> GetContractAsync(string contractName) =>
 		_rpc.SendRpcAsync<ContractResult>(Host, "getContract", PhantasmaPhoenix.Protocol.DomainSettings.RootChainName, contractName);
+
+	/// <summary>
+	/// Gets contract metadata by address from a specific chain
+	/// </summary>
+	/// <param name="chainAddressOrName">Chain address or name</param>
+	/// <param name="contractAddress">Contract address</param>
+	/// <returns>Contract data or null</returns>
+	public Task<ContractResult?> GetContractByAddressAsync(string chainAddressOrName, string contractAddress) =>
+		_rpc.SendRpcAsync<ContractResult>(Host, "getContractByAddress", chainAddressOrName, contractAddress);
 
 	/// <summary>
 	/// Gets all contracts deployed on the main chain
@@ -283,11 +415,75 @@ public class PhantasmaAPI : IDisposable
 		_rpc.SendRpcAsync<TokenResult>(Host, "getToken", symbol);
 
 	/// <summary>
+	/// Gets token metadata by symbol or carbon token id
+	/// </summary>
+	/// <param name="symbol">Token symbol (optional when using carbonTokenId)</param>
+	/// <param name="extended">True to include extended data</param>
+	/// <param name="carbonTokenId">Carbon token id (optional when using symbol)</param>
+	/// <returns>Token data or null</returns>
+	public Task<TokenResult?> GetTokenAsync(string symbol, bool extended, ulong carbonTokenId) =>
+		_rpc.SendRpcAsync<TokenResult>(Host, "getToken", symbol, extended, carbonTokenId);
+
+	/// <summary>
 	/// Gets an array of all tokens deployed on Phantasma
 	/// </summary>
 	/// <returns>Array of token metadata or null</returns>
 	public Task<TokenResult[]?> GetTokensAsync() =>
 		_rpc.SendRpcAsync<TokenResult[]>(Host, "getTokens");
+
+	/// <summary>
+	/// Gets an array of all tokens deployed on Phantasma with optional owner filtering
+	/// </summary>
+	/// <param name="extended">True to include extended data</param>
+	/// <param name="ownerAddress">Optional owner address filter</param>
+	/// <returns>Array of token metadata or null</returns>
+	public Task<TokenResult[]?> GetTokensAsync(bool extended, string? ownerAddress = null) =>
+		_rpc.SendRpcAsync<TokenResult[]>(Host, "getTokens", extended, ownerAddress);
+
+	/// <summary>
+	/// Gets token series for a token (cursor pagination)
+	/// </summary>
+	/// <param name="symbol">Token symbol (optional when using carbonTokenId)</param>
+	/// <param name="carbonTokenId">Carbon token id (optional when using symbol)</param>
+	/// <param name="pageSize">Items per page</param>
+	/// <param name="cursor">Cursor for the next page</param>
+	/// <returns>Cursor paginated series data or null</returns>
+	public Task<CursorPaginatedResult<TokenSeriesResult[]>?> GetTokenSeriesAsync(
+		string symbol = "",
+		ulong carbonTokenId = 0,
+		uint pageSize = 10,
+		string cursor = "") =>
+		_rpc.SendRpcAsync<CursorPaginatedResult<TokenSeriesResult[]>>(
+			Host,
+			"getTokenSeries",
+			symbol,
+			carbonTokenId,
+			pageSize,
+			cursor);
+
+	/// <summary>
+	/// Gets NFTs for a token (cursor pagination)
+	/// </summary>
+	/// <param name="carbonTokenId">Carbon token id</param>
+	/// <param name="carbonSeriesId">Carbon series id filter (optional)</param>
+	/// <param name="pageSize">Items per page</param>
+	/// <param name="cursor">Cursor for the next page</param>
+	/// <param name="extended">True to include properties</param>
+	/// <returns>Cursor paginated NFT data or null</returns>
+	public Task<CursorPaginatedResult<TokenDataResult[]>?> GetTokenNFTsAsync(
+		ulong carbonTokenId,
+		uint carbonSeriesId = 0,
+		uint pageSize = 10,
+		string cursor = "",
+		bool extended = false) =>
+		_rpc.SendRpcAsync<CursorPaginatedResult<TokenDataResult[]>>(
+			Host,
+			"getTokenNFTs",
+			carbonTokenId,
+			carbonSeriesId,
+			pageSize,
+			cursor,
+			extended);
 
 	/// <summary>
 	/// Gets the token balance for a given address and token symbol
