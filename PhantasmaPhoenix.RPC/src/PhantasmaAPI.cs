@@ -254,11 +254,12 @@ public class PhantasmaAPI : IDisposable
 	/// <summary>
 	/// Gets the number of transactions in a block by block hash
 	/// </summary>
+	/// <param name="chainAddressOrName">Chain address or name</param>
 	/// <param name="blockHash">Block hash</param>
 	/// <returns>Transaction count</returns>
-	public async Task<int> GetBlockTransactionCountByHashAsync(string blockHash)
+	public async Task<int> GetBlockTransactionCountByHashAsync(string chainAddressOrName, string blockHash)
 	{
-		var s = await _rpc.SendRpcAsync<string>(Host, "getBlockTransactionCountByHash", blockHash);
+		var s = await _rpc.SendRpcAsync<string>(Host, "getBlockTransactionCountByHash", chainAddressOrName, blockHash);
 		return int.Parse(s ?? "0", CultureInfo.InvariantCulture);
 	}
 
@@ -518,13 +519,13 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets NFT data for multiple token ids
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="symbol">NFT symbol</param>
 	/// <param name="tokenIds">Array of token ids</param>
+	/// <param name="extended">True to load properties</param>
 	/// <returns>Array of NFT data or null</returns>
-	public Task<TokenDataResult[]?> GetNFTsAsync(string symbol, string[] tokenIds) =>
-		_rpc.SendRpcAsync<TokenDataResult[]>(Host, "getNFTs", symbol, tokenIds);
+	public Task<TokenDataResult[]?> GetNFTsAsync(string symbol, IEnumerable<string> tokenIds, bool extended = false) =>
+		_rpc.SendRpcAsync<TokenDataResult[]>(Host, "getNFTs", symbol, string.Join(",", tokenIds), extended);
 
 	#endregion
 
