@@ -26,3 +26,9 @@ TestDataGenerator/bin
 TestDataGenerator/obj
 Tests/PhantasmaPhoenix.Protocol.Carbon.Tests/bin
 Tests/PhantasmaPhoenix.Protocol.Carbon.Tests/obj
+Tests/PhantasmaPhoenix.Cryptography.Tests/bin
+Tests/PhantasmaPhoenix.Cryptography.Tests/obj
+Tests/PhantasmaPhoenix.Protocol.Tests/bin
+Tests/PhantasmaPhoenix.Protocol.Tests/obj
+Tests/PhantasmaPhoenix.VM.Tests/bin
+Tests/PhantasmaPhoenix.VM.Tests/obj
