@@ -136,26 +136,226 @@ public class CarbonSerializationFixtureTests
 					break;
 				}
 			case "VMSTRUCT01":
-				BuildVmStruct1Bytes().ToHex().ShouldBe(row.Hex.ToUpperInvariant());
-				break;
+				{
+					var schemas = (TokenSchemas)decoded!;
+					ExpectStandardTokenSchemas(schemas);
+					ExpectReencoded(schemas, row.Hex);
+					break;
+				}
 			case "VMSTRUCT02":
-				BuildVmStruct2Bytes().ToHex().ShouldBe(row.Hex.ToUpperInvariant());
-				break;
+				{
+					var metadata = (VmDynamicStruct)decoded!;
+					metadata.fields.Length.ShouldBe(4);
+					ExpectStructString(metadata, "name", "My test token!");
+					ExpectStructString(metadata, "icon", SamplePngIconDataUri);
+					ExpectStructString(metadata, "url", "http://example.com");
+					ExpectStructString(metadata, "description", "My test token description");
+					ExpectReencoded(metadata, row.Hex);
+					break;
+				}
 			case "TX1":
-				CarbonBlob.Serialize(BuildTx1()).ToHex().ShouldBe(row.Hex.ToUpperInvariant());
-				break;
+				{
+					var tx = (TxMsg)decoded!;
+					tx.type.ShouldBe(TxTypes.TransferFungible);
+					tx.expiry.ShouldBe(1759711416000);
+					tx.maxGas.ShouldBe(10000000UL);
+					tx.maxData.ShouldBe(1000UL);
+					tx.gasFrom.Equals(Bytes32.Empty).ShouldBeTrue();
+					tx.payload.data.ShouldBe("test-payload");
+
+					var msg = (TxMsgTransferFungible)tx.msg;
+					msg.tokenId.ShouldBe(1UL);
+					msg.amount.ShouldBe(100000000UL);
+					msg.to.Equals(Bytes32.Empty).ShouldBeTrue();
+
+					ExpectReencoded(tx, row.Hex);
+					break;
+				}
 			case "TX2":
-				BuildSignedTx2Bytes().ToHex().ShouldBe(row.Hex.ToUpperInvariant());
-				break;
+				{
+					var txSender = PhantasmaKeys.FromWIF("KwPpBSByydVKqStGHAnZzQofCqhDmD2bfRgc9BmZqM3ZmsdWJw4d");
+					var txReceiver = PhantasmaKeys.FromWIF("KwVG94yjfVg1YKFyRxAGtug93wdRbmLnqqrFV6Yd2CiA9KZDAp4H");
+					var senderPubKey = new Bytes32(txSender.PublicKey);
+					var receiverPubKey = new Bytes32(txReceiver.PublicKey);
+
+					var signed = (SignedTxMsg)decoded!;
+					var tx = signed.msg;
+					tx.type.ShouldBe(TxTypes.TransferFungible);
+					tx.expiry.ShouldBe(1759711416000);
+					tx.maxGas.ShouldBe(10000000UL);
+					tx.maxData.ShouldBe(1000UL);
+					tx.gasFrom.Equals(senderPubKey).ShouldBeTrue();
+					tx.payload.data.ShouldBe("test-payload");
+
+					var msg = (TxMsgTransferFungible)tx.msg;
+					msg.tokenId.ShouldBe(1UL);
+					msg.amount.ShouldBe(100000000UL);
+					msg.to.Equals(receiverPubKey).ShouldBeTrue();
+
+					signed.witnesses.Length.ShouldBe(1);
+					signed.witnesses[0].address.Equals(senderPubKey).ShouldBeTrue();
+					signed.witnesses[0].signature.bytes.Length.ShouldBe(64);
+
+					ExpectReencoded(signed, row.Hex);
+					break;
+				}
 			case "TX-CREATE-TOKEN":
-				CarbonBlob.Serialize(BuildCreateTokenTx()).ToHex().ShouldBe(row.Hex.ToUpperInvariant());
-				break;
+				{
+					var wif = "KwPpBSByydVKqStGHAnZzQofCqhDmD2bfRgc9BmZqM3ZmsdWJw4d";
+					var symbol = "MYNFT";
+					ulong maxData = 100000000;
+					ulong gasFeeBase = 10000;
+					ulong gasFeeCreateTokenBase = 10000000000;
+					ulong gasFeeCreateTokenSymbol = 10000000000;
+					ulong feeMultiplier = 10000;
+
+					var txSender = PhantasmaKeys.FromWIF(wif);
+					var txSenderPubKey = new Bytes32(txSender.PublicKey);
+
+					var feeOptions = new CreateTokenFeeOptions(
+						gasFeeBase,
+						gasFeeCreateTokenBase,
+						gasFeeCreateTokenSymbol,
+						feeMultiplier
+					);
+
+					var tx = (TxMsg)decoded!;
+					tx.type.ShouldBe(TxTypes.Call);
+					tx.expiry.ShouldBe(1759711416000);
+					tx.maxData.ShouldBe(maxData);
+					tx.gasFrom.Equals(txSenderPubKey).ShouldBeTrue();
+					tx.payload.data.ShouldBe(string.Empty);
+
+					var call = (TxMsgCall)tx.msg;
+					call.moduleId.ShouldBe((uint)ModuleId.Token);
+					call.methodId.ShouldBe((uint)TokenContract_Methods.CreateToken);
+					call.args.Length.ShouldBeGreaterThan(0);
+
+					var tokenInfo = CarbonBlob.New<TokenInfo>(call.args);
+					tokenInfo.symbol.data.ShouldBe(symbol);
+					tokenInfo.decimals.ShouldBe(0u);
+					tokenInfo.flags.ShouldBe(TokenFlags.NonFungible);
+					tokenInfo.owner.Equals(txSenderPubKey).ShouldBeTrue();
+					tokenInfo.maxSupply.IsZero.ShouldBeTrue();
+
+					var metadata = CarbonBlob.New<VmDynamicStruct>(tokenInfo.metadata);
+					metadata.fields.Length.ShouldBe(4);
+					ExpectStructString(metadata, "name", "My test token!");
+					ExpectStructString(metadata, "icon", SamplePngIconDataUri);
+					ExpectStructString(metadata, "url", "http://example.com");
+					ExpectStructString(metadata, "description", "My test token description");
+
+					tokenInfo.tokenSchemas.ShouldNotBeNull();
+					var schemas = CarbonBlob.New<TokenSchemas>(tokenInfo.tokenSchemas);
+					ExpectStandardTokenSchemas(schemas);
+
+					var expectedMaxGas = feeOptions.CalculateMaxGas(tokenInfo.symbol);
+					tx.maxGas.ShouldBe(expectedMaxGas);
+
+					ExpectReencoded(tx, row.Hex);
+					break;
+				}
 			case "TX-CREATE-TOKEN-SERIES":
-				CarbonBlob.Serialize(BuildCreateTokenSeriesTx()).ToHex().ShouldBe(row.Hex.ToUpperInvariant());
-				break;
+				{
+					var wif = "KwPpBSByydVKqStGHAnZzQofCqhDmD2bfRgc9BmZqM3ZmsdWJw4d";
+					ulong tokenId = ulong.MaxValue;
+					ulong maxData = 100000000;
+					ulong gasFeeBase = 10000;
+					ulong gasFeeCreateTokenSeries = 2500000000;
+					ulong feeMultiplier = 10000;
+
+					var txSender = PhantasmaKeys.FromWIF(wif);
+					var txSenderPubKey = new Bytes32(txSender.PublicKey);
+					var newPhantasmaSeriesId = (BigInteger.One << 256) - 1;
+
+					var feeOptions = new CreateSeriesFeeOptions(
+						gasFeeBase,
+						gasFeeCreateTokenSeries,
+						feeMultiplier
+					);
+
+					var tx = (TxMsg)decoded!;
+					tx.type.ShouldBe(TxTypes.Call);
+					tx.expiry.ShouldBe(1759711416000);
+					tx.maxData.ShouldBe(maxData);
+					tx.gasFrom.Equals(txSenderPubKey).ShouldBeTrue();
+					tx.payload.data.ShouldBe(string.Empty);
+
+					var call = (TxMsgCall)tx.msg;
+					call.moduleId.ShouldBe((uint)ModuleId.Token);
+					call.methodId.ShouldBe((uint)TokenContract_Methods.CreateTokenSeries);
+
+					using var argsStream = new MemoryStream(call.args);
+					using var argsReader = new BinaryReader(argsStream);
+					argsReader.Read8(out ulong decodedTokenId);
+					decodedTokenId.ShouldBe(tokenId);
+					var seriesInfo = argsReader.Read<SeriesInfo>();
+
+					seriesInfo.maxMint.ShouldBe(0u);
+					seriesInfo.maxSupply.ShouldBe(0u);
+					seriesInfo.owner.Equals(txSenderPubKey).ShouldBeTrue();
+					seriesInfo.rom.fields.Length.ShouldBe(0);
+					seriesInfo.ram.fields.Length.ShouldBe(0);
+
+					var schemas = TokenSchemasBuilder.PrepareStandardTokenSchemas();
+					var seriesMeta = VmDynamicStruct.New(schemas.seriesMetadata, seriesInfo.metadata);
+					seriesMeta.fields.Length.ShouldBe(3);
+					ExpectStructInt256(seriesMeta, StandardMeta.id.data, ToSignedInt256(newPhantasmaSeriesId));
+					ExpectStructInt8(seriesMeta, "mode", 0);
+					ExpectStructBytes(seriesMeta, "rom", Array.Empty<byte>());
+
+					var expectedMaxGas = feeOptions.CalculateMaxGas();
+					tx.maxGas.ShouldBe(expectedMaxGas);
+
+					ExpectReencoded(tx, row.Hex);
+					break;
+				}
 			case "TX-MINT-NON-FUNGIBLE":
-				CarbonBlob.Serialize(BuildMintNonFungibleTx()).ToHex().ShouldBe(row.Hex.ToUpperInvariant());
-				break;
+				{
+					var wif = "KwPpBSByydVKqStGHAnZzQofCqhDmD2bfRgc9BmZqM3ZmsdWJw4d";
+					ulong carbonTokenId = ulong.MaxValue;
+					uint carbonSeriesId = uint.MaxValue;
+					ulong maxData = 100000000;
+					ulong gasFeeBase = 10000;
+					ulong feeMultiplier = 1000;
+
+					var txSender = PhantasmaKeys.FromWIF(wif);
+					var txSenderPubKey = new Bytes32(txSender.PublicKey);
+
+					BigInteger phantasmaId = (BigInteger.One << 256) - 1;
+					byte[] phantasmaRomData = { 0x01, 0x42 };
+
+					var feeOptions = new MintNftFeeOptions(gasFeeBase, feeMultiplier);
+
+					var tx = (TxMsg)decoded!;
+					tx.type.ShouldBe(TxTypes.MintNonFungible);
+					tx.expiry.ShouldBe(1759711416000);
+					tx.maxData.ShouldBe(maxData);
+					tx.gasFrom.Equals(txSenderPubKey).ShouldBeTrue();
+					tx.payload.data.ShouldBe(string.Empty);
+
+					var mint = (TxMsgMintNonFungible)tx.msg;
+					mint.tokenId.ShouldBe(carbonTokenId);
+					mint.seriesId.ShouldBe(carbonSeriesId);
+					mint.to.Equals(txSenderPubKey).ShouldBeTrue();
+					mint.ram.Length.ShouldBe(0);
+
+					var schemas = TokenSchemasBuilder.PrepareStandardTokenSchemas();
+					var romStruct = VmDynamicStruct.New(schemas.rom, mint.rom);
+					ExpectStructInt256(romStruct, StandardMeta.id.data, ToSignedInt256(phantasmaId));
+					ExpectStructBytes(romStruct, "rom", phantasmaRomData);
+					ExpectStructString(romStruct, "name", "My NFT #1");
+					ExpectStructString(romStruct, "description", "This is my first NFT!");
+					ExpectStructString(romStruct, "imageURL", "images-assets.nasa.gov/image/PIA13227/PIA13227~orig.jpg");
+					ExpectStructString(romStruct, "infoURL", "https://images.nasa.gov/details/PIA13227");
+					ExpectStructInt32(romStruct, "royalties", 10000000);
+
+					var expectedMaxGas = feeOptions.CalculateMaxGas();
+					tx.maxGas.ShouldBe(expectedMaxGas);
+
+					ExpectReencoded(tx, row.Hex);
+					break;
+				}
 			default:
 				throw new InvalidOperationException($"Unhandled kind: {row.Kind}");
 		}
@@ -571,6 +771,83 @@ public class CarbonSerializationFixtureTests
 			maxData,
 			1759711416000
 		);
+	}
+
+	private static void ExpectReencoded<T>(T value, string expectedHex) where T : ICarbonBlob, new()
+	{
+		CarbonBlob.Serialize(value).ToHex().ShouldBe(expectedHex.ToUpperInvariant());
+	}
+
+	private static VmNamedDynamicVariable GetStructField(VmDynamicStruct structure, string name)
+	{
+		foreach (var field in structure.fields)
+		{
+			if (field.name.data == name)
+			{
+				return field;
+			}
+		}
+
+		throw new InvalidOperationException($"Missing struct field '{name}'");
+	}
+
+	private static void ExpectStructString(VmDynamicStruct structure, string name, string expected)
+	{
+		var field = GetStructField(structure, name);
+		field.value.type.ShouldBe(VmType.String);
+		field.value.GetString().ShouldBe(expected);
+	}
+
+	private static void ExpectStructBytes(VmDynamicStruct structure, string name, byte[] expected)
+	{
+		var field = GetStructField(structure, name);
+		field.value.type.ShouldBe(VmType.Bytes);
+		field.value.GetBytes().ToHex().ShouldBe(expected.ToHex());
+	}
+
+	private static void ExpectStructInt256(VmDynamicStruct structure, string name, BigInteger expected)
+	{
+		var field = GetStructField(structure, name);
+		field.value.type.ShouldBe(VmType.Int256);
+		field.value.GetInt256().ShouldBe(expected);
+	}
+
+	private static void ExpectStructInt8(VmDynamicStruct structure, string name, sbyte expected)
+	{
+		var field = GetStructField(structure, name);
+		field.value.type.ShouldBe(VmType.Int8);
+		field.value.GetInt8().ShouldBe(expected);
+	}
+
+	private static void ExpectStructInt32(VmDynamicStruct structure, string name, int expected)
+	{
+		var field = GetStructField(structure, name);
+		field.value.type.ShouldBe(VmType.Int32);
+		field.value.GetInt32().ShouldBe(expected);
+	}
+
+	private static void ExpectSchemaMatches(VmStructSchema actual, VmStructSchema expected)
+	{
+		actual.fields.Select(f => f.name.data).ToArray().ShouldBe(expected.fields.Select(f => f.name.data).ToArray());
+		actual.fields.Select(f => f.schema.type).ToArray().ShouldBe(expected.fields.Select(f => f.schema.type).ToArray());
+		actual.flags.ShouldBe(expected.flags);
+	}
+
+	private static void ExpectStandardTokenSchemas(TokenSchemas schemas)
+	{
+		var expected = TokenSchemasBuilder.PrepareStandardTokenSchemas();
+		ExpectSchemaMatches(schemas.seriesMetadata, expected.seriesMetadata);
+		ExpectSchemaMatches(schemas.rom, expected.rom);
+		ExpectSchemaMatches(schemas.ram, expected.ram);
+	}
+
+	// VM Int256 is stored as two's complement in 256-bit space; normalize unsigned values for comparisons.
+	private static BigInteger ToSignedInt256(BigInteger value)
+	{
+		var mask = (BigInteger.One << 256) - 1;
+		var signBit = BigInteger.One << 255;
+		var normalized = value & mask;
+		return (normalized & signBit) == 0 ? normalized : normalized - (BigInteger.One << 256);
 	}
 
 	private static byte[] ParseHex(string value) => value.FromHex() ?? Array.Empty<byte>();
