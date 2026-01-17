@@ -7,6 +7,7 @@ public enum ModuleId : uint
 	Token = 1u,
 	PhantasmaVm = 2u,
 	Organization = 3u,
+	Market = 4u,
 }
 
 public enum TokenFlags
@@ -40,4 +41,17 @@ public enum TokenContract_Methods
 	GetTokenIdBySymbol = 19,
 	GetBalances = 20,
 	CreateMintedTokenSeries = 21,
+}
+
+public enum MarketContract_Methods
+{
+	SellToken = 0,
+	SellTokenById = 1,
+	CancelSale = 2,
+	CancelSaleById = 3,
+	BuyToken = 4,
+	BuyTokenById = 5,
+	GetTokenListingCount = 6,
+	GetTokenListingInfo = 7,
+	GetTokenListingInfoById = 8,
 }
