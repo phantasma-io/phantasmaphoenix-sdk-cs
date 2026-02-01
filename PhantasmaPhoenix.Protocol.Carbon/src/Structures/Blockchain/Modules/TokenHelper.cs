@@ -2,7 +2,16 @@ namespace PhantasmaPhoenix.Protocol.Carbon.Blockchain.Modules;
 
 public static class SystemAddress
 {
-	public static Bytes32 Null = new Bytes32 { bytes = new byte[32] }; // All elements default to 0
+	private static Bytes32 Create(byte lastByte)
+	{
+		var bytes = new byte[32];
+		bytes[31] = lastByte;
+		return new Bytes32 { bytes = bytes };
+	}
+
+	public static Bytes32 Null = Create(0); // All elements default to 0
+	public static Bytes32 GasPool = Create(1);
+	public static Bytes32 DataPool = Create(2);
 }
 
 public static class TokenHelper

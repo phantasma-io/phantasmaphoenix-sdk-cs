@@ -58,7 +58,7 @@ public static class MetadataHelper
 		new FieldType("description", VmType.String),
 		new FieldType("imageURL", VmType.String),
 		new FieldType("infoURL", VmType.String),
-		new FieldType("royalties", VmType.Int32)
+		new FieldType(StandardMeta.Token.Nft.royalties.data, VmType.Int32)
 	};
 
 	public static MetadataField? FindMetadataField(IReadOnlyList<MetadataField> fields, string name)

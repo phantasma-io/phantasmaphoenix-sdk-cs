@@ -28,5 +28,11 @@ public static class StandardMeta
 		public static SmallString phantasma_script = new("_phs");
 		public static SmallString phantasma_abi = new("_phb");
 		public static SmallString pre_burn = new("_brn");
+
+		public static class Nft
+		{
+		public static SmallString royalties = new("royalties");
+		public static SmallString phantasmaRom = new("rom");
 	}
+}
 }
