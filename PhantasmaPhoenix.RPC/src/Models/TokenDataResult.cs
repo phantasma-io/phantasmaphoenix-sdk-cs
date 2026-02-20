@@ -14,6 +14,9 @@ public class TokenDataResult
 	[ApiDescription("Carbon token ID to which this NFT belongs")]
 	public string carbonTokenId { get; set; }
 
+	[ApiDescription("Carbon series ID to which this NFT belongs")]
+	public string carbonSeriesId { get; set; }
+
 	[ApiDescription("Carbon NFT address (hex encoded, 32 bytes)")]
 	public string carbonNftAddress { get; set; }
 
