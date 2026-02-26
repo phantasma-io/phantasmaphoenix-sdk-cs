@@ -18,7 +18,7 @@
     <PackageIcon>logo.png</PackageIcon>
     <RepositoryType>git</RepositoryType>
     <RepositoryUrl>https://github.com/phantasma-io</RepositoryUrl>
-    <Version>0.2.4</Version>
+    <Version>0.2.5</Version>
   </PropertyGroup>
   <ItemGroup>
     <None Include="../logo.png">
@@ -27,7 +27,7 @@
     </None>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="7.0.1" />
   </ItemGroup>
 </Project>

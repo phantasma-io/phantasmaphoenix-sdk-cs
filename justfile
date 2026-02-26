@@ -68,6 +68,23 @@ p:
 publish-nugets:
     sh ./scripts/publish-nugets.sh
 
+[group('publish')]
+release-validate manifest="release/release-manifest.json":
+    ./scripts/release-validate.sh {{manifest}}
+
+[group('publish')]
+release-smoke manifest="release/release-manifest.json":
+    ./scripts/release-smoke.sh {{manifest}}
+
+[group('publish')]
+release-check manifest="release/release-manifest.json":
+    ./scripts/release-validate.sh {{manifest}}
+    ./scripts/release-smoke.sh {{manifest}}
+
+[group('publish')]
+release-publish manifest="release/release-manifest.json":
+    ./scripts/release-publish.sh {{manifest}} ./output/nupkgs
+
 [group('maintenance')]
 eols:
     cd PhantasmaPhoenix.Core && just eols

@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "id": "PhantasmaPhoenix.Core",
+      "project": "PhantasmaPhoenix.Core/PhantasmaPhoenix.Core.csproj",
+      "version": "0.2.5",
+      "publish": true,
+      "dependencies": {}
+    },
+    {
+      "id": "PhantasmaPhoenix.Cryptography",
+      "project": "PhantasmaPhoenix.Cryptography/PhantasmaPhoenix.Cryptography.csproj",
+      "version": "0.2.2",
+      "publish": true,
+      "dependencies": {
+        "PhantasmaPhoenix.Core": "0.2.5"
+      }
+    },
+    {
+      "id": "PhantasmaPhoenix.Protocol",
+      "project": "PhantasmaPhoenix.Protocol/PhantasmaPhoenix.Protocol.csproj",
+      "version": "0.2.10",
+      "publish": true,
+      "dependencies": {
+        "PhantasmaPhoenix.Cryptography": "0.2.2"
+      }
+    },
+    {
+      "id": "PhantasmaPhoenix.Protocol.Carbon",
+      "project": "PhantasmaPhoenix.Protocol.Carbon/PhantasmaPhoenix.Protocol.Carbon.csproj",
+      "version": "0.2.19",
+      "publish": true,
+      "dependencies": {
+        "PhantasmaPhoenix.Core": "0.2.5",
+        "PhantasmaPhoenix.Cryptography": "0.2.2"
+      }
+    },
+    {
+      "id": "PhantasmaPhoenix.RPC",
+      "project": "PhantasmaPhoenix.RPC/PhantasmaPhoenix.RPC.csproj",
+      "version": "0.2.23",
+      "publish": true,
+      "dependencies": {
+        "PhantasmaPhoenix.Cryptography": "0.2.2",
+        "PhantasmaPhoenix.Protocol": "0.2.10",
+        "PhantasmaPhoenix.Protocol.Carbon": "0.2.19"
+      }
+    },
+    {
+      "id": "PhantasmaPhoenix.VM",
+      "project": "PhantasmaPhoenix.VM/PhantasmaPhoenix.VM.csproj",
+      "version": "0.1.1",
+      "publish": true,
+      "dependencies": {
+        "PhantasmaPhoenix.Core": "0.2.5",
+        "PhantasmaPhoenix.Cryptography": "0.2.2",
+        "PhantasmaPhoenix.Protocol": "0.2.10"
+      }
+    },
+    {
+      "id": "PhantasmaPhoenix.Link",
+      "project": "PhantasmaPhoenix.Link/PhantasmaPhoenix.Link.csproj",
+      "version": "0.1.1",
+      "publish": true,
+      "dependencies": {
+        "PhantasmaPhoenix.Protocol": "0.2.10"
+      }
+    },
+    {
+      "id": "PhantasmaPhoenix.InteropChains.Legacy",
+      "project": "PhantasmaPhoenix.InteropChains.Legacy/PhantasmaPhoenix.InteropChains.Legacy.csproj",
+      "version": "0.1.1",
+      "publish": true,
+      "dependencies": {
+        "PhantasmaPhoenix.Cryptography": "0.2.2"
+      }
+    },
+    {
+      "id": "PhantasmaPhoenix.Cryptography.Legacy",
+      "project": "PhantasmaPhoenix.Cryptography.Legacy/PhantasmaPhoenix.Cryptography.Legacy.csproj",
+      "version": "0.1.1",
+      "publish": true,
+      "dependencies": {
+        "PhantasmaPhoenix.Core": "0.2.5",
+        "PhantasmaPhoenix.Cryptography": "0.2.2"
+      }
+    },
+    {
+      "id": "PhantasmaPhoenix.NFT",
+      "project": "PhantasmaPhoenix.NFT/PhantasmaPhoenix.NFT.csproj",
+      "version": "0.1.1",
+      "publish": true,
+      "dependencies": {
+        "PhantasmaPhoenix.Protocol": "0.2.10",
+        "PhantasmaPhoenix.RPC": "0.2.23",
+        "PhantasmaPhoenix.VM": "0.1.1"
+      }
+    }
+  ],
+  "publishOrder": [
+    "PhantasmaPhoenix.Core",
+    "PhantasmaPhoenix.Cryptography",
+    "PhantasmaPhoenix.Protocol",
+    "PhantasmaPhoenix.Protocol.Carbon",
+    "PhantasmaPhoenix.RPC",
+    "PhantasmaPhoenix.VM",
+    "PhantasmaPhoenix.Link",
+    "PhantasmaPhoenix.InteropChains.Legacy",
+    "PhantasmaPhoenix.Cryptography.Legacy",
+    "PhantasmaPhoenix.NFT"
+  ]
+}
