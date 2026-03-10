@@ -463,6 +463,29 @@ public class PhantasmaAPI : IDisposable
 			cursor);
 
 	/// <summary>
+	/// Gets a single token series by either Phantasma series id or Carbon series id.
+	/// Provide one token identity: <paramref name="symbol"/> or <paramref name="carbonTokenId"/>.
+	/// Provide one series identity: <paramref name="seriesId"/> or <paramref name="carbonSeriesId"/>.
+	/// </summary>
+	/// <param name="symbol">Token symbol (optional when using carbonTokenId)</param>
+	/// <param name="carbonTokenId">Carbon token id (optional when using symbol)</param>
+	/// <param name="seriesId">Phantasma series id (optional when using carbonSeriesId)</param>
+	/// <param name="carbonSeriesId">Carbon series id (optional when using seriesId)</param>
+	/// <returns>Single series entry or null</returns>
+	public Task<TokenSeriesResult?> GetTokenSeriesByIdAsync(
+		string symbol = "",
+		ulong carbonTokenId = 0,
+		string seriesId = "",
+		uint carbonSeriesId = 0) =>
+		_rpc.SendRpcAsync<TokenSeriesResult>(
+			Host,
+			"getTokenSeriesById",
+			symbol,
+			carbonTokenId,
+			seriesId,
+			carbonSeriesId);
+
+	/// <summary>
 	/// Gets NFTs for a token (cursor pagination)
 	/// </summary>
 	/// <param name="carbonTokenId">Carbon token id</param>

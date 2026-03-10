@@ -13,6 +13,15 @@ public class TokenSeriesResult
 	[ApiDescription("Carbon series ID")]
 	public string carbonSeriesId { get; set; }
 
+	[ApiDescription("Address who controls this series")]
+	public string OwnerAddress { get; set; }
+
+	[ApiDescription("Maximum amount of NFTs that can be minted in this series")]
+	public string MaxMint { get; set; }
+
+	[ApiDescription("How many NFTs were minted in this series")]
+	public string MintCount { get; set; }
+
 	[ApiDescription("Current amount of tokens in circulation")]
 	public string CurrentSupply { get; set; }
 
