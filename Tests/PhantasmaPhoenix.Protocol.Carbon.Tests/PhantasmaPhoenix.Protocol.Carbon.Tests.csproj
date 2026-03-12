@@ -16,5 +16,6 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="../../TestDataGenerator/carbon_vectors.tsv" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures/validator_int256_fixtures.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

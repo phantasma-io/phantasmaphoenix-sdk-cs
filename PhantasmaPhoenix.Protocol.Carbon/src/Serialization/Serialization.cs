@@ -205,37 +205,28 @@ public static class BinaryStreamExt
 
 	public static void WriteBigInt(this BinaryWriter w, BigInteger data)
 	{
-		if (data.IsZero)
-		{
-			w.Write1(0);
-		}
-		else
-		{
-			byte[] bytes = data.ToByteArray();
-			if (bytes.Length > 32)
-			{
-				Throw.Assert(bytes.Length == 33 && (bytes[32] == 0x00 || bytes[32] == 0xFF));
-				bytes = bytes.Take(32).ToArray();
-				w.WriteBigInt(new BigInteger(bytes));
-				return;
-			}
-			w.WriteBigInt(bytes);
-		}
+		w.WriteBigInt(data.ToByteArray());
 	}
 	public static void WriteBigInt(this BinaryWriter w, byte[] bytes)
 	{
-		if (bytes.Length == 0)
+		// Protocol BigInt bytes must match the validator runtime, not BigInteger's sign-safe minimal form.
+		// Normalize to a fixed 32-byte two's-complement word first, then trim trailing fill bytes exactly
+		// the way the validator does when emitting uint256/int256 on the wire.
+		byte[] word = NormalizeBigIntWord(bytes);
+		// The highest bit of the reconstructed 256-bit word determines which byte is treated as sign fill
+		// when the validator removes omitted high bytes.
+		byte fill = (word[31] & 0x80) != 0 ? (byte)0xFF : (byte)0x00;
+		// Unlike the previous SDK logic, validator format does not preserve an extra sign-guard byte.
+		// It simply strips all contiguous high fill bytes from the fixed-width word.
+		int length = ComputeBigIntSerializedLength(word, fill);
+		// Header layout matches the validator:
+		// bit 7 = sign of the full 256-bit value, bit 6 = reserved (must stay 0), bits 0-5 = payload length.
+		int header = (length & 0x3F) | (fill & 0x80);
+		w.Write1(header);
+		if (length > 0)
 		{
-			w.Write1(0);
-		}
-		else
-		{
-			int length = bytes.Length;
-			Throw.Assert(length <= 32);
-			int sign = (bytes[length - 1] & 0x80) == 0 ? 1 : -1;
-			int header = (length & 0x3F) | (sign < 0 ? 0x80 : 0);
-			w.Write1(header);
-			w.WriteExactly(bytes, length);
+			// Wire payload is always the low-order bytes of the reconstructed 256-bit word.
+			w.Write(word, 0, length);
 		}
 	}
 
@@ -249,30 +240,71 @@ public static class BinaryStreamExt
 	}
 	public static BigInteger ReadBigInt(this BinaryReader r, out BigInteger data, int preReadHeader = -1)
 	{
+		// Header layout:
+		// bit 7 = sign bit of the full 256-bit value,
+		// bit 6 = reserved and must remain 0,
+		// bits 0-5 = number of serialized low-order bytes that follow.
 		byte header = preReadHeader < 0 ? r.ReadByte() : (byte)(preReadHeader & 0xFF);
 		if (header == 0)
 			data = BigInteger.Zero;
 		else
 		{
-			int sign = (header & 0x80) != 0 ? -1 : 1;
 			int length = header & 0x3F;
-			Throw.If(length > 32, "BigInt too big");
-			if (length == 0)
-				data = BigInteger.Zero;
-			else
+			Throw.If((header & 0x40) != 0 || length > 32, "BigInt too big");
+			// The omitted high bytes are reconstructed from the header sign bit, exactly like the validator.
+			byte fill = (header & 0x80) != 0 ? (byte)0xFF : (byte)0x00;
+			// The validator reader reconstructs the full 256-bit word by filling the omitted high bytes.
+			// This is required for shortest negative forms such as 0x80, which mean -1 rather than zero.
+			byte[] word = new byte[32];
+			if (length > 0)
 			{
 				byte[] bytes = r.ReadExactly(length);
-				int inherentSign = (bytes[length - 1] & 0x80) != 0 ? -1 : 1;
-				if (inherentSign != sign)
-				{
-					bytes = bytes.Append(sign >= 0 ? (byte)0x00 : (byte)0xFF).ToArray();
-				}
-				data = new BigInteger(bytes);
-				Throw.Assert(data.Sign == sign);
+				Array.Copy(bytes, word, length);
 			}
+			for (int i = length; i < word.Length; i++)
+				word[i] = fill;
+			// After reconstruction, the sign bit of the highest byte must still agree with the header sign bit.
+			// If it does not, the byte sequence is malformed under validator/runtime rules.
+			Throw.If((word[31] & 0x80) != (header & 0x80), "non-standard BigInt header");
+			data = new BigInteger(word);
 		}
 
 		return data;
+	}
+
+	private static byte[] NormalizeBigIntWord(byte[] bytes)
+	{
+		if (bytes.Length == 0)
+			return new byte[32];
+
+		// BigInteger may expose an extra sign byte; for protocol purposes we keep only the low 256 bits
+		// after confirming the truncated high bytes are pure sign extension.
+		byte sourceFill = (bytes[bytes.Length - 1] & 0x80) != 0 ? (byte)0xFF : (byte)0x00;
+		if (bytes.Length > 32)
+		{
+			// Anything above 256 bits must be redundant sign extension. If not, the value does not fit
+			// into the protocol's 256-bit integer domain.
+			for (int i = 32; i < bytes.Length; i++)
+				Throw.Assert(bytes[i] == sourceFill);
+			bytes = bytes.Take(32).ToArray();
+		}
+
+		byte[] word = new byte[32];
+		Array.Copy(bytes, word, bytes.Length);
+		// Expand shorter BigInteger output back to a full 256-bit two's-complement word before trimming.
+		for (int i = bytes.Length; i < word.Length; i++)
+			word[i] = sourceFill;
+		return word;
+	}
+
+	private static int ComputeBigIntSerializedLength(byte[] word, byte fill)
+	{
+		int length = word.Length;
+		// Validator trimming is intentionally simpler than canonical signed-minimal encoding:
+		// once the value is expanded to 256 bits, every trailing fill byte is removed.
+		while (length > 0 && word[length - 1] == fill)
+			length--;
+		return length;
 	}
 
 	public static BigInteger ReadBigInt(this BinaryReader r)
