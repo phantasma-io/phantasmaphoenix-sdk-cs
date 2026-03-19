@@ -170,7 +170,7 @@ public static class BigIntegerExtension
 	public static System.Numerics.BigInteger AsBigInteger(this byte[] source)
 	{
 		return (source == null ||
-		        source.Length == 0)
+				source.Length == 0)
 			? new System.Numerics.BigInteger(0)
 			: new System.Numerics.BigInteger(source);
 	}

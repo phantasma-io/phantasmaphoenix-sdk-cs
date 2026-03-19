@@ -21,9 +21,9 @@ public static class TestGeneratorHelpers
 	}
 
 	public static void Emit(string kind, string value, string serialized)
-    {
-        Output.WriteLine($"{kind}\t{value}\t{serialized}");
-    }
+	{
+		Output.WriteLine($"{kind}\t{value}\t{serialized}");
+	}
 
 	public static void Emit(string kind, string value, Action<BinaryWriter> write)
 	{
@@ -53,8 +53,8 @@ public static class TestGeneratorHelpers
 
 		// also compute back via reader
 		var back = CarbonBlob.New<IntX>(serialized);
-        Output.WriteLine($"{kind}\t{value}\t{hex}\t{v.ToString()}\t{back.ToString()}");
-    }
+		Output.WriteLine($"{kind}\t{value}\t{hex}\t{v.ToString()}\t{back.ToString()}");
+	}
 
 	public static BigInteger ReadBackBigInt(byte[] bytes)
 	{

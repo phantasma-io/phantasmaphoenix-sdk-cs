@@ -84,22 +84,22 @@ public struct Event
 				if (this.Name == null && other.Name == null)
 				{
 					return this.Kind == other.Kind && this.Address.Text == other.Address.Text &&
-					       this.Contract == other.Contract;
+						   this.Contract == other.Contract;
 				}
 
 				return this.Kind == other.Kind && this.Address.Text == other.Address.Text &&
-				       this.Contract == other.Contract && this.Name.Equals(other.Name);
+					   this.Contract == other.Contract && this.Name.Equals(other.Name);
 			}
 
 			if (this.Name == null && other.Name == null)
 			{
 				return this.Kind == other.Kind && this.Address.Text == other.Address.Text &&
-				       this.Contract == other.Contract && this.Data.SequenceEqual(other.Data);
+					   this.Contract == other.Contract && this.Data.SequenceEqual(other.Data);
 			}
 
 			return this.Kind == other.Kind && this.Address.Text == other.Address.Text &&
-			       this.Contract == other.Contract && this.Data.SequenceEqual(other.Data) &&
-			       this.Name.Equals(other.Name);
+				   this.Contract == other.Contract && this.Data.SequenceEqual(other.Data) &&
+				   this.Name.Equals(other.Name);
 		}
 
 		return base.Equals(obj);

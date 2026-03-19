@@ -42,7 +42,7 @@ public class CreateTokenFeeOptions : FeeOptions, IFeeOptions
 		ulong gasFeeBase = 10_000UL,
 		ulong gasFeeCreateTokenBase = 10_000_000_000UL,
 		ulong gasFeeCreateTokenSymbol = 10_000_000_000UL,
-		ulong feeMultiplier = 10_000UL): base(gasFeeBase, feeMultiplier)
+		ulong feeMultiplier = 10_000UL) : base(gasFeeBase, feeMultiplier)
 	{
 		GasFeeCreateTokenBase = gasFeeCreateTokenBase;
 		GasFeeCreateTokenSymbol = gasFeeCreateTokenSymbol;
@@ -66,7 +66,7 @@ public class CreateSeriesFeeOptions : FeeOptions, IFeeOptions
 	public CreateSeriesFeeOptions(
 		ulong gasFeeBase = 10_000UL,
 		ulong gasFeeCreateSeriesBase = 2_500_000_000UL,
-		ulong feeMultiplier = 10_000UL): base(gasFeeBase, feeMultiplier)
+		ulong feeMultiplier = 10_000UL) : base(gasFeeBase, feeMultiplier)
 	{
 		GasFeeCreateSeriesBase = gasFeeCreateSeriesBase;
 	}

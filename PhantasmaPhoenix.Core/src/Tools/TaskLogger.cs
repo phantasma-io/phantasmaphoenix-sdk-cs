@@ -47,21 +47,21 @@ public static class TaskLogger
 			// normal shutdown
 		}
 #else
-    while (!(_ct.IsCancellationRequested))
-    {
-        try
-        {
-            await Task.Delay(_interval, _ct).ConfigureAwait(false);
-        }
-        catch (TaskCanceledException)
-        {
-            break;
-        }
-		if (_ct.IsCancellationRequested)
+		while (!(_ct.IsCancellationRequested))
 		{
-			break;
+			try
+			{
+				await Task.Delay(_interval, _ct).ConfigureAwait(false);
+			}
+			catch (TaskCanceledException)
+			{
+				break;
+			}
+			if (_ct.IsCancellationRequested)
+			{
+				break;
+			}
 		}
-    }
 #endif
 	}
 

@@ -31,8 +31,8 @@ public static class StandardMeta
 
 		public static class Nft
 		{
-		public static SmallString royalties = new("royalties");
-		public static SmallString phantasmaRom = new("rom");
+			public static SmallString royalties = new("royalties");
+			public static SmallString phantasmaRom = new("rom");
+		}
 	}
-}
 }

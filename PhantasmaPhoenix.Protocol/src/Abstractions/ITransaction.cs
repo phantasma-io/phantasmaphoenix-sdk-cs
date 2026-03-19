@@ -31,8 +31,8 @@ public interface ITransaction
 	bool IsSignedBy(Address address);
 	bool IsSignedBy(IEnumerable<Address> addresses);
 
-/*	void Mine(ProofOfWork targetDifficulty);
-	void Mine(int targetDifficulty);*/
+	/*	void Mine(ProofOfWork targetDifficulty);
+		void Mine(int targetDifficulty);*/
 
 	//ITransaction Unserialize(byte[] bytes);
 }

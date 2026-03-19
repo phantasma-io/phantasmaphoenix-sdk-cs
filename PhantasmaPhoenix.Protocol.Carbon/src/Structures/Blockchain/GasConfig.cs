@@ -2,10 +2,10 @@ namespace PhantasmaPhoenix.Protocol.Carbon.Blockchain;
 
 public struct GasConfig : ICarbonBlob
 {
-	public Byte   version;
-	public Byte   maxNameLength;
-	public Byte   maxTokenSymbolLength;
-	public Byte   feeShift;
+	public Byte version;
+	public Byte maxNameLength;
+	public Byte maxTokenSymbolLength;
+	public Byte feeShift;
 	public UInt32 maxStructureSize;
 	public UInt64 feeMultiplier;
 	public UInt64 gasTokenId;
@@ -20,7 +20,7 @@ public struct GasConfig : ICarbonBlob
 	public UInt64 gasFeePerByte;
 	public UInt64 gasFeeRegisterName;
 	public UInt64 gasBurnRatioMul;
-	public Byte   gasBurnRatioShift;
+	public Byte gasBurnRatioShift;
 
 	public void Write(BinaryWriter w)
 	{

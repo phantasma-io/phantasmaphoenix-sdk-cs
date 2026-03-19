@@ -71,7 +71,7 @@ public static class DomainSettings
 
 	public static readonly int ArchiveMinSize = 64; // in bytes
 	public static readonly int ArchiveMaxSize = 104857600; //100mb
-	// public static readonly uint ArchiveBlockSize = MerkleTree.ChunkSize;
+														   // public static readonly uint ArchiveBlockSize = MerkleTree.ChunkSize;
 
 	public static readonly string InfusionName = "infusion";
 	// public static readonly Address InfusionAddress = SmartContract.GetAddressFromContractName(InfusionName);

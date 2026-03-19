@@ -153,13 +153,13 @@ public enum TypeAuction
 
 public enum SaleEventKind
 {
-    Creation,
-    SoftCap,
-    HardCap,
-    AddedToWhitelist,
-    RemovedFromWhitelist,
-    Distribution,
-    Refund,
-    PriceChange,
-    Participation,
+	Creation,
+	SoftCap,
+	HardCap,
+	AddedToWhitelist,
+	RemovedFromWhitelist,
+	Distribution,
+	Refund,
+	PriceChange,
+	Participation,
 }

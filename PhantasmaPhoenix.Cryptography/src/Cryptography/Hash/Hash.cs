@@ -234,8 +234,8 @@ public struct Hash : ISerializable, IComparable<Hash>, IEquatable<Hash>
 #else
 		// Append a zero byte to force the number to be treated as unsigned (positive)
 		var temp = new byte[result.Length + 1];
-    	Buffer.BlockCopy(result, 0, temp, 0, result.Length);
-    	return new BigInteger(temp); // BigInteger(temp) = unsigned LE
+		Buffer.BlockCopy(result, 0, temp, 0, result.Length);
+		return new BigInteger(temp); // BigInteger(temp) = unsigned LE
 #endif
 	}
 

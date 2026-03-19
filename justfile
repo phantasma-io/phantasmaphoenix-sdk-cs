@@ -97,3 +97,10 @@ eols:
     cd PhantasmaPhoenix.Protocol.Carbon && just eols
     cd PhantasmaPhoenix.RPC && just eols
     cd PhantasmaPhoenix.VM && just eols
+
+[group('refactoring')]
+format:
+    # Use the repository-local .editorconfig as the source of truth for C# whitespace formatting.
+    dotnet format whitespace PhantasmaPhoenix.sln
+
+alias f := format

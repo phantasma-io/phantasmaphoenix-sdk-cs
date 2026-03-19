@@ -20,11 +20,11 @@ public struct GasEventData
 
 	public byte[] Serialize()
 	{
-			using var buffer = new MemoryStream();
-			using var writer = new BinaryWriter(buffer);
-			writer.WriteAddress(address);
-			writer.WriteBigInteger(price);
-			writer.WriteBigInteger(amount);
-			return buffer.ToArray();
+		using var buffer = new MemoryStream();
+		using var writer = new BinaryWriter(buffer);
+		writer.WriteAddress(address);
+		writer.WriteBigInteger(price);
+		writer.WriteBigInteger(amount);
+		return buffer.ToArray();
 	}
 }
