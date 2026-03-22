@@ -41,6 +41,12 @@ public enum TokenContract_Methods
 	GetTokenIdBySymbol = 19,
 	GetBalances = 20,
 	CreateMintedTokenSeries = 21,
+	ApplyInflation = 22,
+	UpdateTokenMetadata = 23,
+	GetNextTokenInflation = 24,
+	SetTokensConfig = 25,
+	UpdateSeriesMetadata = 26,
+	MintPhantasmaNonFungible = 27,
 }
 
 public enum MarketContract_Methods
