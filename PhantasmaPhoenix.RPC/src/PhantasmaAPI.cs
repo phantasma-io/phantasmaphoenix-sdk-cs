@@ -65,16 +65,16 @@ public class PhantasmaAPI : IDisposable
 	/// Gets account information, including balances, for the specified address and address type
 	/// </summary>
 	/// <param name="address">Account address text</param>
-	/// <param name="addressType">Account address type</param>
 	/// <param name="extended">Deprecated server flag; kept for parity</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <param name="addressType">Account address type</param>
 	/// <returns>Account data or null if not found</returns>
 	public Task<AccountResult?> GetAccountAsync(
 		string address,
-		RpcAddressType addressType,
-		bool extended = true,
-		bool checkAddressReservedByte = true) =>
-		_rpc.SendRpcAsync<AccountResult>(Host, "getAccount", address, addressType, extended, checkAddressReservedByte);
+		bool extended,
+		bool checkAddressReservedByte,
+		RpcAddressType addressType) =>
+		_rpc.SendRpcAsync<AccountResult>(Host, "getAccount", address, extended, checkAddressReservedByte, addressType);
 
 	/// <summary>
 	/// Gets account information for multiple addresses
@@ -88,22 +88,22 @@ public class PhantasmaAPI : IDisposable
 	/// Gets account information for multiple addresses of the same address type
 	/// </summary>
 	/// <param name="addresses">Array of account addresses</param>
-	/// <param name="addressType">Account address type</param>
 	/// <param name="extended">Deprecated server flag; kept for parity</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <param name="addressType">Account address type</param>
 	/// <returns>Array of account results or null</returns>
 	public Task<AccountResult[]?> GetAccountsAsync(
 		string[] addresses,
-		RpcAddressType addressType,
-		bool extended = false,
-		bool checkAddressReservedByte = true) =>
+		bool extended,
+		bool checkAddressReservedByte,
+		RpcAddressType addressType) =>
 		_rpc.SendRpcAsync<AccountResult[]>(
 			Host,
 			"getAccounts",
 			string.Join(",", addresses ?? Array.Empty<string>()),
-			addressType,
 			extended,
-			checkAddressReservedByte);
+			checkAddressReservedByte,
+			addressType);
 
 	/// <summary>
 	/// Looks up an address by name
@@ -144,31 +144,31 @@ public class PhantasmaAPI : IDisposable
 	/// Gets fungible token balances owned by an address of a specific address type (cursor pagination)
 	/// </summary>
 	/// <param name="account">Account address</param>
-	/// <param name="addressType">Account address type</param>
 	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
 	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
 	/// <param name="pageSize">Items per page</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <param name="addressType">Account address type</param>
 	/// <returns>Cursor paginated balances or null</returns>
 	public Task<CursorPaginatedResult<BalanceResult[]>?> GetAccountFungibleTokensAsync(
 		string account,
-		RpcAddressType addressType,
-		string tokenSymbol = "",
-		ulong carbonTokenId = 0,
-		uint pageSize = 10,
-		string cursor = "",
-		bool checkAddressReservedByte = true) =>
+		string tokenSymbol,
+		ulong carbonTokenId,
+		uint pageSize,
+		string cursor,
+		bool checkAddressReservedByte,
+		RpcAddressType addressType) =>
 		_rpc.SendRpcAsync<CursorPaginatedResult<BalanceResult[]>>(
 			Host,
 			"getAccountFungibleTokens",
 			account,
-			addressType,
 			tokenSymbol,
 			carbonTokenId,
 			pageSize,
 			cursor,
-			checkAddressReservedByte);
+			checkAddressReservedByte,
+			addressType);
 
 	/// <summary>
 	/// Gets NFTs owned by an address (cursor pagination)
@@ -207,7 +207,6 @@ public class PhantasmaAPI : IDisposable
 	/// Gets NFTs owned by an address of a specific address type (cursor pagination)
 	/// </summary>
 	/// <param name="account">Account address</param>
-	/// <param name="addressType">Account address type</param>
 	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
 	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
 	/// <param name="carbonSeriesId">Carbon series id filter (optional)</param>
@@ -215,29 +214,30 @@ public class PhantasmaAPI : IDisposable
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="extended">True to include properties</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <param name="addressType">Account address type</param>
 	/// <returns>Cursor paginated NFT data or null</returns>
 	public Task<CursorPaginatedResult<TokenDataResult[]>?> GetAccountNFTsAsync(
 		string account,
-		RpcAddressType addressType,
-		string tokenSymbol = "",
-		ulong carbonTokenId = 0,
-		uint carbonSeriesId = 0,
-		uint pageSize = 10,
-		string cursor = "",
-		bool extended = false,
-		bool checkAddressReservedByte = true) =>
+		string tokenSymbol,
+		ulong carbonTokenId,
+		uint carbonSeriesId,
+		uint pageSize,
+		string cursor,
+		bool extended,
+		bool checkAddressReservedByte,
+		RpcAddressType addressType) =>
 		_rpc.SendRpcAsync<CursorPaginatedResult<TokenDataResult[]>>(
 			Host,
 			"getAccountNFTs",
 			account,
-			addressType,
 			tokenSymbol,
 			carbonTokenId,
 			carbonSeriesId,
 			pageSize,
 			cursor,
 			extended,
-			checkAddressReservedByte);
+			checkAddressReservedByte,
+			addressType);
 
 	/// <summary>
 	/// Gets NFT tokens for which the account owns at least one NFT instance (cursor pagination)
@@ -270,31 +270,31 @@ public class PhantasmaAPI : IDisposable
 	/// Gets NFT tokens for which the account owns at least one NFT instance for a specific address type (cursor pagination)
 	/// </summary>
 	/// <param name="account">Account address</param>
-	/// <param name="addressType">Account address type</param>
 	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
 	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
 	/// <param name="pageSize">Items per page</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <param name="addressType">Account address type</param>
 	/// <returns>Cursor paginated token data or null</returns>
 	public Task<CursorPaginatedResult<TokenResult[]>?> GetAccountOwnedTokensAsync(
 		string account,
-		RpcAddressType addressType,
-		string tokenSymbol = "",
-		ulong carbonTokenId = 0,
-		uint pageSize = 10,
-		string cursor = "",
-		bool checkAddressReservedByte = true) =>
+		string tokenSymbol,
+		ulong carbonTokenId,
+		uint pageSize,
+		string cursor,
+		bool checkAddressReservedByte,
+		RpcAddressType addressType) =>
 		_rpc.SendRpcAsync<CursorPaginatedResult<TokenResult[]>>(
 			Host,
 			"getAccountOwnedTokens",
 			account,
-			addressType,
 			tokenSymbol,
 			carbonTokenId,
 			pageSize,
 			cursor,
-			checkAddressReservedByte);
+			checkAddressReservedByte,
+			addressType);
 
 	/// <summary>
 	/// Gets NFT series for which the account owns at least one NFT instance (cursor pagination)
@@ -327,31 +327,31 @@ public class PhantasmaAPI : IDisposable
 	/// Gets NFT series for which the account owns at least one NFT instance for a specific address type (cursor pagination)
 	/// </summary>
 	/// <param name="account">Account address</param>
-	/// <param name="addressType">Account address type</param>
 	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
 	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
 	/// <param name="pageSize">Items per page</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <param name="addressType">Account address type</param>
 	/// <returns>Cursor paginated series data or null</returns>
 	public Task<CursorPaginatedResult<TokenSeriesResult[]>?> GetAccountOwnedTokenSeriesAsync(
 		string account,
-		RpcAddressType addressType,
-		string tokenSymbol = "",
-		ulong carbonTokenId = 0,
-		uint pageSize = 10,
-		string cursor = "",
-		bool checkAddressReservedByte = true) =>
+		string tokenSymbol,
+		ulong carbonTokenId,
+		uint pageSize,
+		string cursor,
+		bool checkAddressReservedByte,
+		RpcAddressType addressType) =>
 		_rpc.SendRpcAsync<CursorPaginatedResult<TokenSeriesResult[]>>(
 			Host,
 			"getAccountOwnedTokenSeries",
 			account,
-			addressType,
 			tokenSymbol,
 			carbonTokenId,
 			pageSize,
 			cursor,
-			checkAddressReservedByte);
+			checkAddressReservedByte,
+			addressType);
 
 	#endregion
 
@@ -359,7 +359,6 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets the number of auctions currently available in the market contract for a given token
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="chainAddressOrName">Chain address or name</param>
 	/// <param name="symbol">Token symbol</param>
@@ -372,7 +371,6 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets all auctions currently available in the market contract for a given token, with pagination
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="chainAddressOrName">Chain address or name</param>
 	/// <param name="symbol">Token symbol</param>
@@ -389,7 +387,6 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets a single auction by symbol and auction id
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="chainAddressOrName">Chain address or name</param>
 	/// <param name="symbol">Token symbol</param>
@@ -473,6 +470,7 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets chain information by name
+	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="name">Chain name</param>
 	/// <param name="extended">True to include extended data</param>
@@ -486,7 +484,6 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets contract metadata by name from the main chain
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="contractName">Contract name</param>
 	/// <returns>Contract data or null</returns>
@@ -504,7 +501,6 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets all contracts deployed on the main chain
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <returns>Array of contracts or null</returns>
 	public Task<ContractResult[]?> GetContractsAsync() =>
@@ -699,17 +695,17 @@ public class PhantasmaAPI : IDisposable
 	/// </summary>
 	/// <param name="address">Account address</param>
 	/// <param name="symbol">Token symbol</param>
-	/// <param name="addressType">Account address type</param>
 	/// <param name="chain">Chain name, default main</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <param name="addressType">Account address type</param>
 	/// <returns>Balance data or null</returns>
 	public Task<BalanceResult?> GetTokenBalanceAsync(
 		string address,
 		string symbol,
-		RpcAddressType addressType,
-		string chain = "main",
-		bool checkAddressReservedByte = true) =>
-		_rpc.SendRpcAsync<BalanceResult>(Host, "getTokenBalance", address, symbol, chain, addressType, checkAddressReservedByte);
+		string chain,
+		bool checkAddressReservedByte,
+		RpcAddressType addressType) =>
+		_rpc.SendRpcAsync<BalanceResult>(Host, "getTokenBalance", address, symbol, chain, checkAddressReservedByte, addressType);
 
 	/// <summary>
 	/// Gets token data for a specific token id
@@ -799,7 +795,6 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Invokes a VM script without state changes and returns its result
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="chain">Chain name</param>
 	/// <param name="scriptData">Hex encoded script bytes</param>
