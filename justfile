@@ -65,8 +65,8 @@ p:
     dotnet publish PhantasmaPhoenix.VM/PhantasmaPhoenix.VM.csproj -c Release -f netstandard2.0 -o ./output/dlls/netstandard2.0
 
 [group('publish')]
-publish-nugets:
-    sh ./scripts/publish-nugets.sh
+publish-nugets manifest="release/release-manifest.json" dry_run="":
+    sh ./scripts/publish-nugets.sh {{manifest}} {{dry_run}}
 
 [group('publish')]
 release-validate manifest="release/release-manifest.json":
@@ -82,8 +82,8 @@ release-check manifest="release/release-manifest.json":
     ./scripts/release-smoke.sh {{manifest}}
 
 [group('publish')]
-release-publish manifest="release/release-manifest.json":
-    ./scripts/release-publish.sh {{manifest}} ./output/nupkgs
+release-publish manifest="release/release-manifest.json" dry_run="":
+    ./scripts/release-publish.sh {{manifest}} ./output/nupkgs {{dry_run}}
 
 [group('maintenance')]
 eols:

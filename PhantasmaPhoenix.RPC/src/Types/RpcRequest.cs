@@ -4,16 +4,16 @@ namespace PhantasmaPhoenix.RPC.Types;
 
 public struct RpcRequest
 {
-	[JsonProperty(Required = Required.Always)]
+	[JsonProperty("jsonrpc", Required = Required.Always)]
 	public string jsonrpc { get; set; }
 
-	[JsonProperty(Required = Required.Always)]
+	[JsonProperty("method", Required = Required.Always)]
 	public string method { get; set; }
 
-	[JsonProperty(Required = Required.Always)]
-	public string id { get; set; }
+	[JsonProperty("id", NullValueHandling = NullValueHandling.Include)]
+	public RpcId? id { get; set; }
 
-	[JsonProperty(Required = Required.Always)]
+	[JsonProperty("params", Required = Required.Always)]
 	public object[] @params { get; set; }
 
 	public override string ToString()

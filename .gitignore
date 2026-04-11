@@ -30,5 +30,7 @@ Tests/PhantasmaPhoenix.Cryptography.Tests/bin
 Tests/PhantasmaPhoenix.Cryptography.Tests/obj
 Tests/PhantasmaPhoenix.Protocol.Tests/bin
 Tests/PhantasmaPhoenix.Protocol.Tests/obj
+Tests/PhantasmaPhoenix.RPC.Tests/bin
+Tests/PhantasmaPhoenix.RPC.Tests/obj
 Tests/PhantasmaPhoenix.VM.Tests/bin
 Tests/PhantasmaPhoenix.VM.Tests/obj

@@ -15,16 +15,16 @@ if [[ ! -d "$pack_dir" ]]; then
   exit 1
 fi
 
-if [[ -f ".env" ]]; then
-  # shellcheck disable=SC2046
-  export $(grep -v '^#' .env | xargs || true)
-fi
-
-: "${NUGET_API_KEY:?Missing NUGET_API_KEY in .env or environment}"
-
 echo "Publishing packages in manifest order from: $pack_dir"
 if [[ "$dry_run" == "--dry-run" ]]; then
   echo "Dry-run mode enabled."
+else
+  if [[ -f ".env" ]]; then
+    # shellcheck disable=SC2046
+    export $(grep -v '^#' .env | xargs || true)
+  fi
+
+  : "${NUGET_API_KEY:?Missing NUGET_API_KEY in .env or environment}"
 fi
 
 while IFS= read -r id; do

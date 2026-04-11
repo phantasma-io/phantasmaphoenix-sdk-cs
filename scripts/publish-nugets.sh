@@ -1,10 +1,14 @@
 #!/usr/bin/env sh
 set -eu
 
-[ -f ".env" ] && export $(grep -v '^#' .env | xargs || true)
-: "${NUGET_API_KEY:?Missing NUGET_API_KEY in .env or environment}"
-
 manifest="${1:-release/release-manifest.json}"
+dry_run="${2:-}"
+
+if [ -n "$dry_run" ] && [ "$dry_run" != "--dry-run" ]; then
+  echo "ERROR: unsupported option: $dry_run" >&2
+  echo "Usage: $0 [manifest] [--dry-run]" >&2
+  exit 1
+fi
 
 echo "Running manifest validation and smoke checks..."
 just release-check "$manifest"
@@ -14,6 +18,10 @@ just c
 just p
 
 echo "Publishing packages in manifest order..."
-just release-publish "$manifest"
+if [ "$dry_run" = "--dry-run" ]; then
+  just release-publish "$manifest" "$dry_run"
+else
+  just release-publish "$manifest"
+fi
 
 echo "Done"

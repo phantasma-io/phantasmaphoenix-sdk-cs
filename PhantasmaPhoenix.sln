@@ -37,6 +37,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.Protocol.T
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.VM.Tests", "Tests\PhantasmaPhoenix.VM.Tests\PhantasmaPhoenix.VM.Tests.csproj", "{E2519035-FCE0-47EF-A753-8769C6FACC14}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PhantasmaPhoenix.RPC.Tests", "Tests\PhantasmaPhoenix.RPC.Tests\PhantasmaPhoenix.RPC.Tests.csproj", "{24FF88E3-1727-4BFD-85FE-788253BC2A81}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -239,6 +241,18 @@ Global
 		{E2519035-FCE0-47EF-A753-8769C6FACC14}.Release|x64.Build.0 = Release|Any CPU
 		{E2519035-FCE0-47EF-A753-8769C6FACC14}.Release|x86.ActiveCfg = Release|Any CPU
 		{E2519035-FCE0-47EF-A753-8769C6FACC14}.Release|x86.Build.0 = Release|Any CPU
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81}.Debug|x64.Build.0 = Debug|Any CPU
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81}.Debug|x86.Build.0 = Debug|Any CPU
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81}.Release|Any CPU.Build.0 = Release|Any CPU
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81}.Release|x64.ActiveCfg = Release|Any CPU
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81}.Release|x64.Build.0 = Release|Any CPU
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81}.Release|x86.ActiveCfg = Release|Any CPU
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -248,5 +262,6 @@ Global
 		{29D02304-7FC6-4BED-894A-B0A5DD04B130} = {A8C485D7-952E-4CF9-9CC8-4E4334E5DE05}
 		{E3F431A8-DF53-4E7F-8271-13C55BD83B87} = {A8C485D7-952E-4CF9-9CC8-4E4334E5DE05}
 		{E2519035-FCE0-47EF-A753-8769C6FACC14} = {A8C485D7-952E-4CF9-9CC8-4E4334E5DE05}
+		{24FF88E3-1727-4BFD-85FE-788253BC2A81} = {A8C485D7-952E-4CF9-9CC8-4E4334E5DE05}
 	EndGlobalSection
 EndGlobal
