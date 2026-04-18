@@ -1,3 +1,5 @@
+using PhantasmaPhoenix.Protocol.Carbon.Blockchain.Vm;
+
 namespace PhantasmaPhoenix.Protocol.Carbon.Blockchain.Modules;
 
 /*
@@ -43,6 +45,51 @@ public struct MintNonFungibleArgs : ICarbonBlob
 		r.Read8(out tokenId);
 		r.Read32(out address);
 		r.ReadArray(out tokens);
+	}
+}
+
+public struct CreateTokenSeriesArgs : ICarbonBlob
+{
+	public UInt64 tokenId;
+	public SeriesInfo info;
+
+	public void Write(BinaryWriter w)
+	{
+		w.Write8(tokenId);
+		w.Write(info);
+	}
+
+	public void Read(BinaryReader r)
+	{
+		r.Read8(out tokenId);
+		r.Read(out info);
+	}
+}
+
+public struct CreateMintedTokenSeriesArgs : ICarbonBlob
+{
+	public UInt64 tokenId;
+	public SeriesInfo info;
+	public Bytes32 address;
+	public byte[][] roms;
+	public byte[][] rams;
+
+	public void Write(BinaryWriter w)
+	{
+		w.Write8(tokenId);
+		w.Write(info);
+		w.Write32(address);
+		w.WriteArray(roms);
+		w.WriteArray(rams);
+	}
+
+	public void Read(BinaryReader r)
+	{
+		r.Read8(out tokenId);
+		r.Read(out info);
+		r.Read32(out address);
+		r.ReadArray(out roms);
+		r.ReadArray(out rams);
 	}
 }
 
@@ -108,6 +155,27 @@ public struct PhantasmaNftMintResult : ICarbonBlob
 	}
 }
 
+public struct MintFungibleArgs : ICarbonBlob
+{
+	public UInt64 tokenId;
+	public Bytes32 to;
+	public IntX amount;
+
+	public void Write(BinaryWriter w)
+	{
+		w.Write8(tokenId);
+		w.Write32(to);
+		w.Write(amount);
+	}
+
+	public void Read(BinaryReader r)
+	{
+		r.Read8(out tokenId);
+		r.Read32(out to);
+		r.Read(out amount);
+	}
+}
+
 public struct TransferFungibleArgs : ICarbonBlob
 {
 	public Bytes32 to;
@@ -129,5 +197,110 @@ public struct TransferFungibleArgs : ICarbonBlob
 		r.Read32(out from);
 		r.Read8(out tokenId);
 		r.Read(out amount);
+	}
+}
+
+public struct TransferNonFungibleArgs : ICarbonBlob
+{
+	public Bytes32 to;
+	public Bytes32 from;
+	public UInt64 tokenId;
+	public UInt64[] instanceIds;
+
+	public void Write(BinaryWriter w)
+	{
+		w.Write32(to);
+		w.Write32(from);
+		w.Write8(tokenId);
+		w.WriteArray64(instanceIds ?? Array.Empty<UInt64>());
+	}
+
+	public void Read(BinaryReader r)
+	{
+		r.Read32(out to);
+		r.Read32(out from);
+		r.Read8(out tokenId);
+		r.ReadArray64(out instanceIds);
+	}
+}
+
+public struct BurnFungibleArgs : ICarbonBlob
+{
+	public UInt64 tokenId;
+	public Bytes32 from;
+	public IntX amount;
+
+	public void Write(BinaryWriter w)
+	{
+		w.Write8(tokenId);
+		w.Write32(from);
+		w.Write(amount);
+	}
+
+	public void Read(BinaryReader r)
+	{
+		r.Read8(out tokenId);
+		r.Read32(out from);
+		r.Read(out amount);
+	}
+}
+
+public struct BurnNonFungibleArgs : ICarbonBlob
+{
+	public UInt64 tokenId;
+	public Bytes32 from;
+	public UInt64[] instanceIds;
+
+	public void Write(BinaryWriter w)
+	{
+		w.Write8(tokenId);
+		w.Write32(from);
+		w.WriteArray64(instanceIds ?? Array.Empty<UInt64>());
+	}
+
+	public void Read(BinaryReader r)
+	{
+		r.Read8(out tokenId);
+		r.Read32(out from);
+		r.ReadArray64(out instanceIds);
+	}
+}
+
+public struct UpdateTokenMetadataArgs : ICarbonBlob
+{
+	public UInt64 tokenId;
+	public VmDynamicStruct metadata;
+
+	public void Write(BinaryWriter w)
+	{
+		w.Write8(tokenId);
+		w.Write(metadata);
+	}
+
+	public void Read(BinaryReader r)
+	{
+		r.Read8(out tokenId);
+		r.Read(out metadata);
+	}
+}
+
+public struct UpdateSeriesMetadataArgs : ICarbonBlob
+{
+	public UInt64 tokenId;
+	public UInt32 seriesId;
+	public byte[] metadata;
+
+	public void Write(BinaryWriter w)
+	{
+		w.Write8(tokenId);
+		w.Write4(seriesId);
+		w.WriteArray(metadata ?? Array.Empty<byte>());
+	}
+
+	public void Read(BinaryReader r)
+	{
+		r.Read8(out tokenId);
+		r.Read4(out seriesId);
+		r.ReadArray(out metadata);
 	}
 }

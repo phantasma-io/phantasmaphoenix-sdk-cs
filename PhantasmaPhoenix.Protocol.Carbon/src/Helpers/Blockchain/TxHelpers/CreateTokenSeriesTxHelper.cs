@@ -11,11 +11,6 @@ public static class CreateTokenSeriesTxHelper
 		var fees = feeOptions ?? new CreateSeriesFeeOptions();
 		ulong maxGas = fees.CalculateMaxGas();
 
-		using var argsStream = new MemoryStream();
-		using var w = new BinaryWriter(argsStream);
-		w.Write8(tokenId);
-		w.Write(CarbonBlob.Serialize(seriesInfo));
-
 		return new TxMsg
 		{
 			type = TxTypes.Call,
@@ -28,7 +23,11 @@ public static class CreateTokenSeriesTxHelper
 			{
 				moduleId = (uint)ModuleId.Token,
 				methodId = (uint)TokenContract_Methods.CreateTokenSeries,
-				args = argsStream.ToArray()
+				args = CarbonBlob.Serialize(new CreateTokenSeriesArgs
+				{
+					tokenId = tokenId,
+					info = seriesInfo
+				})
 			}
 		};
 	}

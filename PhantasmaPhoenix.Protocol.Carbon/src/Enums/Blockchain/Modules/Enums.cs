@@ -17,6 +17,16 @@ public enum TokenFlags
 	NonFungible = 1 << 1,
 };
 
+public enum TokensConfigFlags
+{
+	None = 0,
+	RequireMetadata = 1 << 0,
+	RequireSymbol = 1 << 1,
+	RequireNftMetaId = 1 << 2,
+	RequireNftStandard = 1 << 3,
+	AllowExplicitNftMetaIdMint = 1 << 4,
+}
+
 public enum TokenContract_Methods
 {
 	TransferFungible = 0,
