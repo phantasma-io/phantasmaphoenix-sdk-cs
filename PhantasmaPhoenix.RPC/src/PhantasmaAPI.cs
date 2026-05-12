@@ -448,13 +448,22 @@ public class PhantasmaAPI : IDisposable
 		_rpc.SendRpcAsync<BlockResult>(Host, "getLatestBlock", chain);
 
 	/// <summary>
-	/// Gets a transaction by block hash and transaction index
+	/// Gets a transaction by chain, block hash, and transaction index
 	/// </summary>
+	/// <param name="chainAddressOrName">Chain address or name</param>
 	/// <param name="blockHash">Block hash</param>
 	/// <param name="index">Transaction index within the block</param>
 	/// <returns>Transaction data or null</returns>
-	public Task<TransactionResult?> GetTransactionByBlockHashAndIndexAsync(string blockHash, int index) =>
-		_rpc.SendRpcAsync<TransactionResult>(Host, "getTransactionByBlockHashAndIndex", blockHash, index);
+	public Task<TransactionResult?> GetTransactionByBlockHashAndIndexAsync(
+		string chainAddressOrName,
+		string blockHash,
+		int index) =>
+		_rpc.SendRpcAsync<TransactionResult>(
+			Host,
+			"getTransactionByBlockHashAndIndex",
+			chainAddressOrName,
+			blockHash,
+			index);
 
 	#endregion
 
@@ -462,16 +471,16 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets an array of all chains deployed on Phantasma
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
+	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns an empty array until backend support is completed.</remarks>
 	/// <returns>Array of chains or null</returns>
 	public Task<ChainResult[]?> GetChainsAsync() =>
 		_rpc.SendRpcAsync<ChainResult[]>(Host, "getChains");
 
 	/// <summary>
 	/// Gets chain information by name
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
+	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns a default chain result until backend support is completed.</remarks>
 	/// <param name="name">Chain name</param>
 	/// <param name="extended">True to include extended data</param>
 	/// <returns>Chain data or null</returns>
@@ -512,8 +521,8 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets a leaderboard by name
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
+	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns a default leaderboard result until backend support is completed.</remarks>
 	/// <param name="name">Leaderboard name</param>
 	/// <returns>Leaderboard data or null</returns>
 	public Task<LeaderboardResult?> GetLeaderboardAsync(string name) =>
@@ -525,8 +534,8 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets nexus metadata including an array of all chains deployed on Phantasma
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
+	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns a default nexus result until backend support is completed.</remarks>
 	/// <returns>Nexus data or null</returns>
 	public Task<NexusResult?> GetNexusAsync() =>
 		_rpc.SendRpcAsync<NexusResult>(Host, "getNexus");
@@ -537,8 +546,8 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets organization data by id
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
+	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns a default organization result until backend support is completed.</remarks>
 	/// <param name="id">Organization id</param>
 	/// <returns>Organization data or null</returns>
 	public Task<OrganizationResult?> GetOrganizationAsync(string id) =>
@@ -546,8 +555,8 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets organization data by name
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
+	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns a default organization result until backend support is completed.</remarks>
 	/// <param name="name">Organization name</param>
 	/// <returns>Organization data or null</returns>
 	public Task<OrganizationResult?> GetOrganizationByNameAsync(string name) =>
@@ -555,8 +564,8 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets all organizations deployed on Phantasma
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
+	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns an empty array until backend support is completed.</remarks>
 	/// <returns>Array of organizations or null</returns>
 	public Task<OrganizationResult[]?> GetOrganizationsAsync() =>
 		_rpc.SendRpcAsync<OrganizationResult[]>(Host, "getOrganizations");
@@ -709,7 +718,6 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets token data for a specific token id
-	/// <para><b>⚠️ This functionality is only partially implemented - some features may be missing or incomplete. See the roadmap for planned updates: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="symbol">Token symbol</param>
 	/// <param name="tokenId">Token id</param>
@@ -719,7 +727,6 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets NFT data and optionally loads properties
-	/// <para><b>⚠️ This functionality is only partially implemented - some features may be missing or incomplete. See the roadmap for planned updates: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
 	/// <param name="symbol">NFT symbol</param>
 	/// <param name="tokenId">Token id</param>
@@ -887,8 +894,8 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Gets archive metadata by its hash
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
+	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns a default archive result until backend support is completed.</remarks>
 	/// <param name="hash">Archive hash</param>
 	/// <returns>Archive data or null</returns>
 	public Task<ArchiveResult?> GetArchiveAsync(string hash) =>
@@ -896,8 +903,8 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Writes a single archive block
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
+	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns false; archive writes are not persisted until backend support is completed.</remarks>
 	/// <param name="hash">Archive hash</param>
 	/// <param name="blockIndex">Block index</param>
 	/// <param name="blockContent">Block content bytes</param>
@@ -911,8 +918,8 @@ public class PhantasmaAPI : IDisposable
 
 	/// <summary>
 	/// Reads a single archive block as a base64 string
-	/// <para><b>⚠️ Currently disabled - this functionality is not available and will be re-enabled according to the roadmap: https://phantasma.info/blockchain#roadmap</b></para>
 	/// </summary>
+	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns an empty string until backend support is completed.</remarks>
 	/// <param name="hash">Archive hash</param>
 	/// <param name="blockIndex">Block index</param>
 	/// <returns>Base64 block content or null</returns>
