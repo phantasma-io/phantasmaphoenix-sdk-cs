@@ -71,6 +71,12 @@ public sealed class VMObject : ISerializable
 
 		switch (this.Type)
 		{
+			// Gen2 VMObject numeric conversion treats the empty VM value as zero.
+			// The fixture-backed VM tests lock this because older contracts can
+			// surface None values through generic VM conversion paths.
+			case VMType.None:
+				return BigInteger.Zero;
+
 			case VMType.String:
 				{
 					if (BigInteger.TryParse((string)Data, out BigInteger number))
@@ -100,6 +106,19 @@ public sealed class VMObject : ISerializable
 				{
 					var val = (bool)Data;
 					return val ? 1 : 0;
+				}
+
+			// Hash values are stored as generic VM objects but Gen2 VM semantics
+			// allow them to participate in numeric conversions as their raw hash
+			// integer value. Other object payloads remain invalid numeric casts.
+			case VMType.Object:
+				{
+					if (Data is Hash hash)
+					{
+						return hash;
+					}
+
+					throw new Exception($"Invalid cast: expected number, got {this.Type}");
 				}
 
 			default:
@@ -990,7 +1009,7 @@ public sealed class VMObject : ISerializable
 			case VMType.Timestamp: return $"[Time] => {((DateTime)((Timestamp)Data)).ToString(TimeFormat)}";
 			case VMType.String: return $"[String] => {((string)Data)}";
 			case VMType.Bool: return $"[Bool] => {((bool)Data)}";
-			case VMType.Enum: return $"[Enum] => {((int)Data)}";
+			case VMType.Enum: return $"[Enum] => {Convert.ToUInt32(Data)}";
 			case VMType.Object: return $"[Object] => {(Data == null ? "null" : Data.GetType().Name)}";
 			default: return "Unknown";
 		}

@@ -13,4 +13,9 @@
     <ProjectReference Include="../../PhantasmaPhoenix.Core/PhantasmaPhoenix.Core.csproj" />
     <ProjectReference Include="../../PhantasmaPhoenix.VM/PhantasmaPhoenix.VM.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../PhantasmaPhoenix.Protocol.Carbon.Tests/Fixtures/gen2_csharp_*.tsv" Link="Fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../PhantasmaPhoenix.Protocol.Carbon.Tests/Fixtures/phantasma_bigint_vectors.tsv" Link="Fixtures/phantasma_bigint_vectors.tsv" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../PhantasmaPhoenix.Protocol.Carbon.Tests/Fixtures/vm_script_builder_vectors.tsv" Link="Fixtures/vm_script_builder_vectors.tsv" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

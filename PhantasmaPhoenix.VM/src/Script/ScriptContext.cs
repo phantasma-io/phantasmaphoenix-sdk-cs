@@ -990,10 +990,10 @@ public class ScriptContext : ExecutionContext
 					var a = (uint)numA;
 					var b = (uint)numB;
 
-					if (opcode != Opcode.AND)
-					{
-						SetState(ExecutionState.Fault);
-					}
+					// Gen3 validator policy only allows Enum AND. OR/XOR used to
+					// continue after faulting in this SDK, which wrote a misleading
+					// result before the VM surfaced the fault.
+					Expect(opcode == Opcode.AND, "Enum OR/XOR are not supported");
 
 					bool result = (a & b) != 0;
 
@@ -1237,8 +1237,24 @@ public class ScriptContext : ExecutionContext
 				case Opcode.MUL: result = a * b; break;
 				case Opcode.DIV: result = a / b; break;
 				case Opcode.MOD: result = a % b; break;
-				case Opcode.SHR: result = a >> (int)b; break;
-				case Opcode.SHL: result = a << (int)b; break;
+				case Opcode.SHR:
+					{
+						var shift = (int)b;
+						// Match Gen3 validator policy: negative shifts are invalid
+						// VM operations, not .NET-compatible masked shift counts.
+						Expect(shift >= 0, "negative shift count is not supported");
+						result = a >> shift;
+						break;
+					}
+				case Opcode.SHL:
+					{
+						var shift = (int)b;
+						// Keep left and right shifts symmetric so fixture rows
+						// cannot regress one direction back to permissive .NET behavior.
+						Expect(shift >= 0, "negative shift count is not supported");
+						result = a << shift;
+						break;
+					}
 				case Opcode.MIN: result = a < b ? a : b; break;
 				case Opcode.MAX: result = a > b ? a : b; break;
 				case Opcode.POW: result = BigInteger.Pow(a, (int)b); break;
