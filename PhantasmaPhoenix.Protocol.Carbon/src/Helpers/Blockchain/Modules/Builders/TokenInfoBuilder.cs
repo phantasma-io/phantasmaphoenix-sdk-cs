@@ -55,7 +55,7 @@ public static class TokenInfoBuilder
 		}
 		else
 		{
-			if (!IsInt64Safe(maxSupply))
+			if (maxSupply.IsZero || !IsInt64Safe(maxSupply))
 			{
 				tokenInfo.flags = TokenFlags.BigFungible;
 			}

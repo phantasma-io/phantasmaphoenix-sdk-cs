@@ -72,6 +72,36 @@ public class TokenBuilderValidationTests
 	}
 
 	[Fact]
+	public void TokenInfoBuilder_marks_unlimited_fungible_as_big_fungible()
+	{
+		var metadata = BuildTokenMetadata();
+		var creator = Bytes32.Empty;
+
+		var unlimited = TokenInfoBuilder.Build("UNLIMITED", new IntX(0), false, 8, creator, metadata);
+		var finiteSmall = TokenInfoBuilder.Build("SMALL", new IntX(1_000_000), false, 8, creator, metadata);
+		var finiteBig = TokenInfoBuilder.Build(
+			"BIG",
+			new IntX(BigInteger.Parse("9223372036854775808")),
+			false,
+			8,
+			creator,
+			metadata);
+		var nft = TokenInfoBuilder.Build(
+			"NFT",
+			new IntX(0),
+			true,
+			0,
+			creator,
+			metadata,
+			TokenSchemasBuilder.BuildAndSerialize(null));
+
+		unlimited.flags.ShouldBe(TokenFlags.BigFungible);
+		finiteSmall.flags.ShouldBe(TokenFlags.None);
+		finiteBig.flags.ShouldBe(TokenFlags.BigFungible);
+		nft.flags.ShouldBe(TokenFlags.NonFungible);
+	}
+
+	[Fact]
 	public void TokenSchemasBuilder_reports_missing_standard_metadata()
 	{
 		var schemas = new TokenSchemas
