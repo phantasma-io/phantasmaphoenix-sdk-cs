@@ -17,14 +17,13 @@ public static class MintNonFungibleTxHelper
 		long? expiry = null)
 	{
 		var fees = feeOptions ?? new MintNftFeeOptions();
-		var gasBase = fees.GasFeeBase;
-		var multiplier = fees.FeeMultiplier;
+		var maxGas = fees.CalculateMaxGas(1);
 
 		return new TxMsg
 		{
 			type = TxTypes.MintNonFungible,
 			expiry = expiry ?? DateTimeOffset.UtcNow.AddSeconds(60).ToUnixTimeMilliseconds(),
-			maxGas = gasBase * multiplier,
+			maxGas = maxGas,
 			maxData = maxData ?? 0,
 			gasFrom = senderPublicKey,
 			payload = SmallString.Empty,

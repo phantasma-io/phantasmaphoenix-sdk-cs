@@ -67,6 +67,46 @@ public class PhantasmaSafeMintTests
 	}
 
 	[Fact]
+	public void FeeOptions_scale_only_count_sensitive_mint_fees()
+	{
+		var baseFees = new FeeOptions(10, 1_000);
+		baseFees.CalculateMaxGas().ShouldBe(10_000UL);
+		baseFees.CalculateMaxGas(3).ShouldBe(30_000UL);
+
+		var seriesFees = new CreateSeriesFeeOptions(10, 20, 30);
+		IFeeOptions seriesLike = seriesFees;
+		seriesFees.CalculateMaxGas().ShouldBe(900UL);
+		seriesLike.CalculateMaxGas(1).ShouldBe(900UL);
+		Should.Throw<ArgumentOutOfRangeException>(() => seriesLike.CalculateMaxGas(2));
+
+		var mintFees = new MintNftFeeOptions(10, 1_000);
+		mintFees.CalculateMaxGas().ShouldBe(10_000UL);
+		mintFees.CalculateMaxGas(3).ShouldBe(30_000UL);
+		mintFees.CalculateMaxGas(BuildMintInfos(3, Array.Empty<byte>())).ShouldBe(30_000UL);
+		Should.Throw<ArgumentOutOfRangeException>(() => mintFees.CalculateMaxGas(Array.Empty<PhantasmaNftMintInfo>()));
+	}
+
+	[Fact]
+	public void MintPhantasmaNonFungibleTxHelper_scales_max_gas_by_token_count()
+	{
+		var tokens = BuildMintInfos(3, new byte[] { 0xAA });
+
+		var tx = MintPhantasmaNonFungibleTxHelper.BuildTx(
+			tokenId: 42,
+			senderPublicKey: Sender,
+			receiverPublicKey: Receiver,
+			tokens: tokens,
+			feeOptions: new MintNftFeeOptions(10, 1_000),
+			maxData: 123,
+			expiry: 999);
+
+		tx.maxGas.ShouldBe(30_000UL);
+		var call = (TxMsgCall)tx.msg;
+		var decoded = CarbonBlob.New<MintPhantasmaNonFungibleArgs>(call.args);
+		decoded.tokens.Length.ShouldBe(3);
+	}
+
+	[Fact]
 	public void MintPhantasmaNonFungibleTxHelper_parse_result_preserves_both_ids()
 	{
 		var lowIdBytes = new byte[32];
@@ -109,4 +149,14 @@ public class PhantasmaSafeMintTests
 		new MetadataField("infoURL", "https://images.nasa.gov/details/PIA13227"),
 		new MetadataField("royalties", 10000000)
 	];
+
+	private static PhantasmaNftMintInfo[] BuildMintInfos(int count, byte[] rom) =>
+		Enumerable.Range(1, count)
+			.Select(i => new PhantasmaNftMintInfo
+			{
+				phantasmaSeriesId = new IntX(new BigInteger(i)),
+				rom = rom,
+				ram = Array.Empty<byte>()
+			})
+			.ToArray();
 }

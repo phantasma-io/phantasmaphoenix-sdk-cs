@@ -52,7 +52,7 @@ public static class MintPhantasmaNonFungibleTxHelper
 
 		// Match the raw mint fee calculation. This helper only packages the Token.Call ABI surface.
 		var fees = feeOptions ?? new MintNftFeeOptions();
-		ulong maxGas = fees.CalculateMaxGas(tokens);
+		ulong maxGas = fees.CalculateMaxGas(tokens.Length);
 
 		return new TxMsg
 		{
