@@ -29,14 +29,14 @@ public class TokenSeriesResult
 	public string MaxSupply { get; set; }
 
 	[ApiDescription("Total amount of burned tokens")]
-	public string BurnedSupply { get; set; }
+	public string? BurnedSupply { get; set; }
 
-	public string Mode { get; set; }
+	public string? Mode { get; set; }
 
-	public string Script { get; set; }
+	public string? Script { get; set; }
 
 	[ApiDescription("List of methods")]
-	public ABIMethodResult[] Methods { get; set; }
+	public ABIMethodResult[]? Methods { get; set; }
 
 	[ApiDescription("Series metadata")]
 	public TokenPropertyResult[] Metadata { get; set; }

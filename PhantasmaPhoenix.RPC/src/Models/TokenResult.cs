@@ -1,43 +1,45 @@
 using PhantasmaPhoenix.Protocol;
 using PhantasmaPhoenix.RPC.Annotations;
+using Newtonsoft.Json;
 
 namespace PhantasmaPhoenix.RPC.Models;
 
+[JsonConverter(typeof(TokenResultJsonConverter))]
 public class TokenResult
 {
 	[ApiDescription("Ticker symbol for the token")]
-	public string Symbol { get; set; }
+	public string Symbol { get; set; } = string.Empty;
 
-	public string Name { get; set; }
+	public string Name { get; set; } = string.Empty;
 
 	[ApiDescription("Amount of decimals when converting from fixed point format to decimal format")]
 	public uint Decimals { get; set; }
 
 	[ApiDescription("Amount of minted tokens")]
-	public string CurrentSupply { get; set; }
+	public string CurrentSupply { get; set; } = string.Empty;
 
 	[ApiDescription("Max amount of tokens that can be minted")]
-	public string MaxSupply { get; set; }
+	public string MaxSupply { get; set; } = string.Empty;
 
 	[ApiDescription("Total amount of burned tokens")]
-	public string BurnedSupply { get; set; }
+	public string BurnedSupply { get; set; } = string.Empty;
 
 	[ApiDescription("Address of token contract")]
-	public string Address { get; set; }
+	public string Address { get; set; } = string.Empty;
 
 	[ApiDescription("Owner address")]
-	public string Owner { get; set; }
+	public string Owner { get; set; } = string.Empty;
 
-	public string Flags { get; set; }
+	public string Flags { get; set; } = string.Empty;
 
 	[ApiDescription("Script attached to token, in hex")]
-	public string Script { get; set; }
+	public string? Script { get; set; }
 
 	[ApiDescription("Series info. NFT only")]
-	public TokenSeriesResult[] Series { get; set; }
+	public TokenSeriesResult[] Series { get; set; } = Array.Empty<TokenSeriesResult>();
 
 	[ApiDescription("Carbon token ID")]
-	public string CarbonId { get; set; }
+	public string CarbonId { get; set; } = string.Empty;
 
 	[ApiDescription("Token metadata")]
 	public TokenPropertyResult[]? Metadata { get; set; }
@@ -45,12 +47,11 @@ public class TokenResult
 	[ApiDescription("Token schemas (NFT tokens only)")]
 	public TokenSchemasResult? TokenSchemas { get; set; }
 
-	// TODO Commented: TokenExternalResult[], TokenPriceResult[], should we still implement it somehow?
-	// [ApiDescription("External platforms info")]
-	// public TokenExternalResult[] external { get; set; }
+	[ApiDescription("External platforms info")]
+	public TokenExternalResult[]? External { get; set; }
 
-	// [ApiDescription("Cosmic swap historic data")]
-	// public TokenPriceResult[] price { get; set; }
+	[ApiDescription("Cosmic swap historic data")]
+	public TokenPriceResult[]? Price { get; set; }
 
 	public TokenResult() { }
 

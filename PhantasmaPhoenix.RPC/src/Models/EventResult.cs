@@ -1,15 +1,17 @@
 using PhantasmaPhoenix.Core.Extensions;
 using PhantasmaPhoenix.Protocol;
+using Newtonsoft.Json;
 
 namespace PhantasmaPhoenix.RPC.Models;
 
+[JsonConverter(typeof(EventResultJsonConverter))]
 public class EventResult
 {
-	public string Address { get; set; }
-	public string Contract { get; set; }
-	public string Kind { get; set; }
-	public string Name { get; set; }
-	public string Data { get; set; }
+	public string Address { get; set; } = string.Empty;
+	public string Contract { get; set; } = string.Empty;
+	public string Kind { get; set; } = string.Empty;
+	public string Name { get; set; } = string.Empty;
+	public string Data { get; set; } = string.Empty;
 
 	public EventResult() { }
 

@@ -6,7 +6,7 @@ public class BalanceResult
 	public string Amount { get; set; }
 	public string Symbol { get; set; }
 	public uint Decimals { get; set; }
-	public string[] Ids { get; set; }
+	public string[]? Ids { get; set; }
 
 	public BalanceResult() { }
 }

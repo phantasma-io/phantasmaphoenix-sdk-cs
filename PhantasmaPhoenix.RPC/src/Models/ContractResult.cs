@@ -13,12 +13,14 @@ public class ContractResult
 	[ApiDescription("Script bytes, in hex format")]
 	public string Script { get; set; }
 
+	[ApiDescription("Address that owns the contract, when returned by the RPC")]
+	public string? Owner { get; set; }
+
 	[ApiDescription("List of methods")]
-	public ABIMethodResult[] Methods { get; set; }
+	public ABIMethodResult[]? Methods { get; set; }
 
 	[ApiDescription("List of events")]
-	public ABIEventResult[] Events { get; set; }
+	public ABIEventResult[]? Events { get; set; }
 
 	public ContractResult() { }
 }
-

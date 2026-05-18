@@ -29,10 +29,10 @@ public class BlockResult
 	public string Reward { get; set; }
 
 	[ApiDescription("Block events")]
-	public EventResult[] Events { get; set; }
+	public EventResult[]? Events { get; set; }
 
 	[ApiDescription("Block oracles")]
-	public OracleResult[] Oracles { get; set; }
+	public OracleResult[]? Oracles { get; set; }
 
 	public BlockResult() { }
 }
