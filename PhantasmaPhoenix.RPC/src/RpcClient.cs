@@ -14,6 +14,9 @@ namespace PhantasmaPhoenix.RPC;
 /// </summary>
 public sealed class RpcClient : IDisposable
 {
+	private const int StreamCopyBufferSize = 81920;
+	public const long DefaultMaxResponseBytes = 16L * 1024 * 1024;
+
 	private readonly HttpClient _httpClient;
 	private readonly bool _ownsHttpClient;
 	private readonly ILogger? _logger;
@@ -21,6 +24,7 @@ public sealed class RpcClient : IDisposable
 	private readonly JsonSerializer _jsonSerializer;
 	private readonly int _maxRetries;
 	private readonly TimeSpan _retryDelay;
+	private readonly long _maxResponseBytes;
 
 	/// <summary>
 	/// Creates a new RPC client with optional external HttpClient and logging
@@ -29,8 +33,12 @@ public sealed class RpcClient : IDisposable
 	/// <param name="logger">Logger instance or null to disable logging</param>
 	/// <param name="maxRetries">Number of retry attempts for transient failures</param>
 	/// <param name="retryDelayMs">Delay between retries in milliseconds</param>
-	public RpcClient(HttpClient? httpClient = null, ILogger? logger = null, int maxRetries = 0, int retryDelayMs = 1000)
+	/// <param name="maxResponseBytes">Maximum accepted JSON-RPC response body size. Defaults to 16 MiB.</param>
+	public RpcClient(HttpClient? httpClient = null, ILogger? logger = null, int maxRetries = 0, int retryDelayMs = 1000, long maxResponseBytes = DefaultMaxResponseBytes)
 	{
+		if (maxResponseBytes <= 0)
+			throw new ArgumentOutOfRangeException(nameof(maxResponseBytes), "maxResponseBytes must be positive");
+
 		if (httpClient == null)
 		{
 			_httpClient = new HttpClient();
@@ -45,6 +53,7 @@ public sealed class RpcClient : IDisposable
 		_logger = logger;
 		_maxRetries = Math.Max(0, maxRetries);
 		_retryDelay = TimeSpan.FromMilliseconds(Math.Max(0, retryDelayMs));
+		_maxResponseBytes = maxResponseBytes;
 
 		// Keep original property names, ignore missing members, allow enums as string or int
 		_jsonSerializerSettings = new JsonSerializerSettings
@@ -94,10 +103,11 @@ public sealed class RpcClient : IDisposable
 			{
 				var stopwatch = Stopwatch.StartNew();
 				using var content = new StringContent(body, Encoding.UTF8, "application/json");
-				using var resp = await _httpClient.PostAsync(url, content).ConfigureAwait(false);
+				using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+				using var resp = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
 
 				// Read raw response JSON
-				var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false) ?? string.Empty;
+				var text = await ReadContentAsStringAsync(resp.Content).ConfigureAwait(false);
 				stopwatch.Stop();
 				if (_logger?.IsEnabled(LogLevel.Information) == true)
 				{
@@ -110,7 +120,8 @@ public sealed class RpcClient : IDisposable
 					_logger.LogDebug("[RPC][Response][Body] {Url} {Status} id={RequestId} {Json}", url, resp.StatusCode, req.id, text);
 				}
 
-				var env = JsonConvert.DeserializeObject<RpcResponse>(text, _jsonSerializerSettings)
+				var envelope = JObject.Parse(text);
+				var env = envelope.ToObject<RpcResponse>(_jsonSerializer)
 					?? throw new Exception("[RPC][Error] Invalid JSON-RPC response");
 
 				if (env.id == null)
@@ -121,6 +132,9 @@ public sealed class RpcClient : IDisposable
 
 				if (env.Error != null)
 					throw new Exception($"[RPC][Error] {env.Error.Code}: {env.Error.Message}");
+
+				if (!envelope.ContainsKey("result"))
+					throw new Exception("[RPC][Error] Missing response result");
 
 				if (env.Result == null)
 					return default;
@@ -148,6 +162,29 @@ public sealed class RpcClient : IDisposable
 		}
 
 		return default;
+	}
+
+	private async Task<string> ReadContentAsStringAsync(HttpContent content)
+	{
+		if (content.Headers.ContentLength is long contentLength && contentLength > _maxResponseBytes)
+			throw new Exception($"[RPC][Error] Response body exceeds {_maxResponseBytes} bytes");
+
+		using var stream = await content.ReadAsStreamAsync().ConfigureAwait(false);
+		using var memory = new MemoryStream();
+		var buffer = new byte[StreamCopyBufferSize];
+		long total = 0;
+		for (; ; )
+		{
+			var read = await stream.ReadAsync(buffer, 0, buffer.Length).ConfigureAwait(false);
+			if (read == 0)
+				break;
+			total += read;
+			if (total > _maxResponseBytes)
+				throw new Exception($"[RPC][Error] Response body exceeds {_maxResponseBytes} bytes");
+			memory.Write(buffer, 0, read);
+		}
+
+		return Encoding.UTF8.GetString(memory.ToArray());
 	}
 
 	/// <summary>

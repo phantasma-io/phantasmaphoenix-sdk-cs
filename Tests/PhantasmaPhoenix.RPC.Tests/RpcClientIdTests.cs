@@ -111,6 +111,38 @@ public class RpcClientIdTests
 		error.Message.ShouldContain("JSON-RPC id must be a string, integer, or null");
 	}
 
+	[Fact]
+	public async Task SendRpcAsync_Rejects_Success_Response_Without_Result()
+	{
+		using var client = new RpcClient(new HttpClient(new StubHandler(requestJson =>
+		{
+			var request = JObject.Parse(requestJson);
+			return $$"""{"jsonrpc":"2.0","id":{{request["id"]!.ToString(Newtonsoft.Json.Formatting.None)}}}""";
+		})));
+
+		var error = await Should.ThrowAsync<Exception>(() =>
+			client.SendRpcAsync<bool>("http://localhost/rpc", "getVersion"));
+
+		error.Message.ShouldContain("Missing response result");
+	}
+
+	[Fact]
+	public async Task SendRpcAsync_Rejects_Oversized_Response_Body()
+	{
+		using var client = new RpcClient(
+			new HttpClient(new StubHandler(requestJson =>
+			{
+				var request = JObject.Parse(requestJson);
+				return $$"""{"jsonrpc":"2.0","id":{{request["id"]!.ToString(Newtonsoft.Json.Formatting.None)}},"result":"0123456789ABCDEF"}""";
+			})),
+			maxResponseBytes: 16);
+
+		var error = await Should.ThrowAsync<Exception>(() =>
+			client.SendRpcAsync<string>("http://localhost/rpc", "getVersion"));
+
+		error.Message.ShouldContain("Response body exceeds");
+	}
+
 	private sealed class StubHandler : HttpMessageHandler
 	{
 		private readonly Func<string, string> _responseFactory;
