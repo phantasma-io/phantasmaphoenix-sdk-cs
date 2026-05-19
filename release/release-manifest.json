@@ -29,8 +29,8 @@
     {
       "id": "PhantasmaPhoenix.Protocol.Carbon",
       "project": "PhantasmaPhoenix.Protocol.Carbon/PhantasmaPhoenix.Protocol.Carbon.csproj",
-      "version": "0.4.2",
-      "publish": false,
+      "version": "0.4.3",
+      "publish": true,
       "dependencies": {
         "PhantasmaPhoenix.Core": "0.2.5",
         "PhantasmaPhoenix.Cryptography": "0.2.2"
@@ -44,7 +44,7 @@
       "dependencies": {
         "PhantasmaPhoenix.Cryptography": "0.2.2",
         "PhantasmaPhoenix.Protocol": "0.2.10",
-        "PhantasmaPhoenix.Protocol.Carbon": "0.4.2"
+        "PhantasmaPhoenix.Protocol.Carbon": "0.4.3"
       }
     },
     {
