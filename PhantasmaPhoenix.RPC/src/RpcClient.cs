@@ -97,11 +97,11 @@ public sealed class RpcClient : IDisposable
 				using var resp = await _httpClient.PostAsync(url, content).ConfigureAwait(false);
 
 				// Read raw response JSON
-				var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+				var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false) ?? string.Empty;
 				stopwatch.Stop();
 				if (_logger?.IsEnabled(LogLevel.Information) == true)
 				{
-					var bodyBytes = text == null ? 0 : Encoding.UTF8.GetByteCount(text);
+					var bodyBytes = Encoding.UTF8.GetByteCount(text);
 					_logger.LogInformation("[RPC][Response] {Url} {Status} id={RequestId} elapsedMs={ElapsedMs} bodyBytes={BodyBytes}", url, resp.StatusCode, req.id, stopwatch.ElapsedMilliseconds, bodyBytes);
 				}
 
@@ -110,11 +110,19 @@ public sealed class RpcClient : IDisposable
 					_logger.LogDebug("[RPC][Response][Body] {Url} {Status} id={RequestId} {Json}", url, resp.StatusCode, req.id, text);
 				}
 
-				var env = JsonConvert.DeserializeObject<RpcResponse>(text, _jsonSerializerSettings);
-				if (env?.Error != null)
+				var env = JsonConvert.DeserializeObject<RpcResponse>(text, _jsonSerializerSettings)
+					?? throw new Exception("[RPC][Error] Invalid JSON-RPC response");
+
+				if (env.id == null)
+					throw new Exception($"[RPC][Error] Missing response id for request {req.id}");
+
+				if (!env.id.Equals(req.id))
+					throw new Exception($"[RPC][Error] Response id mismatch: got {env.id}, expected {req.id}");
+
+				if (env.Error != null)
 					throw new Exception($"[RPC][Error] {env.Error.Code}: {env.Error.Message}");
 
-				if (env?.Result == null)
+				if (env.Result == null)
 					return default;
 
 				// Fast path when result is already string
