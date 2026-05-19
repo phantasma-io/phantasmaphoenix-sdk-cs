@@ -66,7 +66,14 @@ public struct MsgCallArgSections : ICarbonBlob
 	public void ReadWithNegativeCount(BinaryReader r, int countNegative)
 	{
 		Throw.If(countNegative >= 0, "arg sections count must be negative");
-		var length = -countNegative;
+		var lengthLong = -(long)countNegative;
+		Throw.If(lengthLong > int.MaxValue, "invalid array length");
+		var length = (int)lengthLong;
+		if (r.BaseStream.CanSeek)
+		{
+			var remaining = r.BaseStream.Length - r.BaseStream.Position;
+			Throw.If((long)length * 4 > remaining, $"array length {length} exceeds remaining bytes {remaining}");
+		}
 		if (length == 0)
 		{
 			argSections = Array.Empty<MsgCallArgs>();

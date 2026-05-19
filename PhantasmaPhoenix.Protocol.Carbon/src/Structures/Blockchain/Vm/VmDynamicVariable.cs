@@ -198,8 +198,7 @@ public struct VmDynamicVariable : ICarbonBlob
 				v = new VmDynamicVariable { type = type, data = bytesArr };
 				break;
 			case VmType.Array | VmType.Struct:
-				Int32 arrayLength = 0;
-				r.Read4(out arrayLength);
+				Int32 arrayLength = r.ReadLengthFor();
 				VmStructSchema? readSchema = null;
 				if (schema == null)
 				{

@@ -12,9 +12,39 @@ public static class BinaryStreamExt
 {
 	public static byte[] ReadExactly(this BinaryReader r, int count)
 	{
+		Throw.If(count < 0, "invalid byte count");
 		var result = r.ReadBytes(count);
 		Throw.If(count != result.Length, "end of stream reached");
 		return result;
+	}
+
+	public static int ReadLengthFor(this BinaryReader r, int elementSize = 1)
+	{
+		Throw.If(elementSize <= 0, "invalid array element size");
+		int length = r.Read4();
+		Throw.If(length < 0, "invalid array length");
+
+		if (r.BaseStream.CanSeek)
+		{
+			long remaining = r.BaseStream.Length - r.BaseStream.Position;
+			long required = (long)length * elementSize;
+			Throw.If(required > remaining, $"array length {length} exceeds remaining bytes {remaining}");
+		}
+
+		return length;
+	}
+
+	private static int FixedCarbonBlobElementSize<T>() where T : ICarbonBlob
+	{
+		if (typeof(T) == typeof(Bytes16))
+			return 16;
+		if (typeof(T) == typeof(Bytes32))
+			return 32;
+		if (typeof(T) == typeof(Bytes64))
+			return 64;
+		if (typeof(T) == typeof(Witness))
+			return 96;
+		return 1;
 	}
 
 	public static void Read16(this BinaryReader r, out byte[] v)
@@ -322,8 +352,7 @@ public static class BinaryStreamExt
 
 	public static BigInteger[] ReadArrayBigInt(this BinaryReader r)
 	{
-		int length;
-		r.Read4(out length);
+		int length = r.ReadLengthFor();
 		var data = new BigInteger[length];
 		for (int i = 0; i != length; ++i)
 			data[i] = r.ReadBigInt();
@@ -369,8 +398,7 @@ public static class BinaryStreamExt
 
 	public static string[] ReadArraySz(this BinaryReader r)
 	{
-		int length;
-		r.Read4(out length);
+		int length = r.ReadLengthFor();
 		var data = new string[length];
 		for (int i = 0; i != length; ++i)
 			data[i] = r.ReadSz();
@@ -386,15 +414,13 @@ public static class BinaryStreamExt
 
 	public static void ReadArray(this BinaryReader r, out byte[] data)
 	{
-		int length;
-		r.Read4(out length);
+		int length = r.ReadLengthFor();
 		data = r.ReadExactly(length);
 	}
 
 	public static byte[] ReadArray(this BinaryReader r)
 	{
-		int length;
-		r.Read4(out length);
+		int length = r.ReadLengthFor();
 		return r.ReadExactly(length);
 	}
 
@@ -407,8 +433,7 @@ public static class BinaryStreamExt
 
 	public static void ReadArray64(this BinaryReader r, out UInt64[] data)
 	{
-		int length;
-		r.Read4(out length);
+		int length = r.ReadLengthFor(8);
 		data = new UInt64[length];
 		for (int i = 0; i != length; ++i)
 			data[i] = r.ReadUInt64();
@@ -423,8 +448,7 @@ public static class BinaryStreamExt
 
 	public static Int64[] ReadArray64(this BinaryReader r, out Int64[] data)
 	{
-		int length;
-		r.Read4(out length);
+		int length = r.ReadLengthFor(8);
 		data = new Int64[length];
 		for (int i = 0; i != length; ++i)
 			data[i] = r.ReadInt64();
@@ -446,8 +470,7 @@ public static class BinaryStreamExt
 
 	public static Int32[] ReadArray32(this BinaryReader r, out Int32[] data)
 	{
-		int length;
-		r.Read4(out length);
+		int length = r.ReadLengthFor(4);
 		data = new Int32[length];
 		for (int i = 0; i != length; ++i)
 			data[i] = r.ReadInt32();
@@ -469,8 +492,7 @@ public static class BinaryStreamExt
 
 	public static Int16[] ReadArray16(this BinaryReader r, out Int16[] data)
 	{
-		int length;
-		r.Read4(out length);
+		int length = r.ReadLengthFor(2);
 		data = new Int16[length];
 		for (int i = 0; i != length; ++i)
 			data[i] = r.ReadInt16();
@@ -492,8 +514,7 @@ public static class BinaryStreamExt
 
 	public static sbyte[] ReadArray8(this BinaryReader r, out sbyte[] data)
 	{
-		int length;
-		r.Read4(out length);
+		int length = r.ReadLengthFor();
 		data = new sbyte[length];
 		for (int i = 0; i != length; ++i)
 			data[i] = r.ReadSByte();
@@ -515,8 +536,7 @@ public static class BinaryStreamExt
 
 	public static void ReadArray(this BinaryReader r, out byte[][] data)
 	{
-		int length;
-		r.Read4(out length);
+		int length = r.ReadLengthFor(4);
 		data = new byte[length][];
 		for (int i = 0; i < length; ++i)
 			r.ReadArray(out data[i]);
@@ -549,8 +569,7 @@ public static class BinaryStreamExt
 
 	public static void ReadArray<T>(this BinaryReader r, out T[] data) where T : ICarbonBlob
 	{
-		int length;
-		r.Read4(out length);
+		int length = r.ReadLengthFor(FixedCarbonBlobElementSize<T>());
 		data = new T[length];
 		for (int i = 0; i != length; ++i)
 			data[i].Read(r);

@@ -361,6 +361,17 @@ public class CarbonSerializationFixtureTests
 		}
 	}
 
+	[Fact]
+	public void Fixed_width_array_length_is_checked_before_allocation()
+	{
+		using var ms = new MemoryStream(new byte[] { 2, 0, 0, 0, 1, 2, 3, 4 });
+		using var r = new BinaryReader(ms);
+
+		var ex = Should.Throw<Exception>(() => r.ReadArray32());
+
+		ex.Message.ShouldContain("exceeds remaining bytes");
+	}
+
 	private static IReadOnlyList<Row> LoadRows()
 	{
 		if (!File.Exists(FixturePath))
