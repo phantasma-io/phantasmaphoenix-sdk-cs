@@ -545,30 +545,139 @@ public class PhantasmaAPI : IDisposable
 	#region Organization
 
 	/// <summary>
-	/// Gets organization data by id
+	/// Gets organization data by string organization id/name
 	/// </summary>
-	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns a default organization result until backend support is completed.</remarks>
-	/// <param name="id">Organization id</param>
+	/// <param name="organizationId">String organization id/name, for example "masters"</param>
+	/// <param name="includeMemberCount">True to include the member count; this requires a server-side member range scan</param>
 	/// <returns>Organization data or null</returns>
-	public Task<OrganizationResult?> GetOrganizationAsync(string id) =>
-		_rpc.SendRpcAsync<OrganizationResult>(Host, "getOrganization", id);
+	public Task<OrganizationResult?> GetOrganizationAsync(string organizationId, bool includeMemberCount = false) =>
+		GetOrganizationByNameAsync(organizationId, includeMemberCount);
 
 	/// <summary>
 	/// Gets organization data by name
 	/// </summary>
-	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns a default organization result until backend support is completed.</remarks>
 	/// <param name="name">Organization name</param>
+	/// <param name="includeMemberCount">True to include the member count; this requires a server-side member range scan</param>
 	/// <returns>Organization data or null</returns>
-	public Task<OrganizationResult?> GetOrganizationByNameAsync(string name) =>
-		_rpc.SendRpcAsync<OrganizationResult>(Host, "getOrganizationByName", name);
+	public Task<OrganizationResult?> GetOrganizationByNameAsync(string name, bool includeMemberCount = false) =>
+		_rpc.SendRpcAsync<OrganizationResult>(Host, "getOrganizationByName", name, includeMemberCount);
 
 	/// <summary>
-	/// Gets all organizations deployed on Phantasma
+	/// Gets organization data by numeric Carbon organization ID
 	/// </summary>
-	/// <remarks>Warning: this Phantasma RPC method is currently stubbed and returns an empty array until backend support is completed.</remarks>
-	/// <returns>Array of organizations or null</returns>
-	public Task<OrganizationResult[]?> GetOrganizationsAsync() =>
-		_rpc.SendRpcAsync<OrganizationResult[]>(Host, "getOrganizations");
+	/// <param name="carbonId">Numeric Carbon organization ID</param>
+	/// <param name="includeMemberCount">True to include the member count; this requires a server-side member range scan</param>
+	/// <returns>Organization data or null</returns>
+	public Task<OrganizationResult?> GetOrganizationByCarbonIdAsync(ulong carbonId, bool includeMemberCount = false) =>
+		_rpc.SendRpcAsync<OrganizationResult>(Host, "getOrganization", carbonId, includeMemberCount);
+
+	/// <summary>
+	/// Gets organizations deployed on Phantasma using cursor pagination
+	/// </summary>
+	/// <param name="pageSize">Items per page</param>
+	/// <param name="cursor">Cursor for the next page</param>
+	/// <param name="includeMemberCount">True to include the member count; this requires a server-side member range scan per organization</param>
+	/// <returns>Cursor paginated organizations or null</returns>
+	public Task<CursorPaginatedResult<OrganizationResult[]>?> GetOrganizationsAsync(
+		uint pageSize = 10,
+		string cursor = "",
+		bool includeMemberCount = false) =>
+		_rpc.SendRpcAsync<CursorPaginatedResult<OrganizationResult[]>>(
+			Host,
+			"getOrganizations",
+			pageSize,
+			cursor,
+			includeMemberCount);
+
+	/// <summary>
+	/// Gets members of an organization by string organization id/name using cursor pagination
+	/// </summary>
+	/// <param name="organizationId">String organization id/name, for example "masters"</param>
+	/// <param name="pageSize">Items per page</param>
+	/// <param name="cursor">Cursor for the next page</param>
+	/// <param name="includeMemberTime">True to include each member join timestamp</param>
+	/// <returns>Cursor paginated organization members or null</returns>
+	public async Task<CursorPaginatedResult<OrganizationMemberResult[]>?> GetOrganizationMembersAsync(
+		string organizationId,
+		uint pageSize = 10,
+		string cursor = "",
+		bool includeMemberTime = true)
+	{
+		var carbonId = await ResolveOrganizationCarbonIdAsync(organizationId).ConfigureAwait(false);
+		return await GetOrganizationMembersByCarbonIdAsync(carbonId, pageSize, cursor, includeMemberTime).ConfigureAwait(false);
+	}
+
+	/// <summary>
+	/// Gets members of an organization by numeric Carbon organization ID using cursor pagination
+	/// </summary>
+	/// <param name="carbonId">Numeric Carbon organization ID</param>
+	/// <param name="pageSize">Items per page</param>
+	/// <param name="cursor">Cursor for the next page</param>
+	/// <param name="includeMemberTime">True to include each member join timestamp</param>
+	/// <returns>Cursor paginated organization members or null</returns>
+	public Task<CursorPaginatedResult<OrganizationMemberResult[]>?> GetOrganizationMembersByCarbonIdAsync(
+		ulong carbonId,
+		uint pageSize = 10,
+		string cursor = "",
+		bool includeMemberTime = true) =>
+		_rpc.SendRpcAsync<CursorPaginatedResult<OrganizationMemberResult[]>>(
+			Host,
+			"getOrganizationMembers",
+			carbonId,
+			pageSize,
+			cursor,
+			includeMemberTime);
+
+	/// <summary>
+	/// Gets membership status for an address in an organization by string organization id/name
+	/// </summary>
+	/// <param name="organizationId">String organization id/name, for example "masters"</param>
+	/// <param name="address">Address to check</param>
+	/// <param name="checkAddressReservedByte">True to validate the address reserved byte</param>
+	/// <param name="addressType">Address text format</param>
+	/// <returns>Organization member status or null</returns>
+	public async Task<OrganizationMemberResult?> GetOrganizationMemberAsync(
+		string organizationId,
+		string address,
+		bool checkAddressReservedByte = true,
+		RpcAddressType addressType = RpcAddressType.Phantasma)
+	{
+		var carbonId = await ResolveOrganizationCarbonIdAsync(organizationId).ConfigureAwait(false);
+		return await GetOrganizationMemberByCarbonIdAsync(carbonId, address, checkAddressReservedByte, addressType).ConfigureAwait(false);
+	}
+
+	/// <summary>
+	/// Gets membership status for an address in an organization by numeric Carbon organization ID
+	/// </summary>
+	/// <param name="carbonId">Numeric Carbon organization ID</param>
+	/// <param name="address">Address to check</param>
+	/// <param name="checkAddressReservedByte">True to validate the address reserved byte</param>
+	/// <param name="addressType">Address text format</param>
+	/// <returns>Organization member status or null</returns>
+	public Task<OrganizationMemberResult?> GetOrganizationMemberByCarbonIdAsync(
+		ulong carbonId,
+		string address,
+		bool checkAddressReservedByte = true,
+		RpcAddressType addressType = RpcAddressType.Phantasma) =>
+		_rpc.SendRpcAsync<OrganizationMemberResult>(
+			Host,
+			"getOrganizationMember",
+			carbonId,
+			address,
+			checkAddressReservedByte,
+			addressType);
+
+	private async Task<ulong> ResolveOrganizationCarbonIdAsync(string organizationId)
+	{
+		var organization = await GetOrganizationAsync(organizationId).ConfigureAwait(false);
+		if (organization == null)
+			throw new Exception($"Organization '{organizationId}' was not found");
+
+		if (!ulong.TryParse(organization.Id, NumberStyles.None, CultureInfo.InvariantCulture, out var carbonId))
+			throw new FormatException($"RPC returned invalid Carbon organization ID '{organization.Id}' for organization '{organizationId}'");
+
+		return carbonId;
+	}
 
 	#endregion
 

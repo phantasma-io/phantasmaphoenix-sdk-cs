@@ -3,6 +3,7 @@ using Newtonsoft.Json.Converters;
 using Newtonsoft.Json.Serialization;
 using PhantasmaPhoenix.Protocol;
 using PhantasmaPhoenix.RPC.Models;
+using PhantasmaPhoenix.RPC.Types;
 using Shouldly;
 using Xunit;
 
@@ -131,6 +132,57 @@ public class RpcResponseShapeTests
 		script.Error.ShouldBeNull();
 		script.State.ShouldBeNull();
 		script.Gas.ShouldBeNull();
+
+		var organization = Decode<OrganizationResult>(
+			"""
+			{
+			  "id":"1",
+			  "name":"masters",
+			  "owner":"Powner",
+			  "carbonOwner":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+			  "metadata":[{"key":"role","value":"validators"}],
+			  "memberCount":"1106"
+			}
+			""");
+		organization.Id.ShouldBe("1");
+		organization.Name.ShouldBe("masters");
+		organization.Owner.ShouldBe("Powner");
+		organization.CarbonOwner.ShouldBe("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff");
+		organization.Metadata[0].Key.ShouldBe("role");
+		organization.Metadata[0].Value.ShouldBe("validators");
+		organization.MemberCount.ShouldBe("1106");
+
+		var organizationPage = Decode<CursorPaginatedResult<OrganizationResult[]>>(
+			"""
+			{
+			  "result":[{"id":"2","name":"validators","owner":"Powner","carbonOwner":"abcdef","metadata":[]}],
+			  "cursor":"NEXT"
+			}
+			""");
+		organizationPage.Result![0].Id.ShouldBe("2");
+		organizationPage.Result[0].Name.ShouldBe("validators");
+		organizationPage.Cursor.ShouldBe("NEXT");
+
+		var organizationMember = Decode<OrganizationMemberResult>(
+			"""
+			{
+			  "address":"Pmember",
+			  "carbonAddress":"abcdef",
+			  "isMember":true,
+			  "memberTime":1743520000000
+			}
+			""");
+		organizationMember.Address.ShouldBe("Pmember");
+		organizationMember.CarbonAddress.ShouldBe("abcdef");
+		organizationMember.IsMember.ShouldBeTrue();
+		organizationMember.MemberTime.ShouldBe(1743520000000);
+
+		var nonMember = Decode<OrganizationMemberResult>(
+			"""
+			{"address":"Pmissing","carbonAddress":"fedcba","isMember":false}
+			""");
+		nonMember.IsMember.ShouldBeFalse();
+		nonMember.MemberTime.ShouldBeNull();
 	}
 
 	[Fact]
@@ -199,6 +251,8 @@ public class RpcResponseShapeTests
 			""");
 		token.Symbol.ShouldBe("CROWN");
 		token.CarbonId.ShouldBe(string.Empty);
+
+		typeof(OrganizationResult).GetProperty("Members").ShouldBeNull();
 	}
 
 	private static T Decode<T>(string json)
