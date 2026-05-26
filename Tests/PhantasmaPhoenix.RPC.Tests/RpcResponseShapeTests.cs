@@ -136,7 +136,6 @@ public class RpcResponseShapeTests
 		var organization = Decode<OrganizationResult>(
 			"""
 			{
-			  "id":"1",
 			  "name":"masters",
 			  "owner":"Powner",
 			  "carbonOwner":"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
@@ -144,7 +143,6 @@ public class RpcResponseShapeTests
 			  "memberCount":"1106"
 			}
 			""");
-		organization.Id.ShouldBe("1");
 		organization.Name.ShouldBe("masters");
 		organization.Owner.ShouldBe("Powner");
 		organization.CarbonOwner.ShouldBe("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff");
@@ -155,12 +153,11 @@ public class RpcResponseShapeTests
 		var organizationPage = Decode<CursorPaginatedResult<OrganizationResult[]>>(
 			"""
 			{
-			  "result":[{"id":"2","name":"validators","owner":"Powner","carbonOwner":"abcdef","metadata":[]}],
+			  "result":[{"name":"validators","owner":"Powner","carbonOwner":"abcdef","metadata":[]}],
 			  "cursor":"NEXT"
 			}
 			""");
-		organizationPage.Result![0].Id.ShouldBe("2");
-		organizationPage.Result[0].Name.ShouldBe("validators");
+		organizationPage.Result![0].Name.ShouldBe("validators");
 		organizationPage.Cursor.ShouldBe("NEXT");
 
 		var organizationMember = Decode<OrganizationMemberResult>(
@@ -253,6 +250,7 @@ public class RpcResponseShapeTests
 		token.CarbonId.ShouldBe(string.Empty);
 
 		typeof(OrganizationResult).GetProperty("Members").ShouldBeNull();
+		typeof(OrganizationResult).GetProperty("Id").ShouldBeNull();
 	}
 
 	private static T Decode<T>(string json)

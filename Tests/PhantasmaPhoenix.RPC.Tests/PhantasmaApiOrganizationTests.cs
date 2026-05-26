@@ -11,35 +11,23 @@ namespace PhantasmaPhoenix.RPC.Tests;
 public class PhantasmaApiOrganizationTests
 {
 	[Fact]
-	public async Task OrganizationMethods_Send_Name_First_And_Explicit_Carbon_Id_Rpc_Parameters()
+	public async Task OrganizationMethods_Send_Name_First_Rpc_Parameters()
 	{
 		using var handler = new CapturingHandler();
 		using var rpcClient = new RpcClient(new HttpClient(handler));
 		using var api = new PhantasmaAPI("http://localhost/rpc", rpcClient);
 
 		await api.GetOrganizationAsync("masters", includeMemberCount: true);
-		await api.GetOrganizationByNameAsync("validators", includeMemberCount: true);
-		await api.GetOrganizationByCarbonIdAsync(1, includeMemberCount: true);
 		await api.GetOrganizationsAsync(pageSize: 25, cursor: "ORG_CURSOR", includeMemberCount: true);
 
-		handler.Requests.Count.ShouldBe(4);
+		handler.Requests.Count.ShouldBe(2);
 
-		AssertRequest(handler.Requests[0], "getOrganizationByName", parameters =>
+		AssertRequest(handler.Requests[0], "getOrganization", parameters =>
 		{
 			parameters[0]!.Value<string>().ShouldBe("masters");
 			parameters[1]!.Value<bool>().ShouldBeTrue();
 		});
-		AssertRequest(handler.Requests[1], "getOrganizationByName", parameters =>
-		{
-			parameters[0]!.Value<string>().ShouldBe("validators");
-			parameters[1]!.Value<bool>().ShouldBeTrue();
-		});
-		AssertRequest(handler.Requests[2], "getOrganization", parameters =>
-		{
-			parameters[0]!.Value<ulong>().ShouldBe(1UL);
-			parameters[1]!.Value<bool>().ShouldBeTrue();
-		});
-		AssertRequest(handler.Requests[3], "getOrganizations", parameters =>
+		AssertRequest(handler.Requests[1], "getOrganizations", parameters =>
 		{
 			parameters[0]!.Value<uint>().ShouldBe(25U);
 			parameters[1]!.Value<string>().ShouldBe("ORG_CURSOR");
@@ -48,7 +36,7 @@ public class PhantasmaApiOrganizationTests
 	}
 
 	[Fact]
-	public async Task OrganizationMemberMethods_Resolve_String_Organization_Id_To_Carbon_Id()
+	public async Task OrganizationMemberMethods_Send_Name_First_Rpc_Parameters()
 	{
 		using var handler = new CapturingHandler();
 		using var rpcClient = new RpcClient(new HttpClient(handler));
@@ -57,28 +45,18 @@ public class PhantasmaApiOrganizationTests
 		await api.GetOrganizationMembersAsync("masters", pageSize: 50, cursor: "MEMBER_CURSOR", includeMemberTime: false);
 		await api.GetOrganizationMemberAsync("validators", "001122", checkAddressReservedByte: false, RpcAddressType.Carbon);
 
-		handler.Requests.Count.ShouldBe(4);
+		handler.Requests.Count.ShouldBe(2);
 
-		AssertRequest(handler.Requests[0], "getOrganizationByName", parameters =>
+		AssertRequest(handler.Requests[0], "getOrganizationMembers", parameters =>
 		{
 			parameters[0]!.Value<string>().ShouldBe("masters");
-			parameters[1]!.Value<bool>().ShouldBeFalse();
-		});
-		AssertRequest(handler.Requests[1], "getOrganizationMembers", parameters =>
-		{
-			parameters[0]!.Value<ulong>().ShouldBe(1UL);
 			parameters[1]!.Value<uint>().ShouldBe(50U);
 			parameters[2]!.Value<string>().ShouldBe("MEMBER_CURSOR");
 			parameters[3]!.Value<bool>().ShouldBeFalse();
 		});
-		AssertRequest(handler.Requests[2], "getOrganizationByName", parameters =>
+		AssertRequest(handler.Requests[1], "getOrganizationMember", parameters =>
 		{
 			parameters[0]!.Value<string>().ShouldBe("validators");
-			parameters[1]!.Value<bool>().ShouldBeFalse();
-		});
-		AssertRequest(handler.Requests[3], "getOrganizationMember", parameters =>
-		{
-			parameters[0]!.Value<ulong>().ShouldBe(1UL);
 			parameters[1]!.Value<string>().ShouldBe("001122");
 			parameters[2]!.Value<bool>().ShouldBeFalse();
 			parameters[3]!.Value<string>().ShouldBe(nameof(RpcAddressType.Carbon));
@@ -86,30 +64,21 @@ public class PhantasmaApiOrganizationTests
 	}
 
 	[Fact]
-	public async Task OrganizationMemberMethods_Send_Explicit_Carbon_Id_Rpc_Parameters()
+	public void OrganizationMethods_Expose_Only_Name_First_Public_Surface()
 	{
-		using var handler = new CapturingHandler();
-		using var rpcClient = new RpcClient(new HttpClient(handler));
-		using var api = new PhantasmaAPI("http://localhost/rpc", rpcClient);
+		var organizationMethods = typeof(PhantasmaAPI)
+			.GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.DeclaredOnly)
+			.Where(method => method.Name.StartsWith("GetOrganization", StringComparison.Ordinal))
+			.Select(method => method.Name)
+			.OrderBy(name => name)
+			.ToArray();
 
-		await api.GetOrganizationMembersByCarbonIdAsync(1);
-		await api.GetOrganizationMemberByCarbonIdAsync(1, "Pmember");
-
-		handler.Requests.Count.ShouldBe(2);
-
-		AssertRequest(handler.Requests[0], "getOrganizationMembers", parameters =>
+		organizationMethods.ShouldBe(new[]
 		{
-			parameters[0]!.Value<ulong>().ShouldBe(1UL);
-			parameters[1]!.Value<uint>().ShouldBe(10U);
-			parameters[2]!.Value<string>().ShouldBe(string.Empty);
-			parameters[3]!.Value<bool>().ShouldBeTrue();
-		});
-		AssertRequest(handler.Requests[1], "getOrganizationMember", parameters =>
-		{
-			parameters[0]!.Value<ulong>().ShouldBe(1UL);
-			parameters[1]!.Value<string>().ShouldBe("Pmember");
-			parameters[2]!.Value<bool>().ShouldBeTrue();
-			parameters[3]!.Value<string>().ShouldBe(nameof(RpcAddressType.Phantasma));
+			"GetOrganizationAsync",
+			"GetOrganizationMemberAsync",
+			"GetOrganizationMembersAsync",
+			"GetOrganizationsAsync"
 		});
 	}
 
@@ -149,10 +118,10 @@ public class PhantasmaApiOrganizationTests
 		{
 			return method switch
 			{
-				"getOrganization" or "getOrganizationByName" => CreateOrganization("1", "masters"),
+				"getOrganization" => CreateOrganization("masters"),
 				"getOrganizations" => new JObject
 				{
-					["result"] = new JArray(CreateOrganization("1", "masters")),
+					["result"] = new JArray(CreateOrganization("masters")),
 					["cursor"] = JValue.CreateNull()
 				},
 				"getOrganizationMembers" => new JObject
@@ -165,11 +134,10 @@ public class PhantasmaApiOrganizationTests
 			};
 		}
 
-		private static JObject CreateOrganization(string id, string name)
+		private static JObject CreateOrganization(string name)
 		{
 			return new JObject
 			{
-				["id"] = id,
 				["name"] = name,
 				["owner"] = "Powner",
 				["carbonOwner"] = "abcdef",

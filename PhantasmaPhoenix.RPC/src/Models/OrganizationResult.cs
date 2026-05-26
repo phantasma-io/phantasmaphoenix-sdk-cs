@@ -4,9 +4,7 @@ namespace PhantasmaPhoenix.RPC.Models;
 
 public class OrganizationResult
 {
-	[ApiDescription("Numeric Carbon organization ID, serialized as text to preserve UInt64 precision in JSON clients.")]
-	public string Id { get; set; } = string.Empty;
-
+	[ApiDescription("Organization name, such as \"masters\" or \"validators\".")]
 	public string Name { get; set; } = string.Empty;
 
 	[ApiDescription("Organization owner formatted as a Phantasma address.")]
