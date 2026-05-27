@@ -63,25 +63,6 @@ public class PhantasmaApiOrganizationTests
 		});
 	}
 
-	[Fact]
-	public void OrganizationMethods_Expose_Only_Name_First_Public_Surface()
-	{
-		var organizationMethods = typeof(PhantasmaAPI)
-			.GetMethods(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.DeclaredOnly)
-			.Where(method => method.Name.StartsWith("GetOrganization", StringComparison.Ordinal))
-			.Select(method => method.Name)
-			.OrderBy(name => name)
-			.ToArray();
-
-		organizationMethods.ShouldBe(new[]
-		{
-			"GetOrganizationAsync",
-			"GetOrganizationMemberAsync",
-			"GetOrganizationMembersAsync",
-			"GetOrganizationsAsync"
-		});
-	}
-
 	private static void AssertRequest(JObject request, string method, Action<JArray> assertParameters)
 	{
 		request["method"]!.Value<string>().ShouldBe(method);

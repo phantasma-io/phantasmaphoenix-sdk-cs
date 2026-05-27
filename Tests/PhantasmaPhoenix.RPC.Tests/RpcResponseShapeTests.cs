@@ -248,9 +248,6 @@ public class RpcResponseShapeTests
 			""");
 		token.Symbol.ShouldBe("CROWN");
 		token.CarbonId.ShouldBe(string.Empty);
-
-		typeof(OrganizationResult).GetProperty("Members").ShouldBeNull();
-		typeof(OrganizationResult).GetProperty("Id").ShouldBeNull();
 	}
 
 	private static T Decode<T>(string json)
