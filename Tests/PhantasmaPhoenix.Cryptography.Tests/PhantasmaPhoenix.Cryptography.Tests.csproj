@@ -12,4 +12,7 @@
     <PackageReference Include="Shouldly" Version="4.3.0" />
     <ProjectReference Include="../../PhantasmaPhoenix.Cryptography/PhantasmaPhoenix.Cryptography.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="nacl-interop-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
