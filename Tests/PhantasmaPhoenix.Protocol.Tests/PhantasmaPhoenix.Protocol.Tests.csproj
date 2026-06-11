@@ -15,4 +15,7 @@
     <ProjectReference Include="../../PhantasmaPhoenix.Protocol/PhantasmaPhoenix.Protocol.csproj" />
     <ProjectReference Include="../../PhantasmaPhoenix.VM/PhantasmaPhoenix.VM.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="link-pairing-vectors.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

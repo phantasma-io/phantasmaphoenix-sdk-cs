@@ -1,0 +1,46 @@
+{
+ "pairing": [
+  {
+   "uri": "https://link.phantasma.info/v5/pair#v=5&t=topic-abc123&relay=link.phantasma.info&cb=https%3A%2F%2Fdapp.example%2Fplay&sk=AQQHCg0QExYZHB8iJSgrLjE0Nzo9QENGSUxPUlVYW14&meta=eyJuYW1lIjoiVGVzdCBkQXBwIiwidXJsIjoiaHR0cHM6Ly9kYXBwLmV4YW1wbGUifQ",
+   "expect": {
+    "version": 5,
+    "topic": "topic-abc123",
+    "mode": "sym",
+    "key": "AQQHCg0QExYZHB8iJSgrLjE0Nzo9QENGSUxPUlVYW14=",
+    "relay": "link.phantasma.info",
+    "metaName": "Test dApp",
+    "callback": "https://dapp.example/play"
+   }
+  },
+  {
+   "uri": "phantasma://v5/pair#v=5&t=t2&pk=AgcMERYbICUqLzQ5PkNITVJXXGFma3B1en-EiY6TmJ0",
+   "expect": {
+    "version": 5,
+    "topic": "t2",
+    "mode": "ecdh",
+    "key": "AgcMERYbICUqLzQ5PkNITVJXXGFma3B1en+EiY6TmJ0="
+   }
+  }
+ ],
+ "envelope": {
+  "key": "AwoRGB8mLTQ7QklQV15lbHN6gYiPlp2kq7K5wMfO1dw=",
+  "frame": {
+   "nonce": "M467l9xZugv++dk7lg2xjK0fMQk1nZXg",
+   "ct": "lf0qtNTFH1bR5fTREwrtkmmrJwrvyewkzQXtqi+STsIpzA/s3I/d/VXlC8+GnGlm5G5o9e7SIhIEdLzR"
+  },
+  "json": "{\"plv\":5,\"id\":\"x1\",\"method\":\"pha_getChains\"}"
+ },
+ "deeplink": {
+  "frame": "{\"nonce\":\"q83vEjRWeJq83vESNFZ4mrzd7xI0Vng=\",\"ct\":\"AAECAwQFBgcICQ==\"}",
+  "request": {
+   "walletBase": "phantasma://",
+   "topic": "topic abc/1",
+   "url": "phantasma://v5/req#t=topic%20abc%2F1&f=eyJub25jZSI6InE4M3ZFalJXZUpxODN2RVNORlo0bXJ6ZDd4STBWbmc9IiwiY3QiOiJBQUVDQXdRRkJnY0lDUT09In0"
+  },
+  "response": {
+   "callback": "https://dapp.example/play?x=1#oldroute",
+   "topic": "topic abc/1",
+   "url": "https://dapp.example/play?x=1#plv=5&t=topic%20abc%2F1&f=eyJub25jZSI6InE4M3ZFalJXZUpxODN2RVNORlo0bXJ6ZDd4STBWbmc9IiwiY3QiOiJBQUVDQXdRRkJnY0lDUT09In0"
+  }
+ }
+}
