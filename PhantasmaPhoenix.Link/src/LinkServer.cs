@@ -13,6 +13,10 @@ public class LinkServer
 {
 	public WalletLink WalletLink { get; private set; }
 
+	// The v5 dispatcher (new generation). Optional: when null, only the legacy `/phantasma`
+	// endpoint is served. When set, `/phantasma/v5` is served in parallel (spec §6.2).
+	public WalletLinkV5? WalletLinkV5 { get; private set; }
+
 	private Socket? listener;
 	public Action<Action>? OnUI;
 	public Action<string>? OnUserMessage;
@@ -25,9 +29,10 @@ public class LinkServer
 
 	public DateTime StartTime { get; private set; }
 
-	public LinkServer(WalletLink walletLink)
+	public LinkServer(WalletLink walletLink, WalletLinkV5? walletLinkV5 = null)
 	{
 		this.WalletLink = walletLink;
+		this.WalletLinkV5 = walletLinkV5;
 
 		listener = null;
 		OnUI = null;
@@ -103,6 +108,47 @@ public class LinkServer
 				}
 			}
 		});
+
+		// Phantasma Link v5 - served in parallel on a separate path so the legacy and v5
+		// protocols never share a code path. Capture the dispatcher into a local so the closure
+		// does not see a nullable property.
+		var v5 = this.WalletLinkV5;
+		if (v5 != null)
+		{
+			this.WebSocket("/phantasma/v5", (socket) =>
+			{
+				while (socket.IsOpen)
+				{
+					var msg = socket.Receive();
+
+					if (msg.CloseStatus == WebSocketCloseStatus.None)
+					{
+						if (msg.Bytes == null)
+						{
+							throw new InvalidOperationException("Received WebSocket message with null payload.");
+						}
+
+						var str = Encoding.UTF8.GetString(msg.Bytes);
+
+						OnUI?.Invoke(() =>
+						{
+							v5.HandleMessage(str, (json) =>
+							{
+								try
+								{
+									socket.Send(json);
+									OnMessageBack?.Invoke(json);
+								}
+								catch (Exception e)
+								{
+									System.Diagnostics.Debug.WriteLine("websocket send failure (v5), while answering phantasma link request: " + str + "\nException: " + e.Message);
+								}
+							});
+						});
+					}
+				}
+			});
+		}
 
 		try
 		{
