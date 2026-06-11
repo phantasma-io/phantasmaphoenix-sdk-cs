@@ -24,6 +24,8 @@ PhantasmaPhoenix.VM/bin
 PhantasmaPhoenix.VM/obj
 TestDataGenerator/bin
 TestDataGenerator/obj
+Tests/PhantasmaPhoenix.Link.Tests/bin
+Tests/PhantasmaPhoenix.Link.Tests/obj
 Tests/PhantasmaPhoenix.Protocol.Carbon.Tests/bin
 Tests/PhantasmaPhoenix.Protocol.Carbon.Tests/obj
 Tests/PhantasmaPhoenix.Cryptography.Tests/bin

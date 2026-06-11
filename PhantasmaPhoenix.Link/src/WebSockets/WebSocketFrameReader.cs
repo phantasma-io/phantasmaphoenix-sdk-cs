@@ -12,10 +12,15 @@ internal static class WebSocketFrameReader
 	/// Read a WebSocket frame from the stream
 	/// </summary>
 	/// <param name="fromStream">The stream to read from</param>
-	/// <param name="intoBuffer">The buffer to read into</param>
-	/// <param name="cancellationToken">the cancellation token</param>
+	/// <param name="intoBuffer">The buffer to read into. Grown in place (and handed back to the
+	/// caller) when one frame is larger than the current buffer: peers such as browsers and
+	/// Node's `ws` may legally send a multi-megabyte message as ONE unfragmented frame, and the
+	/// previous fixed 64 KB buffer made the server close the connection (found in live
+	/// Phantasma Link v5 loopback testing).</param>
+	/// <param name="maxFrameBytes">Hard ceiling for a single frame; anything larger throws
+	/// <see cref="InternalBufferOverflowException"/> so the caller answers MessageTooBig.</param>
 	/// <returns>A websocket frame</returns>
-	public static WebSocketFrame Read(Stream fromStream, ArraySegment<byte> intoBuffer)
+	public static WebSocketFrame Read(Stream fromStream, ref ArraySegment<byte> intoBuffer, int maxFrameBytes)
 	{
 		// allocate a small buffer to read small chunks of data from the stream
 		var smallBuffer = new ArraySegment<byte>(new byte[8]);
@@ -41,6 +46,19 @@ internal static class WebSocketFrameReader
 		bool isMaskBitSet = (byte2 & maskFlag) == maskFlag;
 		uint len = ReadLength(byte2, smallBuffer, fromStream);
 		int count = (int)len;
+
+		// Enforce the ceiling first, then grow the shared receive buffer to fit this frame.
+		// The grown buffer is returned to the caller via `ref` so the cost is paid once per
+		// connection, not per frame.
+		if (count > maxFrameBytes)
+		{
+			throw new InternalBufferOverflowException(
+				$"Frame of {count:#,##0} bytes exceeds the {maxFrameBytes:#,##0}-byte limit");
+		}
+		if (count > intoBuffer.Count)
+		{
+			intoBuffer = new ArraySegment<byte>(new byte[count]);
+		}
 
 		try
 		{

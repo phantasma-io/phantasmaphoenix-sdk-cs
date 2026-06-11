@@ -121,7 +121,11 @@ public class WebSocket
 	private WebSocketCloseStatus? _closeStatus;
 	private string? _closeStatusDescription;
 
+	// Starts small and is grown by the frame reader when a peer sends a bigger single frame
+	// (capped by MAX_FRAME_BYTES). 32 MiB matches the Phantasma Link v5 loopback payload
+	// budget, which itself mirrors the chain's max transaction size.
 	private ArraySegment<byte> _receiveBuffer = new ArraySegment<byte>(new byte[1024 * 64]);
+	private const int MAX_FRAME_BYTES = 32 * 1024 * 1024;
 
 	public WebSocket(Func<MemoryStream> recycledStreamFactory, Stream stream, int keepAliveInterval, string? secWebSocketExtensions, bool includeExceptionInCloseResponse, bool isClient, string? subProtocol)
 	{
@@ -177,7 +181,7 @@ public class WebSocket
 				WebSocketFrame? frame = null;
 				try
 				{
-					frame = WebSocketFrameReader.Read(_stream, _receiveBuffer);
+					frame = WebSocketFrameReader.Read(_stream, ref _receiveBuffer, MAX_FRAME_BYTES);
 					// Log.Write("websocket.ReceivedFrame: " + frame.OpCode + ", " + frame.IsFinBitSet + ", " + frame.Count, (frame.OpCode.ToString() == "Pong") ? Log.Level.Debug1 : Log.Level.Logic);
 				}
 				catch (InternalBufferOverflowException ex)

@@ -181,14 +181,15 @@ public class LinkServer
 			// Disable the Nagle Algorithm for this tcp socket.
 			client.NoDelay = true;
 
-			// Set the receive buffer size to 8k
-			client.ReceiveBufferSize = 8192;
+			// Do NOT pin SO_RCVBUF/SO_SNDBUF. The old 8192-byte caps clamped the TCP window and
+			// disabled kernel buffer autotuning, stalling large transfers to ~80 KB/s (measured:
+			// a 2 MB Phantasma Link v5 frame took 26 s headless / 70 s in the wallet, with 99.7%
+			// of the time spent waiting inside NetworkStream.Read for window updates). Kernel
+			// autotuning sizes the buffers correctly for both tiny legacy messages and v5
+			// multi-megabyte frames.
 
 			// Set the timeout for synchronous receive methods
 			//client.ReceiveTimeout = 5000;
-
-			// Set the send buffer size to 8k.
-			client.SendBufferSize = 8192;
 
 			// Set the timeout for synchronous send methods
 			//client.SendTimeout = 5000;

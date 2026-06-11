@@ -61,14 +61,15 @@ internal static class WebSocketFrameExtensions
 			throw new InvalidOperationException("maskKeyArray is null");
 		}
 
-		// apply the mask key (this is a reversible process so no need to copy the payload)
-		// NOTE: this is a hot function
-		// TODO: make this faster
-		for (int i = payloadOffset; i < payloadCount; i++)
+		// Apply the mask key (reversible, so no need to copy the payload). Iterate exactly
+		// payloadCount bytes starting at payloadOffset: the previous bound `i < payloadCount`
+		// was wrong whenever payloadOffset > 0 (it under-ran the payload and masked the wrong
+		// slice). `i` is the zero-based payload index; `pos` is the absolute buffer position.
+		for (int i = 0; i < payloadCount; i++)
 		{
-			int payloadIndex = i - payloadOffset; // index should start at zero
-			int maskKeyIndex = maskKeyOffset + (payloadIndex % MaskKeyLength);
-			buffer[i] = (Byte)(buffer[i] ^ maskKeyArray[maskKeyIndex]);
+			int pos = payloadOffset + i;
+			int maskKeyIndex = maskKeyOffset + (i % MaskKeyLength);
+			buffer[pos] = (byte)(buffer[pos] ^ maskKeyArray[maskKeyIndex]);
 		}
 	}
 }
