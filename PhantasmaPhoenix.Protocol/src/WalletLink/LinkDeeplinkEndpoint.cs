@@ -39,7 +39,7 @@ public sealed class LinkDeeplinkEndpoint
 
 		if (IsPath(url, "/v5/pair"))
 		{
-			HandlePairing(url);
+			HandlePairing(url, openUrl);
 			return true;
 		}
 
@@ -52,7 +52,7 @@ public sealed class LinkDeeplinkEndpoint
 		return false;
 	}
 
-	private void HandlePairing(string url)
+	private void HandlePairing(string url, Action<string> openUrl)
 	{
 		LinkPairingParams pairing;
 		try
@@ -92,6 +92,22 @@ public sealed class LinkDeeplinkEndpoint
 				CreatedUtc = now,
 				LastSeenUtc = now,
 			});
+
+			// Spec §17 step 3: on approval the wallet returns the encrypted connect result, so
+			// the first connection is ONE user gesture (no manual app switch + second consent).
+			// The pairing consent text is the consent for this - which is also why the push is
+			// gated on a dApp NAME from the pairing meta: a consent dialog that could only show
+			// the bare topic must not hand out account data; such dApps keep the classic
+			// two-step flow (explicit pha_connect with its own prompt), as does a wallet that
+			// is locked or has no account here (EstablishConsentedSession delivers nothing).
+			var dappName = pairing.DappName;
+			if (string.IsNullOrEmpty(dappName))
+			{
+				return;
+			}
+			var channel = new LinkChannel(pairing.SymKey);
+			_dispatcher.EstablishConsentedSession(dappName!, eventJson =>
+				openUrl(BuildResponseUrl(pairing.CallbackUrl!, pairing.Topic, channel.SealEnvelope(eventJson))));
 		});
 	}
 

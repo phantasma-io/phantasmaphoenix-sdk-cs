@@ -16,6 +16,10 @@ public class WalletLinkV5
 {
 	public const int ProtocolVersion = 5;
 
+	/// <summary>Unsolicited wallet->dApp event carrying a connect result right after a pairing
+	/// approval (spec §17 step 3); lets the first connection complete in one user gesture.</summary>
+	public const string SessionEstablishedEvent = "pha_sessionEstablished";
+
 	// Error codes - mirror the SDK taxonomy (spec §10 / errors.ts) so dApps branch on the number.
 	private const int ErrParse = -32700;
 	private const int ErrInvalidRequest = -32600;
@@ -235,6 +239,49 @@ public class WalletLinkV5
 		};
 	}
 
+	/// <summary>
+	/// Establish a session for an ALREADY-CONSENTED dApp and deliver the connect payload as an
+	/// unsolicited <see cref="SessionEstablishedEvent"/> envelope (spec §17 step 3: on pairing
+	/// approval the wallet publishes the encrypted pha_connect result). This method shows NO
+	/// prompt - the caller must invoke it only from an explicit user approval whose consent text
+	/// covers account access (the pairing consent). When the wallet is not Ready or has no
+	/// account, it silently delivers nothing: the dApp then falls back to the classic explicit
+	/// pha_connect (which prompts), so degradation is graceful, never an error.
+	/// </summary>
+	public void EstablishConsentedSession(string dappName, Action<string> deliver)
+	{
+		if (string.IsNullOrEmpty(dappName) || _ops.Status != WalletStatus.Ready)
+		{
+			return;
+		}
+		_ops.GetAccount(result =>
+		{
+			if (result.Failure != LinkFailure.None || result.Account == null)
+			{
+				return;
+			}
+			var account = result.Account;
+			_ops.GetWalletInfo(info =>
+				_ops.GetChains(chains =>
+				{
+					// Same record shape and token scheme as the prompted connect flow, so the
+					// session is indistinguishable downstream (resume, disconnect, request auth).
+					var token = Guid.NewGuid().ToString("N");
+					var now = DateTime.UtcNow;
+					_sessions.Save(new LinkSessionRecord
+					{
+						Id = token,
+						Dapp = dappName,
+						Address = account.Address,
+						CreatedUtc = now,
+						LastSeenUtc = now,
+					});
+					deliver(BuildEvent(SessionEstablishedEvent, token,
+						BuildConnectResponse(token, info.Name, info.Version, chains.Nexus, account)));
+				}));
+		});
+	}
+
 	private void HandleDisconnect(JToken? id, string? session, Action<string> respond)
 	{
 		if (session != null)
@@ -440,6 +487,21 @@ public class WalletLinkV5
 			["plv"] = ProtocolVersion,
 			["id"] = id,
 			["error"] = new JObject { ["code"] = code, ["message"] = message },
+		}.ToString(Formatting.None);
+	}
+
+	// Event envelope (spec §4): discriminated by `type`, carries no request id. The session
+	// rides both in the envelope and inside the data payload (the connect result), matching
+	// what the TS client validates and dispatches.
+	private static string BuildEvent(string eventName, string session, JObject data)
+	{
+		return new JObject
+		{
+			["plv"] = ProtocolVersion,
+			["type"] = "event",
+			["session"] = session,
+			["event"] = eventName,
+			["data"] = data,
 		}.ToString(Formatting.None);
 	}
 	#endregion

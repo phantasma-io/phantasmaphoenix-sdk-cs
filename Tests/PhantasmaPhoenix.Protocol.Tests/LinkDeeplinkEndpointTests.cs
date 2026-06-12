@@ -22,11 +22,29 @@ public class LinkDeeplinkEndpointTests
 		return (new LinkDeeplinkEndpoint(dispatcher, ops, pairings), ops, pairings, dispatcher);
 	}
 
-	private static string SymPairingUri(byte[] key, string topic = "top-1", string callback = "https://dapp.example/app")
+	private static string SymPairingUri(byte[] key, string topic = "top-1", string callback = "https://dapp.example/app", string? dappName = null)
 	{
 		// Built the same way the TS SDK does (fragment query, base64url no-pad).
 		var sk = Convert.ToBase64String(key).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-		return $"https://link.phantasma.info/v5/pair#v=5&t={topic}&cb={Uri.EscapeDataString(callback)}&sk={sk}";
+		var uri = $"https://link.phantasma.info/v5/pair#v=5&t={topic}&cb={Uri.EscapeDataString(callback)}&sk={sk}";
+		if (dappName != null)
+		{
+			var metaJson = $"{{\"name\":\"{dappName}\",\"url\":\"https://dapp.example\"}}";
+			var meta = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(metaJson)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+			uri += $"&meta={meta}";
+		}
+		return uri;
+	}
+
+	private static string OpenResponseFrame(LinkChannel channel, string responseUrl)
+	{
+		// Unwrap a wallet->dApp response URL back to the sealed envelope's JSON.
+		var f = responseUrl.Substring(responseUrl.IndexOf("&f=") + 3);
+		var pad = f.Replace('-', '+').Replace('_', '/');
+		pad += new string('=', (4 - pad.Length % 4) % 4);
+		var frame = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(pad));
+		channel.TryOpenEnvelope(frame, out var envelopeJson).ShouldBeTrue();
+		return envelopeJson;
 	}
 
 	[Fact]
@@ -117,6 +135,70 @@ public class LinkDeeplinkEndpointTests
 		((string)response["result"]!["account"]!["address"]!).ShouldBe("P2KTest");
 		((string)response["result"]!["session"]!["id"]!).ShouldNotBeNullOrEmpty();
 		ops.LastConnectDapp.ShouldBe("dl-dapp");
+	}
+
+	[Fact]
+	public void Pairing_approval_with_dapp_meta_pushes_a_usable_session_in_one_gesture()
+	{
+		var (endpoint, ops, _, _) = Build();
+		var key = new byte[32];
+		key[5] = 3;
+		var channel = new LinkChannel(key);
+
+		// Approval must answer by opening the callback with a sealed sessionEstablished event
+		// (spec §17 step 3) - the one-tap first connection.
+		string? openedUrl = null;
+		endpoint.TryHandle(SymPairingUri(key, "top-ot", "https://dapp.example/app", dappName: "one-tap-dapp"), url => openedUrl = url).ShouldBeTrue();
+		openedUrl.ShouldNotBeNull();
+		openedUrl!.StartsWith("https://dapp.example/app#plv=5&t=top-ot&f=").ShouldBeTrue();
+
+		var envelope = JObject.Parse(OpenResponseFrame(channel, openedUrl));
+		((string)envelope["type"]!).ShouldBe("event");
+		((string)envelope["event"]!).ShouldBe(WalletLinkV5.SessionEstablishedEvent);
+		var sessionId = (string)envelope["data"]!["session"]!["id"]!;
+		sessionId.ShouldNotBeNullOrEmpty();
+		((string)envelope["session"]!).ShouldBe(sessionId);
+		((string)envelope["data"]!["account"]!["address"]!).ShouldBe("P2KTest");
+		((string)envelope["data"]!["wallet"]!["name"]!).ShouldBe("FakeWallet");
+		// The pairing consent IS the consent: the explicit connect prompt must NOT have run.
+		ops.ConnectCalls.ShouldBe(0);
+
+		// The pushed session is a real one: an in-session request authorizes promptlessly.
+		var request = $"{{\"plv\":5,\"id\":\"r1\",\"session\":\"{sessionId}\",\"method\":\"pha_getChains\"}}";
+		var fb64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(channel.SealEnvelope(request))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+		string? chainsUrl = null;
+		endpoint.TryHandle($"phantasma://v5/req#t=top-ot&f={fb64}", url => chainsUrl = url).ShouldBeTrue();
+		chainsUrl.ShouldNotBeNull();
+		var chains = JObject.Parse(OpenResponseFrame(channel, chainsUrl!));
+		((string)chains["id"]!).ShouldBe("r1");
+		((string)chains["result"]!["nexus"]!).ShouldBe("localnet");
+	}
+
+	[Fact]
+	public void Pairing_push_is_skipped_without_meta_name_or_without_a_ready_account()
+	{
+		// No dApp name in the pairing meta: the consent dialog could only show the bare topic,
+		// so no account data may ride on it - the channel is stored, nothing is pushed.
+		var (endpoint, _, pairings, _) = Build();
+		var key = new byte[32];
+		var opened = 0;
+		endpoint.TryHandle(SymPairingUri(key, "t-noname"), _ => opened++).ShouldBeTrue();
+		opened.ShouldBe(0);
+		pairings.Get("t-noname").ShouldNotBeNull();
+
+		// Wallet not Ready: same graceful degradation to the classic two-step connect.
+		var (endpoint2, ops2, pairings2, _) = Build();
+		ops2.StatusValue = WalletStatus.Closed;
+		endpoint2.TryHandle(SymPairingUri(key, "t-closed", dappName: "d"), _ => opened++).ShouldBeTrue();
+		opened.ShouldBe(0);
+		pairings2.Get("t-closed").ShouldNotBeNull();
+
+		// Account unavailable: pairing stored, no push.
+		var (endpoint3, ops3, pairings3, _) = Build();
+		ops3.FailAccount = LinkFailure.NotLoggedIn;
+		endpoint3.TryHandle(SymPairingUri(key, "t-noacc", dappName: "d"), _ => opened++).ShouldBeTrue();
+		opened.ShouldBe(0);
+		pairings3.Get("t-noacc").ShouldNotBeNull();
 	}
 
 	[Fact]
