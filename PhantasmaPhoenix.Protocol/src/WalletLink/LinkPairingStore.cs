@@ -14,6 +14,9 @@ public sealed class LinkPairingRecord
 	public byte[] Key { get; set; } = Array.Empty<byte>();
 	/// <summary>Where the wallet opens response deeplinks for this pairing.</summary>
 	public string CallbackUrl { get; set; } = "";
+	/// <summary>Relay WebSocket URL for this pairing (spec section 18); null/empty for a
+	/// deeplink-only pairing. Normalized from the pairing URI's `relay` field.</summary>
+	public string? RelayUrl { get; set; }
 	public string DappName { get; set; } = "";
 	public DateTime CreatedUtc { get; set; }
 	public DateTime LastSeenUtc { get; set; }

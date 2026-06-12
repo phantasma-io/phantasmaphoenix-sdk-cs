@@ -1,0 +1,441 @@
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+
+namespace PhantasmaPhoenix.Protocol;
+
+/// <summary>
+/// Minimal duplex text socket the relay client runs over. Implementations live next to
+/// the host's networking stack (PhantasmaPhoenix.Link provides the real WebSocket one);
+/// callbacks may fire on any thread.
+/// </summary>
+public interface ILinkRelaySocket
+{
+	void SendText(string text);
+	void Close();
+}
+
+public interface ILinkRelaySocketFactory
+{
+	/// <summary>Open a socket to <paramref name="url"/>. <paramref name="onOpen"/> fires once
+	/// the connection is usable, <paramref name="onText"/> per complete text message, and
+	/// <paramref name="onClosed"/> exactly once when the connection dies (any reason).</summary>
+	ILinkRelaySocket Connect(string url, Action onOpen, Action<string> onText, Action onClosed);
+}
+
+/// <summary>
+/// Wallet-side client of the Phantasma Link relay (spec section 18). Keeps one outbound
+/// connection per relay URL, subscribes to the topics of relay-enabled pairings, unseals
+/// delivered frames with the pairing key, routes them through <see cref="WalletLinkV5"/>,
+/// and publishes the sealed responses back - chunking anything above the relay frame cap.
+/// The relay stays E2E-blind: plaintext never leaves this class.
+///
+/// Threading: socket callbacks arrive on arbitrary threads; all dispatcher work is run
+/// through the host-provided marshal hook (the wallet posts to its UI thread). Responses
+/// are fire-and-forget (no resend tracking): a response lost to a connection drop is
+/// recovered by the dApp re-sending its request, which the dispatcher answers again.
+/// </summary>
+public sealed class LinkRelayClient : IDisposable
+{
+	// Mirrors the TS transport: stay under the relay's 1 MiB frame cap with room for the
+	// publish envelope; bound reassembly so a peer cannot balloon wallet memory.
+	private const int ChunkChars = 900_000;
+	private const int MaxChunksPerMessage = 64;
+	private const int MaxAssembledChars = 64 * 1024 * 1024;
+	private const int MaxConcurrentPartials = 8;
+	private static readonly TimeSpan PartialStale = TimeSpan.FromSeconds(120);
+
+	private sealed class Partial
+	{
+		public int Total;
+		public Dictionary<int, string> Received = new Dictionary<int, string>();
+		public int Chars;
+		public DateTime TouchedUtc;
+	}
+
+	private sealed class Connection
+	{
+		public string Url = "";
+		public ILinkRelaySocket? Socket;
+		public bool Open;
+		public readonly HashSet<string> Topics = new HashSet<string>();
+		/// <summary>Frames queued while the socket is connecting/reconnecting.</summary>
+		public readonly List<string> Outbox = new List<string>();
+		public int ReconnectAttempt;
+		public System.Threading.Timer? ReconnectTimer;
+	}
+
+	private readonly WalletLinkV5 _dispatcher;
+	private readonly ILinkPairingStore _pairings;
+	private readonly ILinkRelaySocketFactory _sockets;
+	private readonly Action<Action> _marshal;
+	private readonly int[] _reconnectDelaysMs;
+	private readonly object _gate = new object();
+	private readonly Dictionary<string, Connection> _connections = new Dictionary<string, Connection>();
+	private readonly Dictionary<string, Partial> _partials = new Dictionary<string, Partial>();
+	private int _publishSeq;
+	private bool _disposed;
+
+	public LinkRelayClient(
+		WalletLinkV5 dispatcher,
+		ILinkPairingStore pairings,
+		ILinkRelaySocketFactory sockets,
+		Action<Action>? marshal = null,
+		int[]? reconnectDelaysMs = null)
+	{
+		_dispatcher = dispatcher;
+		_pairings = pairings;
+		_sockets = sockets;
+		// Default marshal runs inline; a Unity host MUST pass its post-to-UI-thread hook
+		// because the dispatcher prompts the user and touches wallet state.
+		_marshal = marshal ?? (action => action());
+		_reconnectDelaysMs = reconnectDelaysMs ?? new[] { 1000, 2000, 5000, 15000, 30000 };
+	}
+
+	/// <summary>Spec section 17: the `relay` pairing field is a host by default; full URLs
+	/// are accepted too (local testing uses plain ws against a localhost relay).</summary>
+	public static string NormalizeRelayUrl(string relay)
+	{
+		return relay.Contains("://") ? relay : $"wss://{relay}/relay";
+	}
+
+	/// <summary>Connect and subscribe for every stored relay-enabled pairing. Safe to call
+	/// repeatedly (wallet start, /v5/wake): existing connections are reused.</summary>
+	public void EnsureConnected()
+	{
+		foreach (var pairing in _pairings.List())
+		{
+			if (!string.IsNullOrEmpty(pairing.RelayUrl))
+			{
+				TrackPairing(pairing);
+			}
+		}
+	}
+
+	/// <summary>Subscribe the pairing's topic on its relay (connecting if needed).</summary>
+	public void TrackPairing(LinkPairingRecord pairing)
+	{
+		if (string.IsNullOrEmpty(pairing.RelayUrl))
+		{
+			return;
+		}
+		lock (_gate)
+		{
+			if (_disposed)
+			{
+				return;
+			}
+			var conn = GetOrCreateConnection(pairing.RelayUrl!);
+			if (!conn.Topics.Add(pairing.Topic))
+			{
+				return; // already subscribed
+			}
+			// Only announce on a LIVE socket: OnOpen announces every topic in Topics, so
+			// queueing here would double-subscribe after the connect completes.
+			if (conn.Open && conn.Socket != null)
+			{
+				conn.Socket.SendText(new JObject { ["op"] = "subscribe", ["topic"] = pairing.Topic }.ToString(Formatting.None));
+			}
+		}
+	}
+
+	/// <summary>Seal one envelope with the pairing key and publish it to the pairing's
+	/// topic, chunking when it exceeds the relay frame budget.</summary>
+	public void PublishSealed(LinkPairingRecord pairing, string envelopeJson)
+	{
+		if (string.IsNullOrEmpty(pairing.RelayUrl))
+		{
+			return;
+		}
+		var channel = new LinkChannel(pairing.Key);
+		var frame = channel.SealEnvelope(envelopeJson);
+
+		lock (_gate)
+		{
+			if (_disposed)
+			{
+				return;
+			}
+			var conn = GetOrCreateConnection(pairing.RelayUrl!);
+			if (frame.Length <= ChunkChars)
+			{
+				SendOrQueue(conn, BuildPublish(pairing.Topic, frame));
+				return;
+			}
+			// Chunked publish (spec section 18): split the sealed frame TEXT; only the
+			// receiving SDK reassembles - the relay forwards opaque pieces.
+			var total = (frame.Length + ChunkChars - 1) / ChunkChars;
+			if (total > MaxChunksPerMessage)
+			{
+				return; // beyond the transport ceiling; nothing sane to send
+			}
+			var msgId = Guid.NewGuid().ToString("N");
+			for (var seq = 0; seq < total; seq++)
+			{
+				var start = seq * ChunkChars;
+				var chunk = frame.Substring(start, Math.Min(ChunkChars, frame.Length - start));
+				var payload = new JObject
+				{
+					["msgId"] = msgId,
+					["seq"] = seq,
+					["total"] = total,
+					["chunk"] = chunk,
+				};
+				SendOrQueue(conn, BuildPublish(pairing.Topic, payload));
+			}
+		}
+	}
+
+	public void Dispose()
+	{
+		lock (_gate)
+		{
+			if (_disposed)
+			{
+				return;
+			}
+			_disposed = true;
+			foreach (var conn in _connections.Values)
+			{
+				conn.ReconnectTimer?.Dispose();
+				conn.Socket?.Close();
+			}
+			_connections.Clear();
+			_partials.Clear();
+		}
+	}
+
+	// --- connection lifecycle (all called under _gate unless noted) ---------------------
+
+	private Connection GetOrCreateConnection(string url)
+	{
+		if (_connections.TryGetValue(url, out var existing))
+		{
+			return existing;
+		}
+		var conn = new Connection { Url = url };
+		_connections[url] = conn;
+		Dial(conn);
+		return conn;
+	}
+
+	private void Dial(Connection conn)
+	{
+		// The factory must not block (hosts call this from their UI thread); its
+		// callbacks re-enter this class on arbitrary threads, hence the gate.
+		conn.Socket = _sockets.Connect(
+			conn.Url,
+			onOpen: () => OnOpen(conn),
+			onText: text => OnText(conn, text),
+			onClosed: () => OnClosed(conn));
+	}
+
+	private void OnOpen(Connection conn)
+	{
+		lock (_gate)
+		{
+			if (_disposed)
+			{
+				return;
+			}
+			conn.Open = true;
+			conn.ReconnectAttempt = 0;
+			// Re-announce every topic, then flush frames queued while offline. The relay
+			// mailbox (TTL) covers what the other side published in between.
+			foreach (var topic in conn.Topics)
+			{
+				conn.Socket?.SendText(new JObject { ["op"] = "subscribe", ["topic"] = topic }.ToString(Formatting.None));
+			}
+			foreach (var text in conn.Outbox)
+			{
+				conn.Socket?.SendText(text);
+			}
+			conn.Outbox.Clear();
+		}
+	}
+
+	private void OnClosed(Connection conn)
+	{
+		lock (_gate)
+		{
+			if (_disposed)
+			{
+				return;
+			}
+			conn.Open = false;
+			conn.Socket = null;
+			var delay = _reconnectDelaysMs[Math.Min(conn.ReconnectAttempt, _reconnectDelaysMs.Length - 1)];
+			conn.ReconnectAttempt++;
+			conn.ReconnectTimer?.Dispose();
+			// One-shot timer; the next drop schedules the next attempt (ladder backoff).
+			conn.ReconnectTimer = new System.Threading.Timer(_ =>
+			{
+				lock (_gate)
+				{
+					if (!_disposed && !conn.Open)
+					{
+						Dial(conn);
+					}
+				}
+			}, null, delay, System.Threading.Timeout.Infinite);
+		}
+	}
+
+	private void SendOrQueue(Connection conn, string text)
+	{
+		if (conn.Open && conn.Socket != null)
+		{
+			conn.Socket.SendText(text);
+		}
+		else
+		{
+			conn.Outbox.Add(text);
+		}
+	}
+
+	private string BuildPublish(string topic, JToken payload)
+	{
+		var id = "w" + System.Threading.Interlocked.Increment(ref _publishSeq);
+		return new JObject
+		{
+			["op"] = "publish",
+			["topic"] = topic,
+			["id"] = id,
+			["payload"] = payload,
+		}.ToString(Formatting.None);
+	}
+
+	// --- incoming ------------------------------------------------------------------------
+
+	private void OnText(Connection conn, string text)
+	{
+		JObject frame;
+		try
+		{
+			frame = JObject.Parse(text);
+		}
+		catch
+		{
+			return; // not a relay frame
+		}
+
+		// Only deliver frames matter to the wallet; acks confirm its own publishes and
+		// errors precede a server-side close (the reconnect path handles that).
+		if ((string?)frame["op"] != "deliver")
+		{
+			return;
+		}
+		var topic = (string?)frame["topic"];
+		if (string.IsNullOrEmpty(topic))
+		{
+			return;
+		}
+
+		// Chunk reassembly only needs the gate; everything touching the pairing store or
+		// the dispatcher must run on the wallet's dispatch thread (the store contract is
+		// single-threaded, and PlayerPrefs-backed stores are main-thread only in Unity).
+		string? frameText = null;
+		var payload = frame["payload"];
+		if (payload != null && payload.Type == JTokenType.String)
+		{
+			frameText = (string?)payload;
+		}
+		else if (payload is JObject chunk)
+		{
+			lock (_gate)
+			{
+				frameText = AcceptChunk(topic!, chunk);
+			}
+		}
+		if (frameText == null)
+		{
+			return;
+		}
+
+		var sealedFrame = frameText;
+		_marshal(() => ProcessSealedFrame(topic!, sealedFrame));
+	}
+
+	/// <summary>Runs on the dispatch thread: resolve the pairing, unseal, dispatch, answer.</summary>
+	private void ProcessSealedFrame(string topic, string frameText)
+	{
+		var pairing = _pairings.Get(topic);
+		if (pairing == null)
+		{
+			return; // unknown channel; no key, nothing to say
+		}
+		var channel = new LinkChannel(pairing.Key);
+		if (!channel.TryOpenEnvelope(frameText, out var envelopeJson))
+		{
+			return; // forged or wrong-key frame: drop silently, never answer plaintext
+		}
+		pairing.LastSeenUtc = DateTime.UtcNow;
+		_pairings.Save(pairing);
+		_dispatcher.HandleMessage(envelopeJson, response => PublishSealed(pairing, response));
+	}
+
+	/// <summary>Collect one chunk (called under the gate); returns the reassembled frame
+	/// text when complete. Bounds mirror the TS transport: chunk count, total size,
+	/// concurrent partials, and staleness GC.</summary>
+	private string? AcceptChunk(string topic, JObject raw)
+	{
+		var msgId = (string?)raw["msgId"];
+		var seqToken = raw["seq"];
+		var totalToken = raw["total"];
+		var chunk = (string?)raw["chunk"];
+		if (msgId == null || chunk == null ||
+			seqToken == null || seqToken.Type != JTokenType.Integer ||
+			totalToken == null || totalToken.Type != JTokenType.Integer)
+		{
+			return null;
+		}
+		var seq = (int)seqToken;
+		var total = (int)totalToken;
+		if (total < 1 || total > MaxChunksPerMessage || seq < 0 || seq >= total)
+		{
+			return null;
+		}
+
+		var now = DateTime.UtcNow;
+		// Lazy staleness GC: an abandoned partial cannot linger past its window.
+		var stale = _partials.Where(p => now - p.Value.TouchedUtc > PartialStale).Select(p => p.Key).ToArray();
+		foreach (var key in stale)
+		{
+			_partials.Remove(key);
+		}
+
+		var partialKey = topic + "\n" + msgId;
+		if (!_partials.TryGetValue(partialKey, out var partial))
+		{
+			if (_partials.Count >= MaxConcurrentPartials)
+			{
+				return null; // refuse new assemblies rather than grow without bound
+			}
+			partial = new Partial { Total = total, TouchedUtc = now };
+			_partials[partialKey] = partial;
+		}
+		if (partial.Total != total || partial.Received.ContainsKey(seq))
+		{
+			return null; // inconsistent or duplicate chunk
+		}
+		partial.Chars += chunk.Length;
+		if (partial.Chars > MaxAssembledChars)
+		{
+			_partials.Remove(partialKey);
+			return null;
+		}
+		partial.Received[seq] = chunk;
+		partial.TouchedUtc = now;
+
+		if (partial.Received.Count != total)
+		{
+			return null;
+		}
+		_partials.Remove(partialKey);
+		var builder = new System.Text.StringBuilder(partial.Chars);
+		for (var i = 0; i < total; i++)
+		{
+			builder.Append(partial.Received[i]);
+		}
+		return builder.ToString();
+	}
+}

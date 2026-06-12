@@ -17,12 +17,16 @@ public sealed class LinkDeeplinkEndpoint
 	private readonly WalletLinkV5 _dispatcher;
 	private readonly IWalletLinkV5Ops _ops;
 	private readonly ILinkPairingStore _pairings;
+	private readonly LinkRelayClient? _relay;
 
-	public LinkDeeplinkEndpoint(WalletLinkV5 dispatcher, IWalletLinkV5Ops ops, ILinkPairingStore pairings)
+	/// <summary><paramref name="relay"/> is optional: without it, relay-enabled pairings
+	/// still store their RelayUrl but answers ride the deeplink callback only.</summary>
+	public LinkDeeplinkEndpoint(WalletLinkV5 dispatcher, IWalletLinkV5Ops ops, ILinkPairingStore pairings, LinkRelayClient? relay = null)
 	{
 		_dispatcher = dispatcher;
 		_ops = ops;
 		_pairings = pairings;
+		_relay = relay;
 	}
 
 	/// <summary>
@@ -49,6 +53,14 @@ public sealed class LinkDeeplinkEndpoint
 			return true;
 		}
 
+		// Spec section 19: /v5/wake carries no payload - it only foregrounds the wallet so
+		// it (re)connects to the relay and drains the topic mailboxes of its pairings.
+		if (IsPath(url, "/v5/wake"))
+		{
+			_relay?.EnsureConnected();
+			return true;
+		}
+
 		return false;
 	}
 
@@ -70,8 +82,10 @@ public sealed class LinkDeeplinkEndpoint
 		{
 			return;
 		}
-		// A deeplink pairing without a callback is useless: responses would have nowhere to go.
-		if (string.IsNullOrEmpty(pairing.CallbackUrl))
+		// The pairing must offer at least one response path: a deeplink callback or a relay
+		// topic (cross-device QR pairings have no usable callback on this device).
+		var relayUrl = pairing.Relay != null ? LinkRelayClient.NormalizeRelayUrl(pairing.Relay) : null;
+		if (string.IsNullOrEmpty(pairing.CallbackUrl) && relayUrl == null)
 		{
 			return;
 		}
@@ -83,15 +97,23 @@ public sealed class LinkDeeplinkEndpoint
 				return;
 			}
 			var now = DateTime.UtcNow;
-			_pairings.Save(new LinkPairingRecord
+			var record = new LinkPairingRecord
 			{
 				Topic = pairing.Topic,
 				Key = pairing.SymKey,
-				CallbackUrl = pairing.CallbackUrl!,
+				CallbackUrl = pairing.CallbackUrl ?? "",
+				RelayUrl = relayUrl,
 				DappName = pairing.DappName ?? "",
 				CreatedUtc = now,
 				LastSeenUtc = now,
-			});
+			};
+			_pairings.Save(record);
+			// A relay-enabled pairing starts listening immediately: the dApp's next request
+			// may arrive over the relay rather than a deeplink.
+			if (relayUrl != null)
+			{
+				_relay?.TrackPairing(record);
+			}
 
 			// Spec §17 step 3: on approval the wallet returns the encrypted connect result, so
 			// the first connection is ONE user gesture (no manual app switch + second consent).
@@ -105,9 +127,21 @@ public sealed class LinkDeeplinkEndpoint
 			{
 				return;
 			}
-			var channel = new LinkChannel(pairing.SymKey);
 			_dispatcher.EstablishConsentedSession(dappName!, eventJson =>
-				openUrl(BuildResponseUrl(pairing.CallbackUrl!, pairing.Topic, channel.SealEnvelope(eventJson))));
+			{
+				// Route the push where the dApp can actually receive it: the relay topic when
+				// the pairing has one (cross-device; also smoother same-device), else the
+				// deeplink callback. Exactly one path is used per pairing.
+				if (relayUrl != null && _relay != null)
+				{
+					_relay.PublishSealed(record, eventJson);
+				}
+				else if (!string.IsNullOrEmpty(pairing.CallbackUrl))
+				{
+					var channel = new LinkChannel(pairing.SymKey);
+					openUrl(BuildResponseUrl(pairing.CallbackUrl!, pairing.Topic, channel.SealEnvelope(eventJson)));
+				}
+			});
 		});
 	}
 

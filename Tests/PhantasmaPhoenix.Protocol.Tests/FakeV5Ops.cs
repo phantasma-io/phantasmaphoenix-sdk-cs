@@ -76,10 +76,13 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 		done(LinkSendResult.Ok(Hash.FromBytes(hashBytes)));
 	}
 
+	/// <summary>Override for the invoke result rows (e.g. a huge payload for chunking tests).</summary>
+	public string[]? InvokeResults;
+
 	public void InvokeScript(string chain, byte[] script, Action<LinkInvokeResult> done)
 	{
 		if (FailInvoke != LinkFailure.None) { done(LinkInvokeResult.Fail(FailInvoke, "invoke failed")); return; }
-		done(LinkInvokeResult.Ok(new[] { "AABB" }));
+		done(LinkInvokeResult.Ok(InvokeResults ?? new[] { "AABB" }));
 	}
 
 	// Pairing controls.
