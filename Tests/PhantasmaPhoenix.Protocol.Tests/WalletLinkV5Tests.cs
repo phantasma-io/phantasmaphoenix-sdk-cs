@@ -176,19 +176,112 @@ public class WalletLinkV5Tests
 	}
 
 	[Fact]
-	public void Capabilities_advertise_only_what_the_wallet_implements()
+	public void Capabilities_advertise_the_full_method_surface()
 	{
 		var link = new WalletLinkV5(new FakeV5Ops());
-		var session = Connect(link, out var response);
+		Connect(link, out var response);
 
+		// The handshake must advertise the complete contract surface (sign operations and
+		// both tx formats) so capability-aware dApps know they can use them.
 		var methods = ((JArray)response["result"]!["capabilities"]!["methods"]!).Select(t => (string)t!).ToArray();
-		methods.ShouldNotContain("pha_signMessage");
-		methods.ShouldNotContain("pha_signTransaction");
+		methods.ShouldContain("pha_signMessage");
+		methods.ShouldContain("pha_signTransaction");
 		var formats = ((JArray)response["result"]!["capabilities"]!["txFormats"]!).Select(t => (string)t!).ToArray();
-		formats.ShouldBe(new[] { "carbon" });
+		formats.ShouldBe(new[] { "script", "carbon" });
+	}
 
-		var sign = Send(link, $"{{\"plv\":5,\"id\":\"s1\",\"session\":\"{session}\",\"method\":\"pha_signMessage\",\"params\":{{\"message\":\"AA==\"}}}}");
-		((int)sign["error"]!["code"]!).ShouldBe(5004);
+	[Fact]
+	public void SignMessage_routes_to_ops_and_returns_signature_and_random()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+
+		var messageB64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("hello"));
+		var response = Send(link, $"{{\"plv\":5,\"id\":\"m1\",\"session\":\"{session}\",\"method\":\"pha_signMessage\",\"params\":{{\"message\":\"{messageB64}\",\"display\":\"hi\"}}}}");
+
+		ops.SignedMessage.ShouldBe(System.Text.Encoding.UTF8.GetBytes("hello"));
+		ops.SignedDisplay.ShouldBe("hi");
+		Convert.FromBase64String((string)response["result"]!["signature"]!)[0].ShouldBe((byte)9);
+		Convert.FromBase64String((string)response["result"]!["random"]!).Length.ShouldBe(LinkSignMessage.RandomLength);
+	}
+
+	[Fact]
+	public void SignMessage_validates_params_and_maps_failures()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+
+		// Missing and non-base64 messages never reach the wallet.
+		var missing = Send(link, $"{{\"plv\":5,\"id\":\"m2\",\"session\":\"{session}\",\"method\":\"pha_signMessage\",\"params\":{{}}}}");
+		((int)missing["error"]!["code"]!).ShouldBe(-32602);
+		var garbage = Send(link, $"{{\"plv\":5,\"id\":\"m3\",\"session\":\"{session}\",\"method\":\"pha_signMessage\",\"params\":{{\"message\":\"%%%\"}}}}");
+		((int)garbage["error"]!["code"]!).ShouldBe(-32602);
+		ops.SignedMessage.ShouldBeNull();
+
+		// A wallet-side rejection surfaces as the structured user-rejected code.
+		ops.FailSignMessage = LinkFailure.UserRejected;
+		var rejected = Send(link, $"{{\"plv\":5,\"id\":\"m4\",\"session\":\"{session}\",\"method\":\"pha_signMessage\",\"params\":{{\"message\":\"AA==\"}}}}");
+		((int)rejected["error"]!["code"]!).ShouldBe(4001);
+	}
+
+	[Fact]
+	public void SignTransaction_routes_and_returns_the_signed_tx()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+
+		var response = Send(link, $"{{\"plv\":5,\"id\":\"st1\",\"session\":\"{session}\",\"method\":\"pha_signTransaction\",\"params\":{{\"format\":\"carbon\",\"tx\":\"AAEC\"}}}}");
+
+		ops.SignTxFormat.ShouldBe(LinkTxFormat.Carbon);
+		// The fake prefixes 0x5A; the dispatcher must return the bytes verbatim as base64.
+		var signed = Convert.FromBase64String((string)response["result"]!["signedTx"]!);
+		signed[0].ShouldBe((byte)0x5A);
+		signed.Skip(1).ToArray().ShouldBe(Convert.FromBase64String("AAEC"));
+
+		// Structured unsupported-kind failure maps to 5003.
+		ops.FailSignTx = LinkFailure.UnsupportedSignatureKind;
+		var unsupported = Send(link, $"{{\"plv\":5,\"id\":\"st2\",\"session\":\"{session}\",\"method\":\"pha_signTransaction\",\"params\":{{\"format\":\"carbon\",\"tx\":\"AAEC\",\"signatureKind\":\"ECDSA\"}}}}");
+		((int)unsupported["error"]!["code"]!).ShouldBe(5003);
+	}
+
+	[Fact]
+	public void Oversized_transactions_are_refused_with_a_structured_5001()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+
+		// One char beyond the base64 ceiling of the chain's 32 MiB max-tx: the guard must
+		// fire BEFORE base64 decoding or any wallet involvement, carrying the limit.
+		var oversized = new string('A', (32 * 1024 * 1024 + 2) / 3 * 4 + 1);
+		var response = Send(link, $"{{\"plv\":5,\"id\":\"big\",\"session\":\"{session}\",\"method\":\"pha_signTransaction\",\"params\":{{\"format\":\"carbon\",\"tx\":\"{oversized}\"}}}}");
+
+		((int)response["error"]!["code"]!).ShouldBe(5001);
+		((int)response["error"]!["data"]!["maxPayloadBytes"]!).ShouldBe(32 * 1024 * 1024);
+		ops.SignTxFormat.ShouldBeNull(); // the wallet was never touched
+	}
+
+	[Fact]
+	public void SignMessage_payload_layout_is_tag_random_message()
+	{
+		// The byte layout is the cross-language contract (mirrors the TS SDK constant and
+		// buildSignMessagePayload); any drift here breaks signature verification.
+		var random = new byte[LinkSignMessage.RandomLength];
+		for (var i = 0; i < random.Length; i++) random[i] = (byte)i;
+		var message = new byte[] { 0xCA, 0xFE };
+		var payload = LinkSignMessage.BuildPayload(message, random);
+
+		var tag = System.Text.Encoding.ASCII.GetBytes("PHANTASMA_LINK_V5_MSG\n");
+		payload.Take(tag.Length).ToArray().ShouldBe(tag);
+		payload.Skip(tag.Length).Take(random.Length).ToArray().ShouldBe(random);
+		payload.Skip(tag.Length + random.Length).ToArray().ShouldBe(message);
+
+		// CSPRNG sanity: correct length and two draws differ.
+		LinkSignMessage.GenerateRandom().Length.ShouldBe(32);
+		LinkSignMessage.GenerateRandom().ShouldNotBe(LinkSignMessage.GenerateRandom());
 	}
 
 	[Fact]

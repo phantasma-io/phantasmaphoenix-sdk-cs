@@ -9,8 +9,8 @@ namespace PhantasmaPhoenix.Protocol;
 /// routes <c>pha_*</c> methods to the clean <see cref="IWalletLinkV5Ops"/> contract. It shares no
 /// code path with the legacy v1-v4 string protocol (<see cref="WalletLink"/>) and carries no
 /// legacy shapes: every wallet outcome arrives as a structured <see cref="LinkFailure"/>, which the
-/// dispatcher maps to a v5 error code. Methods not yet implemented by the wallet are reported as
-/// CapabilityNotSupported and are simply not advertised in the handshake.
+/// dispatcher maps to a v5 error code. The full pha_* method surface is routed to the
+/// contract; the capability handshake advertises exactly what the contract carries.
 /// </summary>
 public class WalletLinkV5
 {
@@ -29,7 +29,14 @@ public class WalletLinkV5
 	private const int ErrUserRejected = 4001;
 	private const int ErrUnauthorized = 4100;
 	private const int ErrDisconnected = 4900;
-	private const int ErrCapabilityNotSupported = 5004;
+	private const int ErrPayloadTooLarge = 5001;
+	private const int ErrUnsupportedSignatureKind = 5003;
+
+	/// <summary>Per-transaction byte ceiling = the chain's max transaction size; the guard
+	/// rejects oversized base64 BEFORE decoding or parsing (fast structured 5001 instead of
+	/// an expensive parse failure).</summary>
+	private const int MaxTxBytes = 32 * 1024 * 1024;
+	private const long MaxTxBase64Chars = ((long)MaxTxBytes + 2) / 3 * 4;
 
 	private readonly IWalletLinkV5Ops _ops;
 	// Authorized sessions (spec §7): persistent when the host provides a durable store, so a
@@ -135,14 +142,9 @@ public class WalletLinkV5
 			case "pha_getChains": HandleGetChains(id, complete); break;
 			case "pha_getWalletInfo": HandleGetWalletInfo(id, complete); break;
 			case "pha_sendTransaction": HandleSendTransaction(id, prms, complete); break;
+			case "pha_signTransaction": HandleSignTransaction(id, prms, complete); break;
+			case "pha_signMessage": HandleSignMessage(id, prms, complete); break;
 			case "pha_invokeScript": HandleInvokeScript(id, prms, complete); break;
-
-			// Defined in the protocol but not yet implemented by this wallet; the handshake does
-			// not advertise them, so a capability-aware dApp will not call them.
-			case "pha_signMessage":
-			case "pha_signTransaction":
-				complete(BuildError(id, ErrCapabilityNotSupported, $"{method} is not yet supported by this wallet"));
-				break;
 
 			default:
 				complete(BuildError(id, ErrMethodNotFound, $"Unknown method: {method}"));
@@ -329,37 +331,60 @@ public class WalletLinkV5
 			})));
 	}
 
-	private void HandleSendTransaction(JToken? id, JObject prms, Action<string> respond)
+	/// <summary>Shared parsing for the two transaction methods: format + size-guarded base64
+	/// tx + signature kind + pow. Returns false after responding with the structured error.</summary>
+	private bool TryParseTxParams(JToken? id, JObject prms, Action<string> respond, out byte[] txBytes, out LinkTxFormat format, out SignatureKind kind, out ProofOfWork pow)
 	{
-		var formatText = (string?)prms["format"];
-		LinkTxFormat format;
-		switch (formatText)
+		txBytes = Array.Empty<byte>();
+		kind = SignatureKind.Ed25519;
+		pow = ProofOfWork.None;
+		format = LinkTxFormat.Carbon;
+
+		switch ((string?)prms["format"])
 		{
 			case "script": format = LinkTxFormat.Script; break;
 			case "carbon": format = LinkTxFormat.Carbon; break;
 			default:
 				respond(BuildError(id, ErrInvalidParams, "params.format must be \"script\" or \"carbon\""));
-				return;
+				return false;
 		}
 
-		byte[] txBytes;
+		var txText = (string?)prms["tx"] ?? "";
+		// The pre-parse guard: refuse anything beyond the chain's max transaction size
+		// before paying for base64 decode or deserialization (spec §10/§11: structured
+		// 5001 carrying the limit, instead of a slow opaque parse failure).
+		if (txText.Length > MaxTxBase64Chars)
+		{
+			respond(BuildError(id, ErrPayloadTooLarge, "Transaction exceeds the chain's maximum size",
+				new JObject { ["maxPayloadBytes"] = MaxTxBytes }));
+			return false;
+		}
 		try
 		{
-			txBytes = Convert.FromBase64String((string?)prms["tx"] ?? "");
+			txBytes = Convert.FromBase64String(txText);
 		}
 		catch
 		{
 			respond(BuildError(id, ErrInvalidParams, "params.tx must be base64"));
-			return;
+			return false;
 		}
 		if (txBytes.Length == 0)
 		{
 			respond(BuildError(id, ErrInvalidParams, "params.tx is empty"));
-			return;
+			return false;
 		}
 
-		var kind = ParseSignatureKind(prms["signatureKind"]);
-		var pow = ParseProofOfWork(prms["pow"]);
+		kind = ParseSignatureKind(prms["signatureKind"]);
+		pow = ParseProofOfWork(prms["pow"]);
+		return true;
+	}
+
+	private void HandleSendTransaction(JToken? id, JObject prms, Action<string> respond)
+	{
+		if (!TryParseTxParams(id, prms, respond, out var txBytes, out var format, out var kind, out var pow))
+		{
+			return;
+		}
 
 		_ops.SendTransaction(txBytes, format, kind, pow, result =>
 		{
@@ -369,6 +394,67 @@ public class WalletLinkV5
 				return;
 			}
 			respond(BuildResult(id, new JObject { ["hash"] = result.Hash.ToString() }));
+		});
+	}
+
+	private void HandleSignTransaction(JToken? id, JObject prms, Action<string> respond)
+	{
+		if (!TryParseTxParams(id, prms, respond, out var txBytes, out var format, out var kind, out var pow))
+		{
+			return;
+		}
+
+		_ops.SignTransaction(txBytes, format, kind, pow, result =>
+		{
+			if (result.Failure != LinkFailure.None || result.SignedTx == null)
+			{
+				respond(BuildError(id, MapFailure(result.Failure), result.Message ?? "Transaction was not signed"));
+				return;
+			}
+			respond(BuildResult(id, new JObject { ["signedTx"] = Convert.ToBase64String(result.SignedTx) }));
+		});
+	}
+
+	private void HandleSignMessage(JToken? id, JObject prms, Action<string> respond)
+	{
+		var messageText = (string?)prms["message"] ?? "";
+		if (messageText.Length == 0)
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.message is required (base64)"));
+			return;
+		}
+		// Same fast ceiling as transactions: a message has no business being larger than
+		// the chain's max payload, and the guard keeps hostile input cheap to refuse.
+		if (messageText.Length > MaxTxBase64Chars)
+		{
+			respond(BuildError(id, ErrPayloadTooLarge, "Message exceeds the maximum size",
+				new JObject { ["maxPayloadBytes"] = MaxTxBytes }));
+			return;
+		}
+		byte[] message;
+		try
+		{
+			message = Convert.FromBase64String(messageText);
+		}
+		catch
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.message must be base64"));
+			return;
+		}
+
+		var display = (string?)prms["display"];
+		_ops.SignMessage(message, display, result =>
+		{
+			if (result.Failure != LinkFailure.None || result.Signature == null || result.Random == null)
+			{
+				respond(BuildError(id, MapFailure(result.Failure), result.Message ?? "Message was not signed"));
+				return;
+			}
+			respond(BuildResult(id, new JObject
+			{
+				["signature"] = Convert.ToBase64String(result.Signature),
+				["random"] = Convert.ToBase64String(result.Random),
+			}));
 		});
 	}
 
@@ -406,6 +492,7 @@ public class WalletLinkV5
 			case LinkFailure.UserRejected: return ErrUserRejected;
 			case LinkFailure.InvalidTransaction: return ErrInvalidParams;
 			case LinkFailure.NotLoggedIn: return ErrDisconnected;
+			case LinkFailure.UnsupportedSignatureKind: return ErrUnsupportedSignatureKind;
 			default: return ErrInternal;
 		}
 	}
@@ -418,11 +505,11 @@ public class WalletLinkV5
 			["methods"] = new JArray
 			{
 				"pha_connect", "pha_disconnect", "pha_getAccounts", "pha_getChains",
-				"pha_getWalletInfo", "pha_sendTransaction", "pha_invokeScript",
+				"pha_getWalletInfo", "pha_signMessage", "pha_signTransaction",
+				"pha_sendTransaction", "pha_invokeScript",
 			},
 			["chains"] = new JArray { "phantasma:" + nexus },
-			// Only "carbon" is implemented end-to-end so far; "script" send is a follow-up.
-			["txFormats"] = new JArray { "carbon" },
+			["txFormats"] = new JArray { "script", "carbon" },
 			["signatureKinds"] = new JArray { "Ed25519", "ECDSA" },
 			["maxPayloadBytes"] = new JObject { ["loopback"] = 32 * 1024 * 1024 },
 		};
@@ -480,13 +567,18 @@ public class WalletLinkV5
 		return new JObject { ["plv"] = ProtocolVersion, ["id"] = id, ["result"] = result }.ToString(Formatting.None);
 	}
 
-	private static string BuildError(JToken? id, int code, string message)
+	private static string BuildError(JToken? id, int code, string message, JObject? data = null)
 	{
+		var error = new JObject { ["code"] = code, ["message"] = message };
+		if (data != null)
+		{
+			error["data"] = data;
+		}
 		return new JObject
 		{
 			["plv"] = ProtocolVersion,
 			["id"] = id,
-			["error"] = new JObject { ["code"] = code, ["message"] = message },
+			["error"] = error,
 		}.ToString(Formatting.None);
 	}
 

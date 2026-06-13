@@ -85,6 +85,39 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 		done(LinkInvokeResult.Ok(InvokeResults ?? new[] { "AABB" }));
 	}
 
+	// Sign-operation controls.
+	public LinkFailure FailSignMessage = LinkFailure.None;
+	public byte[]? SignedMessage;
+	public string? SignedDisplay;
+	public LinkFailure FailSignTx = LinkFailure.None;
+	public LinkTxFormat? SignTxFormat;
+	public SignatureKind? SignTxKind;
+
+	public void SignMessage(byte[] message, string? display, Action<LinkSignMessageResult> done)
+	{
+		SignedMessage = message;
+		SignedDisplay = display;
+		if (FailSignMessage != LinkFailure.None) { done(LinkSignMessageResult.Fail(FailSignMessage, "sign refused")); return; }
+		// Deterministic stand-ins: a fixed random and a recognizable signature blob.
+		var random = new byte[LinkSignMessage.RandomLength];
+		random[0] = 7;
+		var signature = new byte[64];
+		signature[0] = 9;
+		done(LinkSignMessageResult.Ok(signature, random));
+	}
+
+	public void SignTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, ProofOfWork pow, Action<LinkSignTransactionResult> done)
+	{
+		SignTxFormat = format;
+		SignTxKind = kind;
+		if (FailSignTx != LinkFailure.None) { done(LinkSignTransactionResult.Fail(FailSignTx, "sign refused")); return; }
+		// Echo a marker plus the input so tests can assert the bytes round-tripped.
+		var signed = new byte[serializedTx.Length + 1];
+		signed[0] = 0x5A;
+		Buffer.BlockCopy(serializedTx, 0, signed, 1, serializedTx.Length);
+		done(LinkSignTransactionResult.Ok(signed));
+	}
+
 	// Pairing controls.
 	public bool RejectPairing;
 	public LinkPairingParams? LastPairing;

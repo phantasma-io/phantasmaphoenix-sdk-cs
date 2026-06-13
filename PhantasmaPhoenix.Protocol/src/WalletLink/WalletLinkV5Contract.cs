@@ -21,6 +21,8 @@ public enum LinkFailure
 	InvalidTransaction,
 	/// <summary>No account is unlocked in the wallet. -> 4900</summary>
 	NotLoggedIn,
+	/// <summary>The requested signature kind is not supported for this operation. -> 5003</summary>
+	UnsupportedSignatureKind,
 	/// <summary>An unexpected wallet-side error. -> -32603</summary>
 	Internal,
 }
@@ -95,6 +97,35 @@ public sealed class LinkAccountResult
 		new LinkAccountResult { Failure = failure, Message = message };
 }
 
+/// <summary>Outcome of <c>pha_signMessage</c>: the RAW 64-byte Ed25519 detached signature
+/// over <see cref="LinkSignMessage.BuildPayload"/> plus the random the wallet prepended.</summary>
+public sealed class LinkSignMessageResult
+{
+	public LinkFailure Failure { get; private set; }
+	public string? Message { get; private set; }
+	public byte[]? Signature { get; private set; }
+	public byte[]? Random { get; private set; }
+
+	public static LinkSignMessageResult Ok(byte[] signature, byte[] random) =>
+		new LinkSignMessageResult { Signature = signature, Random = random };
+	public static LinkSignMessageResult Fail(LinkFailure failure, string? message) =>
+		new LinkSignMessageResult { Failure = failure, Message = message };
+}
+
+/// <summary>Outcome of <c>pha_signTransaction</c>: the fully signed serialized transaction
+/// (the dApp broadcasts it itself; the wallet does NOT).</summary>
+public sealed class LinkSignTransactionResult
+{
+	public LinkFailure Failure { get; private set; }
+	public string? Message { get; private set; }
+	public byte[]? SignedTx { get; private set; }
+
+	public static LinkSignTransactionResult Ok(byte[] signedTx) =>
+		new LinkSignTransactionResult { SignedTx = signedTx };
+	public static LinkSignTransactionResult Fail(LinkFailure failure, string? message) =>
+		new LinkSignTransactionResult { Failure = failure, Message = message };
+}
+
 /// <summary>Outcome of <c>pha_sendTransaction</c>.</summary>
 public sealed class LinkSendResult
 {
@@ -146,6 +177,15 @@ public interface IWalletLinkV5Ops
 
 	/// <summary>Sign and broadcast a serialized transaction; prompts the user for consent.</summary>
 	void SendTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, ProofOfWork pow, Action<LinkSendResult> done);
+
+	/// <summary>Sign EXACTLY the spec §8 payload built from <paramref name="message"/> (the op
+	/// itself runs <see cref="LinkSignMessage.BuildPayload"/> with a fresh CSPRNG random);
+	/// prompts the user, showing <paramref name="display"/> when the dApp provided a hint.</summary>
+	void SignMessage(byte[] message, string? display, Action<LinkSignMessageResult> done);
+
+	/// <summary>Sign a serialized transaction WITHOUT broadcasting; prompts the user for
+	/// consent with a human-readable description.</summary>
+	void SignTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, ProofOfWork pow, Action<LinkSignTransactionResult> done);
 
 	/// <summary>
 	/// Ask the user to approve a deeplink/relay pairing (spec §17): "pair with dApp X?".
