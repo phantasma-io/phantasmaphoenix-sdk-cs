@@ -80,7 +80,8 @@ public sealed class LinkRelayClient : IDisposable
 		ILinkPairingStore pairings,
 		ILinkRelaySocketFactory sockets,
 		Action<Action>? marshal = null,
-		int[]? reconnectDelaysMs = null)
+		int[]? reconnectDelaysMs = null,
+		Action<string>? log = null)
 	{
 		_dispatcher = dispatcher;
 		_pairings = pairings;
@@ -89,7 +90,13 @@ public sealed class LinkRelayClient : IDisposable
 		// because the dispatcher prompts the user and touches wallet state.
 		_marshal = marshal ?? (action => action());
 		_reconnectDelaysMs = reconnectDelaysMs ?? new[] { 1000, 2000, 5000, 15000, 30000 };
+		// Transport visibility: this client absorbs connection failures by silent
+		// reconnection, so without a log sink a host cannot tell a dead relay link from
+		// a quiet one. Hosts wire this to their own logger.
+		_log = log;
 	}
+
+	private readonly Action<string>? _log;
 
 	/// <summary>Spec section 17: the `relay` pairing field is a host by default; full URLs
 	/// are accepted too (local testing uses plain ws against a localhost relay).</summary>
@@ -185,6 +192,33 @@ public sealed class LinkRelayClient : IDisposable
 		}
 	}
 
+	/// <summary>ecdh pairing key hop (spec section 20.1): publish the wallet's ephemeral
+	/// X25519 PUBLIC key together with the first sealed envelope (the connect result) in
+	/// one payload, so the dApp can derive the channel key and immediately open it. Sent
+	/// once per pairing; small by construction, so it is never chunked.</summary>
+	public void PublishHandshake(LinkPairingRecord pairing, byte[] walletPublicKey, string envelopeJson)
+	{
+		if (string.IsNullOrEmpty(pairing.RelayUrl))
+		{
+			return;
+		}
+		var channel = new LinkChannel(pairing.Key);
+		// SealEnvelope yields the {"nonce","ct"} frame; the public key rides beside the
+		// sealed fields IN THE CLEAR - it is the very material the peer needs to decrypt.
+		var payload = JObject.Parse(channel.SealEnvelope(envelopeJson));
+		payload["wpk"] = LinkEncoding.Base64UrlEncode(walletPublicKey);
+
+		lock (_gate)
+		{
+			if (_disposed)
+			{
+				return;
+			}
+			var conn = GetOrCreateConnection(pairing.RelayUrl!);
+			SendOrQueue(conn, BuildPublish(pairing.Topic, payload));
+		}
+	}
+
 	public void Dispose()
 	{
 		lock (_gate)
@@ -231,6 +265,7 @@ public sealed class LinkRelayClient : IDisposable
 
 	private void OnOpen(Connection conn)
 	{
+		_log?.Invoke($"relay connected: {conn.Url}");
 		lock (_gate)
 		{
 			if (_disposed)
@@ -265,6 +300,7 @@ public sealed class LinkRelayClient : IDisposable
 			conn.Socket = null;
 			var delay = _reconnectDelaysMs[Math.Min(conn.ReconnectAttempt, _reconnectDelaysMs.Length - 1)];
 			conn.ReconnectAttempt++;
+			_log?.Invoke($"relay disconnected: {conn.Url}; reconnect in {delay} ms (attempt {conn.ReconnectAttempt})");
 			conn.ReconnectTimer?.Dispose();
 			// One-shot timer; the next drop schedules the next attempt (ladder backoff).
 			conn.ReconnectTimer = new System.Threading.Timer(_ =>

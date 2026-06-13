@@ -87,15 +87,15 @@ public class LinkDeeplinkEndpointTests
 	}
 
 	[Fact]
-	public void Pairing_without_callback_or_with_ecdh_mode_is_dropped_for_now()
+	public void Pairing_without_any_response_path_is_dropped()
 	{
 		var (endpoint, ops, pairings, _) = Build();
 
-		// No cb: nowhere to deliver responses.
+		// sym without cb AND without relay: nowhere to deliver responses.
 		endpoint.TryHandle("https://link.phantasma.info/v5/pair#v=5&t=x&sk=" + new string('A', 43), _ => { }).ShouldBeTrue();
 		pairings.Get("x").ShouldBeNull();
 
-		// ecdh: ships with the relay phase (needs a wallet-pubkey response hop).
+		// ecdh REQUIRES the relay for the wallet-pubkey hop; a callback cannot carry it.
 		endpoint.TryHandle("phantasma://v5/pair#v=5&t=y&cb=https%3A%2F%2Fd.app&pk=" + new string('A', 43), _ => { }).ShouldBeTrue();
 		pairings.Get("y").ShouldBeNull();
 		ops.ConfirmPairingCalls.ShouldBe(0);

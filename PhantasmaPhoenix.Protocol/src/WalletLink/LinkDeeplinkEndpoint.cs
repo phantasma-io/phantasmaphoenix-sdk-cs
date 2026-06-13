@@ -76,18 +76,39 @@ public sealed class LinkDeeplinkEndpoint
 			return; // malformed pairing material is dropped, never half-accepted
 		}
 
-		// Phase 2 ships the sym path (QR / universal link). The ecdh custom-scheme fallback
-		// needs a wallet-pubkey response hop and lands with the relay work.
-		if (pairing.Mode != LinkPairingMode.Sym || pairing.SymKey == null)
-		{
-			return;
-		}
-		// The pairing must offer at least one response path: a deeplink callback or a relay
-		// topic (cross-device QR pairings have no usable callback on this device).
 		var relayUrl = pairing.Relay != null ? LinkRelayClient.NormalizeRelayUrl(pairing.Relay) : null;
-		if (string.IsNullOrEmpty(pairing.CallbackUrl) && relayUrl == null)
+
+		// Channel-key material decides the mode (spec §20.1):
+		//   sym  - the key came in the URI (safe channel); responses go via callback or relay.
+		//   ecdh - only the dApp's PUBLIC key came (hijackable custom scheme); the wallet
+		//          must answer with its own ephemeral public key, and that hop NEEDS the
+		//          relay AND a dApp name (the one-tap push IS the handshake vehicle - without
+		//          it the dApp could never derive the key, so such a pairing is useless).
+		byte[] channelKey;
+		byte[]? walletPublicKey = null;
+		if (pairing.Mode == LinkPairingMode.Sym && pairing.SymKey != null)
 		{
-			return;
+			// The pairing must offer at least one response path: a deeplink callback or a
+			// relay topic (cross-device QR pairings have no usable callback on this device).
+			if (string.IsNullOrEmpty(pairing.CallbackUrl) && relayUrl == null)
+			{
+				return;
+			}
+			channelKey = pairing.SymKey;
+		}
+		else if (pairing.Mode == LinkPairingMode.Ecdh && pairing.DappPublicKey != null)
+		{
+			if (relayUrl == null || _relay == null || string.IsNullOrEmpty(pairing.DappName))
+			{
+				return;
+			}
+			var (publicKey, secretKey) = PhantasmaPhoenix.Cryptography.NaCl.GenerateKeyPair();
+			walletPublicKey = publicKey;
+			channelKey = PhantasmaPhoenix.Cryptography.NaCl.DeriveSessionKey(pairing.DappPublicKey, secretKey);
+		}
+		else
+		{
+			return; // malformed mode/material combination
 		}
 
 		_ops.ConfirmPairing(pairing, approved =>
@@ -100,7 +121,7 @@ public sealed class LinkDeeplinkEndpoint
 			var record = new LinkPairingRecord
 			{
 				Topic = pairing.Topic,
-				Key = pairing.SymKey,
+				Key = channelKey,
 				CallbackUrl = pairing.CallbackUrl ?? "",
 				RelayUrl = relayUrl,
 				DappName = pairing.DappName ?? "",
@@ -129,16 +150,21 @@ public sealed class LinkDeeplinkEndpoint
 			}
 			_dispatcher.EstablishConsentedSession(dappName!, eventJson =>
 			{
-				// Route the push where the dApp can actually receive it: the relay topic when
-				// the pairing has one (cross-device; also smoother same-device), else the
-				// deeplink callback. Exactly one path is used per pairing.
-				if (relayUrl != null && _relay != null)
+				// Route the push where the dApp can actually receive it. ecdh always goes via
+				// the relay carrying the wallet's public key (the dApp derives the channel key
+				// from it); sym prefers the relay when the pairing has one, else the deeplink
+				// callback. Exactly one path is used per pairing.
+				if (walletPublicKey != null && _relay != null)
+				{
+					_relay.PublishHandshake(record, walletPublicKey, eventJson);
+				}
+				else if (relayUrl != null && _relay != null)
 				{
 					_relay.PublishSealed(record, eventJson);
 				}
 				else if (!string.IsNullOrEmpty(pairing.CallbackUrl))
 				{
-					var channel = new LinkChannel(pairing.SymKey);
+					var channel = new LinkChannel(channelKey);
 					openUrl(BuildResponseUrl(pairing.CallbackUrl!, pairing.Topic, channel.SealEnvelope(eventJson)));
 				}
 			});

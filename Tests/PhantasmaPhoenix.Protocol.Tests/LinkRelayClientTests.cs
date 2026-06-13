@@ -202,6 +202,54 @@ public class LinkRelayClientTests
 	}
 
 	[Fact]
+	public void Ecdh_pairing_returns_the_wallet_key_and_a_usable_session()
+	{
+		var (endpoint, ops, _, _, sockets) = Build();
+
+		// dApp side of the fallback: an ephemeral X25519 pair; ONLY the public key rides
+		// the (hijackable) custom-scheme URI, together with the relay and the dApp meta.
+		var (dappPublic, dappSecret) = PhantasmaPhoenix.Cryptography.NaCl.GenerateKeyPair();
+		var pk = Convert.ToBase64String(dappPublic).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+		var metaJson = "{\"name\":\"ecdh-dapp\",\"url\":\"https://dapp.example\"}";
+		var meta = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(metaJson)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+		var uri = $"phantasma://v5/pair#v=5&t=top-e&relay={Uri.EscapeDataString("ws://localhost:7299/relay")}&pk={pk}&meta={meta}";
+
+		endpoint.TryHandle(uri, _ => { }).ShouldBeTrue();
+		ops.ConfirmPairingCalls.ShouldBe(1);
+		var socket = sockets.Sockets[0];
+		socket.Open();
+
+		// The handshake payload carries the wallet's public key IN THE CLEAR next to the
+		// sealed connect result; the dApp derives the same key via box.before.
+		var frames = socket.SentFrames();
+		((string)frames[0]["op"]!).ShouldBe("subscribe");
+		var payload = (JObject)frames[1]["payload"]!;
+		var wpk = (string)payload["wpk"]!;
+		wpk.ShouldNotBeNullOrEmpty();
+		var walletPublic = Convert.FromBase64String(wpk.Replace('-', '+').Replace('_', '/').PadRight((wpk.Length + 3) / 4 * 4, '='));
+		var derived = PhantasmaPhoenix.Cryptography.NaCl.DeriveSessionKey(walletPublic, dappSecret);
+
+		var channel = new LinkChannel(derived);
+		var sealedFrame = new JObject { ["nonce"] = payload["nonce"], ["ct"] = payload["ct"] }.ToString();
+		channel.TryOpenEnvelope(sealedFrame, out var envelopeJson).ShouldBeTrue();
+		var pushed = JObject.Parse(envelopeJson);
+		((string)pushed["event"]!).ShouldBe(WalletLinkV5.SessionEstablishedEvent);
+		var sessionId = (string)pushed["data"]!["session"]!["id"]!;
+
+		// The derived key now carries ordinary sealed traffic both ways.
+		var request = $"{{\"plv\":5,\"id\":\"e1\",\"session\":\"{sessionId}\",\"method\":\"pha_getChains\"}}";
+		socket.Deliver(new JObject
+		{
+			["op"] = "deliver",
+			["topic"] = "top-e",
+			["payload"] = channel.SealEnvelope(request),
+		}.ToString());
+		var response = OpenSealedPayload(channel, socket.SentFrames()[2]["payload"]!);
+		((string)response["id"]!).ShouldBe("e1");
+		((string)response["result"]!["nexus"]!).ShouldBe("localnet");
+	}
+
+	[Fact]
 	public void Wake_deeplinks_reconnect_stored_relay_pairings()
 	{
 		var (endpoint, _, pairings, _, sockets) = Build();
