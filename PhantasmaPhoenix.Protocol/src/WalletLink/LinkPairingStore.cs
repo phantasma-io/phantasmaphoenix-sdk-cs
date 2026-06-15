@@ -1,6 +1,6 @@
 namespace PhantasmaPhoenix.Protocol;
 
-// Persistent pairing storage for Phantasma Link v5 deeplink/relay channels (spec §17/§19).
+// Persistent pairing storage for Phantasma Link v5 deeplink/relay channels (spec §15/§17).
 // A pairing binds a topic to the channel session key and the dApp's response callback; it
 // outlives wallet restarts so a paired dApp keeps working without re-pairing. Same layering
 // as ILinkSessionStore: the dispatcher logic lives in the endpoint, the wallet host owns the

@@ -71,7 +71,7 @@ public sealed class LinkRelayClient : IDisposable
 	private readonly int[] _reconnectDelaysMs;
 	// Spec §7 session-store lifecycle: keep only the N most-recently-used relay sessions
 	// subscribed (LRU eviction by LastSeenUtc), kept BELOW the relay's per-connection topic cap
-	// (§18, default 8) so a fresh pairing always has a slot. A session idle past _idleTtl is
+	// (§16, default 8) so a fresh pairing always has a slot. A session idle past _idleTtl is
 	// pruned. Without this the (cap+1)-th pairing's subscribe is rejected and that dApp hangs.
 	private readonly int _relaySessionCap;
 	private readonly TimeSpan _idleTtl;
@@ -443,7 +443,7 @@ public sealed class LinkRelayClient : IDisposable
 		}
 
 		var op = (string?)frame["op"];
-		// Surface relay errors instead of swallowing them (spec §18): a refused subscribe
+		// Surface relay errors instead of swallowing them (spec §16): a refused subscribe
 		// (topic_limit) MUST be visible - silently dropping it makes the wallet believe it is
 		// listening while the relay routes nothing to it, so every request on that topic hangs.
 		if (op == "error")

@@ -7,7 +7,7 @@ using Org.BouncyCastle.Security;
 namespace PhantasmaPhoenix.Cryptography;
 
 /// <summary>
-/// NaCl channel cryptography for Phantasma Link v5 (spec §8/§20): XSalsa20-Poly1305 secretbox
+/// NaCl channel cryptography for Phantasma Link v5 (spec §8/§18): XSalsa20-Poly1305 secretbox
 /// for frame encryption and the X25519 + HSalsa20 key derivation that matches tweetnacl's
 /// <c>box.before</c>, so a wallet using this class and a dApp using the TS SDK derive the SAME
 /// session key and can open each other's frames byte-for-byte (verified by interop vectors

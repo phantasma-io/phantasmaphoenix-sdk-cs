@@ -188,7 +188,7 @@ public interface IWalletLinkV5Ops
 	void SignTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, ProofOfWork pow, Action<LinkSignTransactionResult> done);
 
 	/// <summary>
-	/// Ask the user to approve a deeplink/relay pairing (spec §17): "pair with dApp X?".
+	/// Ask the user to approve a deeplink/relay pairing (spec §15): "pair with dApp X?".
 	/// Approval hands the channel key to the endpoint, which persists the pairing.
 	/// </summary>
 	void ConfirmPairing(LinkPairingParams pairing, Action<bool> done);

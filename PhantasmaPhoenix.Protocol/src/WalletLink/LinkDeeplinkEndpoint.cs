@@ -3,7 +3,7 @@ using System.Text;
 namespace PhantasmaPhoenix.Protocol;
 
 /// <summary>
-/// Wallet-side deeplink endpoint for Phantasma Link v5 (spec §19). The host feeds it every URL
+/// Wallet-side deeplink endpoint for Phantasma Link v5 (spec §17). The host feeds it every URL
 /// the OS delivers (Android intent / iOS universal link / editor harness); it consumes the v5
 /// ones: pairing URIs establish an encrypted channel (after user consent via
 /// <see cref="IWalletLinkV5Ops.ConfirmPairing"/>), request URLs are unsealed with the pairing
@@ -78,7 +78,7 @@ public sealed class LinkDeeplinkEndpoint
 
 		var relayUrl = pairing.Relay != null ? LinkRelayClient.NormalizeRelayUrl(pairing.Relay) : null;
 
-		// Channel-key material decides the mode (spec §20.1):
+		// Channel-key material decides the mode (spec §18.1):
 		//   sym  - the key came in the URI (safe channel); responses go via callback or relay.
 		//   ecdh - only the dApp's PUBLIC key came (hijackable custom scheme); the wallet
 		//          must answer with its own ephemeral public key, and that hop NEEDS the
@@ -136,7 +136,7 @@ public sealed class LinkDeeplinkEndpoint
 				_relay?.TrackPairing(record);
 			}
 
-			// Spec §17 step 3: on approval the wallet returns the encrypted connect result, so
+			// Spec §15 step 3: on approval the wallet returns the encrypted connect result, so
 			// the first connection is ONE user gesture (no manual app switch + second consent).
 			// The pairing consent text is the consent for this - which is also why the push is
 			// gated on a dApp NAME from the pairing meta: a consent dialog that could only show

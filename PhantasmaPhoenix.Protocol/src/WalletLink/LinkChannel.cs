@@ -6,7 +6,7 @@ using PhantasmaPhoenix.Cryptography;
 namespace PhantasmaPhoenix.Protocol;
 
 /// <summary>
-/// An established v5 encrypted channel (spec §8): seals/opens envelope JSON as the wire frame
+/// An established v5 encrypted channel (spec §8, §18.2): seals/opens envelope JSON as the wire frame
 /// <c>{"nonce": base64, "ct": base64}</c> with NaCl secretbox under the pairing-derived session
 /// key. Matches the TS SDK's sealEnvelopeText/openEnvelopeText byte-for-byte. Used by the
 /// deeplink and relay transports; plaintext loopback does not need it.

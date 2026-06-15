@@ -17,7 +17,7 @@ public class WalletLinkV5
 	public const int ProtocolVersion = 5;
 
 	/// <summary>Unsolicited wallet->dApp event carrying a connect result right after a pairing
-	/// approval (spec §17 step 3); lets the first connection complete in one user gesture.</summary>
+	/// approval (spec §15 step 3); lets the first connection complete in one user gesture.</summary>
 	public const string SessionEstablishedEvent = "pha_sessionEstablished";
 
 	/// <summary>Unsolicited wallet->dApp event telling the dApp its session ended (the wallet
@@ -248,7 +248,7 @@ public class WalletLinkV5
 
 	/// <summary>
 	/// Establish a session for an ALREADY-CONSENTED dApp and deliver the connect payload as an
-	/// unsolicited <see cref="SessionEstablishedEvent"/> envelope (spec §17 step 3: on pairing
+	/// unsolicited <see cref="SessionEstablishedEvent"/> envelope (spec §15 step 3: on pairing
 	/// approval the wallet publishes the encrypted pha_connect result). This method shows NO
 	/// prompt - the caller must invoke it only from an explicit user approval whose consent text
 	/// covers account access (the pairing consent). When the wallet is not Ready or has no

@@ -3,7 +3,7 @@ using Newtonsoft.Json.Linq;
 
 namespace PhantasmaPhoenix.Protocol;
 
-// Phantasma Link v5 pairing (spec §17), wallet side. The dApp encodes pairing material in the
+// Phantasma Link v5 pairing (spec §15), wallet side. The dApp encodes pairing material in the
 // URL FRAGMENT of a universal link / QR / custom-scheme URL; the wallet parses it here. Mirrors
 // the TS SDK's pairing.ts byte-for-byte (verified by TS-generated vectors):
 //   sym  - fragment carries a 32-byte symmetric session key (safe channels only: QR or a
@@ -28,7 +28,7 @@ public sealed class LinkPairingParams
 	public byte[]? SymKey { get; set; }
 	/// <summary>32-byte dApp X25519 public key; present when <see cref="Mode"/> is Ecdh.</summary>
 	public byte[]? DappPublicKey { get; set; }
-	/// <summary>Where the wallet opens response deeplinks for this pairing (spec §19).</summary>
+	/// <summary>Where the wallet opens response deeplinks for this pairing (spec §17).</summary>
 	public string? CallbackUrl { get; set; }
 	public string? DappName { get; set; }
 	public string? DappUrl { get; set; }

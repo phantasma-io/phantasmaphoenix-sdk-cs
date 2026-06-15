@@ -6,7 +6,7 @@ namespace PhantasmaPhoenix.Protocol.Tests;
 
 /// <summary>
 /// The wallet-side deeplink endpoint: pairing consent, encrypted request dispatch, response URL
-/// building - the full §19 flow with the OS hop replaced by direct calls. URL formats are pinned
+/// building - the full §17 flow with the OS hop replaced by direct calls. URL formats are pinned
 /// to the TS SDK byte-for-byte via link-pairing-vectors.json.
 /// </summary>
 public class LinkDeeplinkEndpointTests
@@ -146,7 +146,7 @@ public class LinkDeeplinkEndpointTests
 		var channel = new LinkChannel(key);
 
 		// Approval must answer by opening the callback with a sealed sessionEstablished event
-		// (spec §17 step 3) - the one-tap first connection.
+		// (spec §15 step 3) - the one-tap first connection.
 		string? openedUrl = null;
 		endpoint.TryHandle(SymPairingUri(key, "top-ot", "https://dapp.example/app", dappName: "one-tap-dapp"), url => openedUrl = url).ShouldBeTrue();
 		openedUrl.ShouldNotBeNull();
