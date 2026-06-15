@@ -5,13 +5,13 @@ namespace PhantasmaPhoenix.RPC.Models;
 public class ContractResult
 {
 	[ApiDescription("Name of contract")]
-	public string Name { get; set; }
+	public string Name { get; set; } = "";
 
 	[ApiDescription("Address of contract")]
-	public string Address { get; set; }
+	public string Address { get; set; } = "";
 
 	[ApiDescription("Script bytes, in hex format")]
-	public string Script { get; set; }
+	public string Script { get; set; } = "";
 
 	[ApiDescription("Address that owns the contract, when returned by the RPC")]
 	public string? Owner { get; set; }

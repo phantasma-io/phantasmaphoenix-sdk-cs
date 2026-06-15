@@ -8,12 +8,12 @@ public class ABIEventResult
 	public int Value { get; set; }
 
 	[ApiDescription("Name of event")]
-	public string Name { get; set; }
+	public string Name { get; set; } = "";
 
-	public string ReturnType { get; set; }
+	public string ReturnType { get; set; } = "";
 
 	[ApiDescription("Description script (base16 encoded)")]
-	public string Description { get; set; }
+	public string Description { get; set; } = "";
 
 	public ABIEventResult() { }
 }

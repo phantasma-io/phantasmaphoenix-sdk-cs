@@ -4,9 +4,9 @@ namespace PhantasmaPhoenix.RPC.Models;
 
 public class TokenSchemasResult
 {
-	public VmStructSchemaResult SeriesMetadata { get; set; }
-	public VmStructSchemaResult Rom { get; set; }
-	public VmStructSchemaResult Ram { get; set; }
+	public VmStructSchemaResult SeriesMetadata { get; set; } = new();
+	public VmStructSchemaResult Rom { get; set; } = new();
+	public VmStructSchemaResult Ram { get; set; } = new();
 
 	public TokenSchemasResult() { }
 }

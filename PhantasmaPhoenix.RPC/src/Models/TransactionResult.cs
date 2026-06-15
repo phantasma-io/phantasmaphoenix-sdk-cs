@@ -5,27 +5,27 @@ namespace PhantasmaPhoenix.RPC.Models;
 
 public class TransactionResult
 {
-	public string Hash { get; set; }
-	public string ChainAddress { get; set; }
+	public string Hash { get; set; } = "";
+	public string? ChainAddress { get; set; }
 	public UInt64 Timestamp { get; set; }
 	public UInt64 BlockHeight { get; set; }
-	public string BlockHash { get; set; }
-	public string Script { get; set; }
+	public string? BlockHash { get; set; }
+	public string? Script { get; set; }
 	public byte CarbonTxType { get; set; }
-	public string CarbonTxData { get; set; }
-	public string Payload { get; set; }
+	public string? CarbonTxData { get; set; }
+	public string? Payload { get; set; }
 	public string? DebugComment { get; set; }
-	public EventResult[] Events { get; set; }
-	public EventExResult[] ExtendedEvents { get; set; }
-	public string Result { get; set; }
-	public string Fee { get; set; }
+	public EventResult[]? Events { get; set; }
+	public EventExResult[]? ExtendedEvents { get; set; }
+	public string? Result { get; set; }
+	public string? Fee { get; set; }
 	public ExecutionState State { get; set; }
 	public TransactionSignatureResult[]? Signatures { get; set; }
 	public string Sender { get; set; } = Address.Null.Text; // Initialized as in original Phantasma code.
-	public string GasPayer { get; set; }
+	public string? GasPayer { get; set; }
 	public string GasTarget { get; set; } = "NULL";
 	public string GasPrice { get; set; } = "";
-	public string GasLimit { get; set; }
+	public string? GasLimit { get; set; }
 	public UInt64 Expiration { get; set; }
 
 	public TransactionResult() { }

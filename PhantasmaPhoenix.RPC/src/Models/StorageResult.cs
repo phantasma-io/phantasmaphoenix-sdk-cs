@@ -11,10 +11,10 @@ public class StorageResult
 	public uint Used { get; set; }
 
 	[ApiDescription("Avatar data")]
-	public string Avatar { get; set; }
+	public string Avatar { get; set; } = "";
 
 	[ApiDescription("List of stored files")]
-	public ArchiveResult[] Archives { get; set; }
+	public ArchiveResult[] Archives { get; set; } = Array.Empty<ArchiveResult>();
 
 	public StorageResult() { }
 }

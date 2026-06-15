@@ -5,12 +5,12 @@ namespace PhantasmaPhoenix.RPC.Models;
 public class ABIMethodResult
 {
 	[ApiDescription("Name of method")]
-	public string Name { get; set; }
+	public string Name { get; set; } = "";
 
-	public string ReturnType { get; set; }
+	public string ReturnType { get; set; } = "";
 
 	[ApiDescription("Type of parameters")]
-	public ABIParameterResult[] Parameters { get; set; }
+	public ABIParameterResult[] Parameters { get; set; } = Array.Empty<ABIParameterResult>();
 
 	public ABIMethodResult() { }
 }

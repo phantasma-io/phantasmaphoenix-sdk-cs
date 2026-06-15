@@ -4,25 +4,25 @@ namespace PhantasmaPhoenix.RPC.Models;
 
 public class AccountResult
 {
-	public string Address { get; set; }
-	public string Name { get; set; }
+	public string Address { get; set; } = "";
+	public string Name { get; set; } = "";
 
 	[ApiDescription("Info about staking if available")]
-	public StakeResult Stakes { get; set; }
+	public StakeResult Stakes { get; set; } = new();
 
-	public string Stake { get; set; } //Deprecated
-	public string Unclaimed { get; set; } //Deprecated
+	public string Stake { get; set; } = ""; //Deprecated
+	public string Unclaimed { get; set; } = ""; //Deprecated
 
 	[ApiDescription("Amount of available KCAL for relay channel")]
 	public string? Relay { get; set; }
 
 	[ApiDescription("Validator role")]
-	public string Validator { get; set; }
+	public string Validator { get; set; } = "";
 
 	[ApiDescription("Info about storage if available")]
-	public StorageResult Storage { get; set; }
+	public StorageResult Storage { get; set; } = new();
 
-	public BalanceResult[] Balances { get; set; }
+	public BalanceResult[] Balances { get; set; } = Array.Empty<BalanceResult>();
 
 	public string[]? Txs { get; set; }
 

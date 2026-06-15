@@ -4,10 +4,10 @@ namespace PhantasmaPhoenix.RPC.Models;
 
 public class AccountTransactionsResult
 {
-	public string Address { get; set; }
+	public string Address { get; set; } = "";
 
 	[ApiDescription("List of transactions")]
-	public TransactionResult[] Txs { get; set; }
+	public TransactionResult[] Txs { get; set; } = Array.Empty<TransactionResult>();
 
 	public AccountTransactionsResult() { }
 }

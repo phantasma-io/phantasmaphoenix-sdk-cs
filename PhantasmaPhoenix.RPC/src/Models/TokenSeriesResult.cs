@@ -5,28 +5,28 @@ namespace PhantasmaPhoenix.RPC.Models;
 public class TokenSeriesResult
 {
 	[ApiDescription("Phantasma series ID, up to 32 bytes")]
-	public string SeriesId { get; set; }
+	public string SeriesId { get; set; } = "";
 
 	[ApiDescription("Carbon token ID to which this series belongs")]
-	public string carbonTokenId { get; set; }
+	public string carbonTokenId { get; set; } = "";
 
 	[ApiDescription("Carbon series ID")]
-	public string carbonSeriesId { get; set; }
+	public string carbonSeriesId { get; set; } = "";
 
 	[ApiDescription("Address who controls this series")]
-	public string OwnerAddress { get; set; }
+	public string OwnerAddress { get; set; } = "";
 
 	[ApiDescription("Maximum amount of NFTs that can be minted in this series")]
-	public string MaxMint { get; set; }
+	public string MaxMint { get; set; } = "";
 
 	[ApiDescription("How many NFTs were minted in this series")]
-	public string MintCount { get; set; }
+	public string MintCount { get; set; } = "";
 
 	[ApiDescription("Current amount of tokens in circulation")]
-	public string CurrentSupply { get; set; }
+	public string CurrentSupply { get; set; } = "";
 
 	[ApiDescription("Maximum possible amount of tokens")]
-	public string MaxSupply { get; set; }
+	public string MaxSupply { get; set; } = "";
 
 	[ApiDescription("Total amount of burned tokens")]
 	public string? BurnedSupply { get; set; }
@@ -39,7 +39,7 @@ public class TokenSeriesResult
 	public ABIMethodResult[]? Methods { get; set; }
 
 	[ApiDescription("Series metadata")]
-	public TokenPropertyResult[] Metadata { get; set; }
+	public TokenPropertyResult[] Metadata { get; set; } = Array.Empty<TokenPropertyResult>();
 
 	public TokenSeriesResult() { }
 }
