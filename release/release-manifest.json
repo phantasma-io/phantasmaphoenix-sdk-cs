@@ -4,97 +4,97 @@
     {
       "id": "PhantasmaPhoenix.Core",
       "project": "PhantasmaPhoenix.Core/PhantasmaPhoenix.Core.csproj",
-      "version": "0.2.5",
-      "publish": false,
+      "version": "0.2.6",
+      "publish": true,
       "dependencies": {}
     },
     {
       "id": "PhantasmaPhoenix.Cryptography",
       "project": "PhantasmaPhoenix.Cryptography/PhantasmaPhoenix.Cryptography.csproj",
-      "version": "0.2.2",
-      "publish": false,
+      "version": "0.3.0",
+      "publish": true,
       "dependencies": {
-        "PhantasmaPhoenix.Core": "0.2.5"
+        "PhantasmaPhoenix.Core": "0.2.6"
       }
     },
     {
       "id": "PhantasmaPhoenix.Protocol",
       "project": "PhantasmaPhoenix.Protocol/PhantasmaPhoenix.Protocol.csproj",
-      "version": "0.2.10",
-      "publish": false,
+      "version": "0.3.0",
+      "publish": true,
       "dependencies": {
-        "PhantasmaPhoenix.Cryptography": "0.2.2"
+        "PhantasmaPhoenix.Cryptography": "0.3.0"
       }
     },
     {
       "id": "PhantasmaPhoenix.Protocol.Carbon",
       "project": "PhantasmaPhoenix.Protocol.Carbon/PhantasmaPhoenix.Protocol.Carbon.csproj",
-      "version": "0.4.3",
-      "publish": false,
+      "version": "0.4.4",
+      "publish": true,
       "dependencies": {
-        "PhantasmaPhoenix.Core": "0.2.5",
-        "PhantasmaPhoenix.Cryptography": "0.2.2"
+        "PhantasmaPhoenix.Core": "0.2.6",
+        "PhantasmaPhoenix.Cryptography": "0.3.0"
       }
     },
     {
       "id": "PhantasmaPhoenix.RPC",
       "project": "PhantasmaPhoenix.RPC/PhantasmaPhoenix.RPC.csproj",
-      "version": "0.7.3",
+      "version": "0.7.4",
       "publish": true,
       "dependencies": {
-        "PhantasmaPhoenix.Cryptography": "0.2.2",
-        "PhantasmaPhoenix.Protocol": "0.2.10",
-        "PhantasmaPhoenix.Protocol.Carbon": "0.4.3"
+        "PhantasmaPhoenix.Cryptography": "0.3.0",
+        "PhantasmaPhoenix.Protocol": "0.3.0",
+        "PhantasmaPhoenix.Protocol.Carbon": "0.4.4"
       }
     },
     {
       "id": "PhantasmaPhoenix.VM",
       "project": "PhantasmaPhoenix.VM/PhantasmaPhoenix.VM.csproj",
-      "version": "0.1.2",
-      "publish": false,
+      "version": "0.1.3",
+      "publish": true,
       "dependencies": {
-        "PhantasmaPhoenix.Core": "0.2.5",
-        "PhantasmaPhoenix.Cryptography": "0.2.2",
-        "PhantasmaPhoenix.Protocol": "0.2.10"
+        "PhantasmaPhoenix.Core": "0.2.6",
+        "PhantasmaPhoenix.Cryptography": "0.3.0",
+        "PhantasmaPhoenix.Protocol": "0.3.0"
       }
     },
     {
       "id": "PhantasmaPhoenix.Link",
       "project": "PhantasmaPhoenix.Link/PhantasmaPhoenix.Link.csproj",
-      "version": "0.1.1",
-      "publish": false,
+      "version": "0.2.0",
+      "publish": true,
       "dependencies": {
-        "PhantasmaPhoenix.Protocol": "0.2.10"
+        "PhantasmaPhoenix.Protocol": "0.3.0"
       }
     },
     {
       "id": "PhantasmaPhoenix.InteropChains.Legacy",
       "project": "PhantasmaPhoenix.InteropChains.Legacy/PhantasmaPhoenix.InteropChains.Legacy.csproj",
-      "version": "0.1.1",
-      "publish": false,
+      "version": "0.1.2",
+      "publish": true,
       "dependencies": {
-        "PhantasmaPhoenix.Cryptography": "0.2.2"
+        "PhantasmaPhoenix.Cryptography": "0.3.0"
       }
     },
     {
       "id": "PhantasmaPhoenix.Cryptography.Legacy",
       "project": "PhantasmaPhoenix.Cryptography.Legacy/PhantasmaPhoenix.Cryptography.Legacy.csproj",
-      "version": "0.1.1",
-      "publish": false,
+      "version": "0.1.2",
+      "publish": true,
       "dependencies": {
-        "PhantasmaPhoenix.Core": "0.2.5",
-        "PhantasmaPhoenix.Cryptography": "0.2.2"
+        "PhantasmaPhoenix.Core": "0.2.6",
+        "PhantasmaPhoenix.Cryptography": "0.3.0"
       }
     },
     {
       "id": "PhantasmaPhoenix.NFT",
       "project": "PhantasmaPhoenix.NFT/PhantasmaPhoenix.NFT.csproj",
-      "version": "0.7.3",
+      "version": "0.7.4",
       "publish": true,
       "dependencies": {
-        "PhantasmaPhoenix.Protocol": "0.2.10",
-        "PhantasmaPhoenix.RPC": "0.7.3",
-        "PhantasmaPhoenix.VM": "0.1.2"
+        "PhantasmaPhoenix.Protocol": "0.3.0",
+        "PhantasmaPhoenix.RPC": "0.7.4",
+        "PhantasmaPhoenix.VM": "0.1.3"
       }
     }
   ],
