@@ -18,7 +18,11 @@ public static class Throw
 	/// </summary>
 	/// <param name="argumentValue">The argument value.</param>
 	/// <param name="argumentName">The argument name.</param>
-	public static void IfNull(object? argumentValue, string argumentName)
+	public static void IfNull(
+#if NET6_0_OR_GREATER
+		[NotNull]
+#endif
+		object? argumentValue, string argumentName)
 	{
 		if (argumentValue == null)
 		{
@@ -32,7 +36,11 @@ public static class Throw
 	/// <typeparam name="T">Type of the argument</typeparam>
 	/// <param name="argumentValue">The argument value.</param>
 	/// <param name="argumentName">The argument name.</param>
-	public static void IfNull<T>(T? argumentValue, string argumentName) where T : struct
+	public static void IfNull<T>(
+#if NET6_0_OR_GREATER
+		[NotNull]
+#endif
+		T? argumentValue, string argumentName) where T : struct
 	{
 		if (!argumentValue.HasValue)
 		{
@@ -46,9 +54,16 @@ public static class Throw
 	/// </summary>
 	/// <param name="argumentValue">The argument value.</param>
 	/// <param name="argumentName">The argument name.</param>
-	public static void IfNullOrEmpty(string argumentValue, string argumentName)
+	public static void IfNullOrEmpty(
+#if NET6_0_OR_GREATER
+		[NotNull]
+#endif
+		string? argumentValue, string argumentName)
 	{
-		Throw.IfNull(argumentValue, argumentName);
+		if (argumentValue == null)
+		{
+			throw new ArgumentNullException(argumentName);
+		}
 
 		if (argumentValue.Length == 0)
 		{
@@ -62,9 +77,16 @@ public static class Throw
 	/// </summary>
 	/// <param name="argumentValue">The argument value.</param>
 	/// <param name="argumentName">The argument name.</param>
-	public static void IfNullOrEmpty(ICollection argumentValue, string argumentName)
+	public static void IfNullOrEmpty(
+#if NET6_0_OR_GREATER
+		[NotNull]
+#endif
+		ICollection? argumentValue, string argumentName)
 	{
-		Throw.IfNull(argumentValue, argumentName);
+		if (argumentValue == null)
+		{
+			throw new ArgumentNullException(argumentName);
+		}
 
 		if (argumentValue.Count == 0)
 		{
@@ -78,7 +100,7 @@ public static class Throw
 	/// </summary>
 	/// <param name="argumentValue">The argument value.</param>
 	/// <param name="argumentName">The argument name.</param>
-	public static void IfHasNull<T>(ICollection<T> argumentValue, string argumentName)
+	public static void IfHasNull<T>(ICollection<T>? argumentValue, string argumentName)
 	{
 		if (argumentValue == null)
 		{
@@ -109,7 +131,11 @@ public static class Throw
 	/// </summary>
 	/// <param name="argumentValue">The argument value.</param>
 	/// <param name="argumentName">The argument name.</param>
-	public static void IfEmpty(string argumentValue, string argumentName)
+	public static void IfEmpty(
+#if NET6_0_OR_GREATER
+		[NotNull]
+#endif
+		string? argumentValue, string argumentName)
 	{
 		if (string.IsNullOrEmpty(argumentValue))
 		{
@@ -129,7 +155,10 @@ public static class Throw
 
 	public static void If(
 #if NET6_0_OR_GREATER
-        [DoesNotReturnIf(false)]
+		// If() throws exactly when 'constraint' is true, so the method does not return for a
+		// true value. The compiler can then treat the constraint as false on the fall-through
+		// path - e.g. after Throw.If(x == null, ...) the value x is known to be non-null.
+		[DoesNotReturnIf(true)]
 #endif
 		bool constraint,
 		string constraintName)
@@ -154,7 +183,9 @@ public static class Throw
 
 	public static void IfNot(
 #if NET6_0_OR_GREATER
-		[DoesNotReturnIf(true)]
+		// IfNot() throws exactly when 'constraint' is false, so the method does not return for
+		// a false value.
+		[DoesNotReturnIf(false)]
 #endif
 		bool constraint,
 		string constraintName)
