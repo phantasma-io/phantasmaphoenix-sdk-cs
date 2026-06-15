@@ -20,6 +20,10 @@ public sealed class LinkPairingRecord
 	public string DappName { get; set; } = "";
 	public DateTime CreatedUtc { get; set; }
 	public DateTime LastSeenUtc { get; set; }
+	/// <summary>The v5 session id (§7) this relay channel established, so that when the wallet
+	/// evicts/expires the pairing it can best-effort notify the dApp with a `pha_sessionDeleted`
+	/// event over the channel. Empty until the connect result is pushed.</summary>
+	public string SessionId { get; set; } = "";
 }
 
 /// <summary>

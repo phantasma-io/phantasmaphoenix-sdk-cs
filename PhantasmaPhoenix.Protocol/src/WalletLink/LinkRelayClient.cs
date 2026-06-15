@@ -69,6 +69,12 @@ public sealed class LinkRelayClient : IDisposable
 	private readonly ILinkRelaySocketFactory _sockets;
 	private readonly Action<Action> _marshal;
 	private readonly int[] _reconnectDelaysMs;
+	// Spec §7 session-store lifecycle: keep only the N most-recently-used relay sessions
+	// subscribed (LRU eviction by LastSeenUtc), kept BELOW the relay's per-connection topic cap
+	// (§18, default 8) so a fresh pairing always has a slot. A session idle past _idleTtl is
+	// pruned. Without this the (cap+1)-th pairing's subscribe is rejected and that dApp hangs.
+	private readonly int _relaySessionCap;
+	private readonly TimeSpan _idleTtl;
 	private readonly object _gate = new object();
 	private readonly Dictionary<string, Connection> _connections = new Dictionary<string, Connection>();
 	private readonly Dictionary<string, Partial> _partials = new Dictionary<string, Partial>();
@@ -81,7 +87,9 @@ public sealed class LinkRelayClient : IDisposable
 		ILinkRelaySocketFactory sockets,
 		Action<Action>? marshal = null,
 		int[]? reconnectDelaysMs = null,
-		Action<string>? log = null)
+		Action<string>? log = null,
+		int relaySessionCap = 6,
+		TimeSpan? idleTtl = null)
 	{
 		_dispatcher = dispatcher;
 		_pairings = pairings;
@@ -90,6 +98,9 @@ public sealed class LinkRelayClient : IDisposable
 		// because the dispatcher prompts the user and touches wallet state.
 		_marshal = marshal ?? (action => action());
 		_reconnectDelaysMs = reconnectDelaysMs ?? new[] { 1000, 2000, 5000, 15000, 30000 };
+		// Default 6 sits below the relay's default 8-topic cap; 7 days mirrors WalletConnect v2.
+		_relaySessionCap = relaySessionCap > 0 ? relaySessionCap : 6;
+		_idleTtl = idleTtl ?? TimeSpan.FromDays(7);
 		// Transport visibility: this client absorbs connection failures by silent
 		// reconnection, so without a log sink a host cannot tell a dead relay link from
 		// a quiet one. Hosts wire this to their own logger.
@@ -105,26 +116,66 @@ public sealed class LinkRelayClient : IDisposable
 		return relay.Contains("://") ? relay : $"wss://{relay}/relay";
 	}
 
-	/// <summary>Connect and subscribe for every stored relay-enabled pairing. Safe to call
-	/// repeatedly (wallet start, /v5/wake): existing connections are reused.</summary>
+	/// <summary>Connect and reconcile subscriptions for every stored relay pairing (wallet start,
+	/// /v5/wake). Prunes idle-expired sessions and keeps only the most-recently-used ones within
+	/// the cap. Safe to call repeatedly: existing connections are reused.</summary>
 	public void EnsureConnected()
 	{
-		foreach (var pairing in _pairings.List())
-		{
-			if (!string.IsNullOrEmpty(pairing.RelayUrl))
-			{
-				TrackPairing(pairing);
-			}
-		}
+		Reconcile(null);
 	}
 
-	/// <summary>Subscribe the pairing's topic on its relay (connecting if needed).</summary>
+	/// <summary>Track a just-saved pairing: ensure it is subscribed, evicting/pruning other relay
+	/// sessions as needed to stay within the cap. The given pairing is always kept.</summary>
 	public void TrackPairing(LinkPairingRecord pairing)
 	{
 		if (string.IsNullOrEmpty(pairing.RelayUrl))
 		{
 			return;
 		}
+		Reconcile(pairing.Topic);
+	}
+
+	/// <summary>Bring the subscribed relay sessions in line with the spec §7 lifecycle: drop
+	/// idle-expired ones, keep the <see cref="_relaySessionCap"/> most-recently-used (LRU-evict the
+	/// rest, below the relay's per-connection topic cap), and subscribe the survivors.
+	/// <paramref name="protectTopic"/> (a just-created pairing) is never evicted. Runs on the
+	/// dispatch thread; the per-connection helpers take the gate themselves.</summary>
+	private void Reconcile(string? protectTopic)
+	{
+		var now = DateTime.UtcNow;
+		var relay = _pairings.List()
+			.Where(p => !string.IsNullOrEmpty(p.RelayUrl))
+			.ToList();
+
+		// 1) Prune idle-expired sessions (the just-created pairing is exempt).
+		foreach (var p in relay.Where(p => p.Topic != protectTopic && now - p.LastSeenUtc > _idleTtl).ToArray())
+		{
+			EvictSession(p, "expired");
+			relay.Remove(p);
+		}
+
+		// 2) Most-recently-used first (the fresh protected topic forced to the front), then evict
+		//    everything past the cap so the relay never rejects our subscribe with topic_limit.
+		var ordered = relay
+			.OrderByDescending(p => p.Topic == protectTopic)
+			.ThenByDescending(p => p.LastSeenUtc)
+			.ToList();
+		foreach (var p in ordered.Skip(_relaySessionCap).ToArray())
+		{
+			EvictSession(p, "lru");
+		}
+
+		// 3) Subscribe the survivors (idempotent).
+		foreach (var p in ordered.Take(_relaySessionCap))
+		{
+			SubscribeTopic(p);
+		}
+	}
+
+	/// <summary>Subscribe one pairing's topic on its relay connection (connecting if needed).
+	/// Idempotent: a topic already in the connection's set is not re-announced.</summary>
+	private void SubscribeTopic(LinkPairingRecord pairing)
+	{
 		lock (_gate)
 		{
 			if (_disposed)
@@ -138,9 +189,44 @@ public sealed class LinkRelayClient : IDisposable
 			}
 			// Only announce on a LIVE socket: OnOpen announces every topic in Topics, so
 			// queueing here would double-subscribe after the connect completes.
+			var live = conn.Open && conn.Socket != null;
+			_log?.Invoke($"subscribe topic={pairing.Topic} live={live}");
+			if (live)
+			{
+				conn.Socket!.SendText(new JObject { ["op"] = "subscribe", ["topic"] = pairing.Topic }.ToString(Formatting.None));
+			}
+		}
+	}
+
+	/// <summary>Tear down one relay session: best-effort notify the dApp (pha_sessionDeleted, so it
+	/// re-pairs instead of hanging), unsubscribe the topic, and forget the pairing.</summary>
+	private void EvictSession(LinkPairingRecord pairing, string reason)
+	{
+		_log?.Invoke($"evict topic={pairing.Topic} reason={reason}");
+		// Notify BEFORE unsubscribing so a still-listening dApp gets the deliver (best-effort: a
+		// gone dApp never reads it and the relay mailbox/TTL discards it).
+		if (!string.IsNullOrEmpty(pairing.SessionId))
+		{
+			try { PublishSealed(pairing, _dispatcher.BuildSessionDeletedEnvelope(pairing.SessionId)); }
+			catch { /* notify is best-effort; eviction proceeds regardless */ }
+		}
+		UnsubscribeRelay(pairing);
+		_pairings.Remove(pairing.Topic);
+	}
+
+	/// <summary>Unsubscribe a topic on its relay connection and drop it from the tracked set.</summary>
+	private void UnsubscribeRelay(LinkPairingRecord pairing)
+	{
+		lock (_gate)
+		{
+			if (_disposed || !_connections.TryGetValue(pairing.RelayUrl!, out var conn))
+			{
+				return;
+			}
+			conn.Topics.Remove(pairing.Topic);
 			if (conn.Open && conn.Socket != null)
 			{
-				conn.Socket.SendText(new JObject { ["op"] = "subscribe", ["topic"] = pairing.Topic }.ToString(Formatting.None));
+				conn.Socket.SendText(new JObject { ["op"] = "unsubscribe", ["topic"] = pairing.Topic }.ToString(Formatting.None));
 			}
 		}
 	}
@@ -155,6 +241,7 @@ public sealed class LinkRelayClient : IDisposable
 		}
 		var channel = new LinkChannel(pairing.Key);
 		var frame = channel.SealEnvelope(envelopeJson);
+		_log?.Invoke($"publish sealed topic={pairing.Topic} bytes={frame.Length}");
 
 		lock (_gate)
 		{
@@ -207,6 +294,7 @@ public sealed class LinkRelayClient : IDisposable
 		// sealed fields IN THE CLEAR - it is the very material the peer needs to decrypt.
 		var payload = JObject.Parse(channel.SealEnvelope(envelopeJson));
 		payload["wpk"] = LinkEncoding.Base64UrlEncode(walletPublicKey);
+		_log?.Invoke($"publish handshake topic={pairing.Topic} (one-tap session push)");
 
 		lock (_gate)
 		{
@@ -354,9 +442,17 @@ public sealed class LinkRelayClient : IDisposable
 			return; // not a relay frame
 		}
 
-		// Only deliver frames matter to the wallet; acks confirm its own publishes and
-		// errors precede a server-side close (the reconnect path handles that).
-		if ((string?)frame["op"] != "deliver")
+		var op = (string?)frame["op"];
+		// Surface relay errors instead of swallowing them (spec §18): a refused subscribe
+		// (topic_limit) MUST be visible - silently dropping it makes the wallet believe it is
+		// listening while the relay routes nothing to it, so every request on that topic hangs.
+		if (op == "error")
+		{
+			_log?.Invoke($"relay error: code={(string?)frame["code"]} {(string?)frame["message"]} topic={(string?)frame["topic"]}");
+			return;
+		}
+		// acks confirm our own publishes; only deliver frames carry dApp requests.
+		if (op != "deliver")
 		{
 			return;
 		}
@@ -365,6 +461,7 @@ public sealed class LinkRelayClient : IDisposable
 		{
 			return;
 		}
+		_log?.Invoke($"deliver recv topic={topic}");
 
 		// Chunk reassembly only needs the gate; everything touching the pairing store or
 		// the dispatcher must run on the wallet's dispatch thread (the store contract is
@@ -397,13 +494,16 @@ public sealed class LinkRelayClient : IDisposable
 		var pairing = _pairings.Get(topic);
 		if (pairing == null)
 		{
+			_log?.Invoke($"deliver DROP topic={topic}: no pairing in store");
 			return; // unknown channel; no key, nothing to say
 		}
 		var channel = new LinkChannel(pairing.Key);
 		if (!channel.TryOpenEnvelope(frameText, out var envelopeJson))
 		{
+			_log?.Invoke($"deliver DROP topic={topic}: unseal failed (wrong key/forged)");
 			return; // forged or wrong-key frame: drop silently, never answer plaintext
 		}
+		_log?.Invoke($"deliver OK topic={topic}: dispatching to wallet");
 		pairing.LastSeenUtc = DateTime.UtcNow;
 		_pairings.Save(pairing);
 		_dispatcher.HandleMessage(envelopeJson, response => PublishSealed(pairing, response));

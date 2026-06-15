@@ -41,16 +41,29 @@ public class LinkRelayClientTests
 		}
 	}
 
-	private static (LinkDeeplinkEndpoint endpoint, FakeV5Ops ops, ILinkPairingStore pairings, LinkRelayClient relay, FakeRelaySocketFactory sockets) Build(int[]? ladder = null)
+	private static (LinkDeeplinkEndpoint endpoint, FakeV5Ops ops, ILinkPairingStore pairings, LinkRelayClient relay, FakeRelaySocketFactory sockets) Build(int[]? ladder = null, int cap = 6, TimeSpan? idleTtl = null)
 	{
 		var ops = new FakeV5Ops();
 		var dispatcher = new WalletLinkV5(ops);
 		var pairings = new InMemoryLinkPairingStore();
 		var sockets = new FakeRelaySocketFactory();
 		// Inline marshal: tests run single-threaded, the Unity host passes PostToUi instead.
-		var relay = new LinkRelayClient(dispatcher, pairings, sockets, action => action(), ladder);
+		var relay = new LinkRelayClient(dispatcher, pairings, sockets, action => action(), ladder, null, cap, idleTtl);
 		var endpoint = new LinkDeeplinkEndpoint(dispatcher, ops, pairings, relay);
 		return (endpoint, ops, pairings, relay, sockets);
+	}
+
+	private static LinkPairingRecord RelayRecord(string topic, DateTime lastSeenUtc)
+	{
+		return new LinkPairingRecord
+		{
+			Topic = topic,
+			Key = new byte[32],
+			RelayUrl = "ws://localhost:7299/relay",
+			DappName = "d",
+			CreatedUtc = lastSeenUtc,
+			LastSeenUtc = lastSeenUtc,
+		};
 	}
 
 	private static string RelayPairingUri(byte[] key, string topic, string relay, string? dappName)
@@ -268,5 +281,54 @@ public class LinkRelayClientTests
 		sockets.Sockets.Count.ShouldBe(1);
 		sockets.Sockets[0].Open();
 		((string)sockets.Sockets[0].SentFrames()[0]["op"]!).ShouldBe("subscribe");
+	}
+
+	[Fact]
+	public void Over_cap_relay_sessions_evict_lru_and_unsubscribe()
+	{
+		// Cap of 2: a third, more-recent relay session must evict the least-recently-used one
+		// (spec §7) - dropped from the store and unsubscribed on the live socket - so the relay
+		// never refuses a fresh subscribe with topic_limit.
+		var (_, _, pairings, relay, sockets) = Build(cap: 2);
+		var t0 = DateTime.UtcNow;
+
+		pairings.Save(RelayRecord("top-1", t0.AddSeconds(1)));
+		relay.EnsureConnected();
+		var socket = sockets.Sockets[0];
+		socket.Open();
+		pairings.Save(RelayRecord("top-2", t0.AddSeconds(2)));
+		relay.EnsureConnected();
+		pairings.Get("top-1").ShouldNotBeNull();
+		pairings.Get("top-2").ShouldNotBeNull();
+
+		// The newest pairing pushes the oldest out.
+		pairings.Save(RelayRecord("top-3", t0.AddSeconds(3)));
+		relay.EnsureConnected();
+
+		pairings.Get("top-1").ShouldBeNull();        // evicted from the store
+		pairings.Get("top-2").ShouldNotBeNull();
+		pairings.Get("top-3").ShouldNotBeNull();
+		var frames = socket.SentFrames();
+		frames.ShouldContain(f => (string?)f["op"] == "unsubscribe" && (string?)f["topic"] == "top-1");
+		frames.ShouldContain(f => (string?)f["op"] == "subscribe" && (string?)f["topic"] == "top-3");
+	}
+
+	[Fact]
+	public void Idle_expired_relay_sessions_are_pruned()
+	{
+		// A session idle past the TTL is dropped on reconcile (spec §7), so dead pairings cannot
+		// pile up and starve fresh ones.
+		var (_, _, pairings, relay, sockets) = Build(idleTtl: TimeSpan.FromDays(7));
+		pairings.Save(RelayRecord("top-stale", DateTime.UtcNow.AddDays(-8))); // expired
+		pairings.Save(RelayRecord("top-fresh", DateTime.UtcNow));             // live
+
+		relay.EnsureConnected();
+
+		pairings.Get("top-stale").ShouldBeNull();    // pruned
+		pairings.Get("top-fresh").ShouldNotBeNull();
+		sockets.Sockets[0].Open();
+		var frames = sockets.Sockets[0].SentFrames();
+		frames.ShouldContain(f => (string?)f["op"] == "subscribe" && (string?)f["topic"] == "top-fresh");
+		frames.ShouldNotContain(f => (string?)f["topic"] == "top-stale");
 	}
 }

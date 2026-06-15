@@ -20,6 +20,11 @@ public class WalletLinkV5
 	/// approval (spec §17 step 3); lets the first connection complete in one user gesture.</summary>
 	public const string SessionEstablishedEvent = "pha_sessionEstablished";
 
+	/// <summary>Unsolicited wallet->dApp event telling the dApp its session ended (the wallet
+	/// expired/evicted/revoked it, spec §7). The dApp should drop the session and re-pair rather
+	/// than hang on requests the wallet will never answer.</summary>
+	public const string SessionDeletedEvent = "pha_sessionDeleted";
+
 	// Error codes - mirror the SDK taxonomy (spec §10 / errors.ts) so dApps branch on the number.
 	private const int ErrParse = -32700;
 	private const int ErrInvalidRequest = -32600;
@@ -595,6 +600,14 @@ public class WalletLinkV5
 			["event"] = eventName,
 			["data"] = data,
 		}.ToString(Formatting.None);
+	}
+
+	/// <summary>Build the (unsealed) <see cref="SessionDeletedEvent"/> envelope for a session id.
+	/// The relay client seals + publishes it as a best-effort notice when it evicts/expires a
+	/// pairing (spec §7), so the dApp re-pairs instead of hanging.</summary>
+	public string BuildSessionDeletedEnvelope(string sessionId)
+	{
+		return BuildEvent(SessionDeletedEvent, sessionId, new JObject());
 	}
 	#endregion
 }

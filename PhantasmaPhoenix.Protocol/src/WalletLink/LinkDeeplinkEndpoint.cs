@@ -150,6 +150,17 @@ public sealed class LinkDeeplinkEndpoint
 			}
 			_dispatcher.EstablishConsentedSession(dappName!, eventJson =>
 			{
+				// Remember which v5 session this channel established, so an eviction/expiry of the
+				// pairing can best-effort notify the dApp with pha_sessionDeleted (spec §7).
+				try
+				{
+					record.SessionId = (string?)Newtonsoft.Json.Linq.JObject.Parse(eventJson)["session"] ?? "";
+					_pairings.Save(record);
+				}
+				catch
+				{
+					// A malformed event must not break pairing; we just lose the notify-on-evict id.
+				}
 				// Route the push where the dApp can actually receive it. ecdh always goes via
 				// the relay carrying the wallet's public key (the dApp derives the channel key
 				// from it); sym prefers the relay when the pairing has one, else the deeplink
