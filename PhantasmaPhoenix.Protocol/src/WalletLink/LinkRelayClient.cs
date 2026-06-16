@@ -198,6 +198,24 @@ public sealed class LinkRelayClient : IDisposable
 		}
 	}
 
+	/// <summary>User-initiated revoke of a session: tear down every pairing that established it
+	/// - best-effort notify the dApp, unsubscribe the relay topic, forget the pairing. Idempotent.</summary>
+	public void RevokeSession(string sessionId)
+	{
+		if (string.IsNullOrEmpty(sessionId))
+		{
+			return;
+		}
+
+		foreach (var pairing in _pairings.List())
+		{
+			if (pairing.SessionId == sessionId)
+			{
+				EvictSession(pairing, "user revoke");
+			}
+		}
+	}
+
 	/// <summary>Tear down one relay session: best-effort notify the dApp (pha_sessionDeleted, so it
 	/// re-pairs instead of hanging), unsubscribe the topic, and forget the pairing.</summary>
 	private void EvictSession(LinkPairingRecord pairing, string reason)
