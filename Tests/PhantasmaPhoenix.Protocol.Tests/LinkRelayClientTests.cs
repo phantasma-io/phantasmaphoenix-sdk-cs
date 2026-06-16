@@ -331,4 +331,29 @@ public class LinkRelayClientTests
 		frames.ShouldContain(f => (string?)f["op"] == "subscribe" && (string?)f["topic"] == "top-fresh");
 		frames.ShouldNotContain(f => (string?)f["topic"] == "top-stale");
 	}
+
+	[Fact]
+	public void Revoking_a_deeplink_only_pairing_does_not_throw()
+	{
+		// Regression (logout crash): a deeplink-only pairing has no RelayUrl and never subscribed a
+		// relay topic. RevokeSession (user revoke / account logout) must tear it down WITHOUT
+		// touching the relay - UnsubscribeRelay used to call Dictionary.TryGetValue(null) and throw
+		// ArgumentNullException, which aborted the wallet's logout mid-way. Revoke must forget the
+		// pairing and stay quiet: no relay socket is ever opened for a deeplink-only pairing.
+		var (_, _, pairings, relay, sockets) = Build();
+		pairings.Save(new LinkPairingRecord
+		{
+			Topic = "top-dl",
+			Key = new byte[32],
+			RelayUrl = null,
+			DappName = "dl-dapp",
+			SessionId = "sess-dl",
+			CreatedUtc = DateTime.UtcNow,
+			LastSeenUtc = DateTime.UtcNow,
+		});
+
+		Should.NotThrow(() => relay.RevokeSession("sess-dl"));
+		pairings.Get("top-dl").ShouldBeNull();   // the pairing is forgotten
+		sockets.Sockets.ShouldBeEmpty();         // no relay connection was ever opened
+	}
 }

@@ -235,6 +235,15 @@ public sealed class LinkRelayClient : IDisposable
 	/// <summary>Unsubscribe a topic on its relay connection and drop it from the tracked set.</summary>
 	private void UnsubscribeRelay(LinkPairingRecord pairing)
 	{
+		// A deeplink-only pairing carries no relay URL and never subscribed a relay topic, so there
+		// is nothing to unsubscribe. Guard before the lookup: Dictionary.TryGetValue throws
+		// ArgumentNullException on a null key, and RevokeSession (user revoke / logout) can reach
+		// here with such a pairing. The Reconcile prune path only ever passes relay pairings, so
+		// this stayed latent until session revoke began evicting deeplink-only pairings too.
+		if (string.IsNullOrEmpty(pairing.RelayUrl))
+		{
+			return;
+		}
 		lock (_gate)
 		{
 			if (_disposed || !_connections.TryGetValue(pairing.RelayUrl!, out var conn))
