@@ -213,8 +213,10 @@ public class WalletLinkV5
 	/// <summary>The full consent flow: prompt the user, then persist a fresh session.</summary>
 	private void PromptConnect(JToken? id, string dappName, Action<string> respond)
 	{
+		// The dispatcher OWNS the session id: it mints the token, hands it to the dApp as the
+		// session id, and persists the record below. The op only grants consent (no token passed in).
 		var token = Guid.NewGuid().ToString("N");
-		_ops.Connect(dappName, token, result =>
+		_ops.Connect(dappName, result =>
 		{
 			if (result.Failure != LinkFailure.None || result.Account == null)
 			{

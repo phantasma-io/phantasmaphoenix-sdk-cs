@@ -161,10 +161,12 @@ public interface IWalletLinkV5Ops
 	WalletStatus Status { get; }
 
 	/// <summary>
-	/// Run the connect handshake for <paramref name="dappName"/> under the dispatcher-issued
-	/// <paramref name="sessionToken"/> (prompt the user, then gather account + wallet version + nexus).
+	/// Run the connect handshake for <paramref name="dappName"/>: prompt the user for consent, then
+	/// gather account + wallet version + nexus. The v5 session id is owned and issued by the
+	/// dispatcher (<see cref="WalletLinkV5"/>); this op only grants consent and returns account data,
+	/// and must never touch a legacy per-dapp token ledger.
 	/// </summary>
-	void Connect(string dappName, string sessionToken, Action<LinkConnectResult> done);
+	void Connect(string dappName, Action<LinkConnectResult> done);
 
 	/// <summary>Return the active account (no prompt).</summary>
 	void GetAccount(Action<LinkAccountResult> done);

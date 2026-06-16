@@ -34,7 +34,10 @@ public class WalletLinkV5Tests
 		((string)response["id"]!).ShouldBe("c1");
 		session.ShouldNotBeNullOrEmpty();
 		ops.LastConnectDapp.ShouldBe("testdapp");
-		ops.LastConnectToken.ShouldBe(session); // the dispatcher issues the token and registers it
+		// The dispatcher OWNS and registers the session id (the op receives no token): the issued
+		// id must authorize a follow-up request instead of being rejected as an unknown session.
+		var authorized = Send(link, $"{{\"plv\":5,\"id\":\"c1b\",\"session\":\"{session}\",\"method\":\"pha_getChains\"}}");
+		authorized["error"].ShouldBeNull();
 		((string)response["result"]!["wallet"]!["name"]!).ShouldBe("FakeWallet");
 		((string)response["result"]!["account"]!["address"]!).ShouldBe("P2KTest");
 		((string)response["result"]!["capabilities"]!["chains"]![0]!).ShouldBe("phantasma:localnet");

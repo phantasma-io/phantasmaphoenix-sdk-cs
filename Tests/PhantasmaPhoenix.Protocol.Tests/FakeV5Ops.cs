@@ -18,7 +18,6 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	public string? FailConnectMessage;
 	public bool DeferConnect;
 	public Action<LinkConnectResult>? PendingConnect;
-	public string? LastConnectToken;
 	public string? LastConnectDapp;
 	/// <summary>How many times the consent flow (Connect) ran - resume must NOT increase it.</summary>
 	public int ConnectCalls;
@@ -44,11 +43,10 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 		},
 	};
 
-	public void Connect(string dappName, string sessionToken, Action<LinkConnectResult> done)
+	public void Connect(string dappName, Action<LinkConnectResult> done)
 	{
 		ConnectCalls++;
 		LastConnectDapp = dappName;
-		LastConnectToken = sessionToken;
 		if (DeferConnect) { PendingConnect = done; return; }
 		if (RejectConnect) { done(LinkConnectResult.Fail(LinkFailure.UserRejected, "rejected")); return; }
 		if (FailConnect != LinkFailure.None) { done(LinkConnectResult.Fail(FailConnect, FailConnectMessage)); return; }
