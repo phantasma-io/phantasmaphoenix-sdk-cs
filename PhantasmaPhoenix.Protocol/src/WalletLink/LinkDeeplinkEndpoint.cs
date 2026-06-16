@@ -18,15 +18,29 @@ public sealed class LinkDeeplinkEndpoint
 	private readonly IWalletLinkV5Ops _ops;
 	private readonly ILinkPairingStore _pairings;
 	private readonly LinkRelayClient? _relay;
+	// Lifecycle log (mirrors LinkRelayClient's): without it the deeplink path is a blind spot in a
+	// user's Player.log while the relay path is fully traced. SECURITY: this sink must NEVER receive
+	// a secret - not the symKey, the channel key, or any sealed ciphertext. Only non-sensitive
+	// metadata is logged (type, topic, pairing mode, has-relay/has-callback flags, callback host).
+	private readonly Action<string>? _log;
 
 	/// <summary><paramref name="relay"/> is optional: without it, relay-enabled pairings
-	/// still store their RelayUrl but answers ride the deeplink callback only.</summary>
-	public LinkDeeplinkEndpoint(WalletLinkV5 dispatcher, IWalletLinkV5Ops ops, ILinkPairingStore pairings, LinkRelayClient? relay = null)
+	/// still store their RelayUrl but answers ride the deeplink callback only. <paramref name="log"/>
+	/// traces the deeplink lifecycle for diagnostics and MUST never be passed a secret (see field).</summary>
+	public LinkDeeplinkEndpoint(WalletLinkV5 dispatcher, IWalletLinkV5Ops ops, ILinkPairingStore pairings, LinkRelayClient? relay = null, Action<string>? log = null)
 	{
 		_dispatcher = dispatcher;
 		_ops = ops;
 		_pairings = pairings;
 		_relay = relay;
+		_log = log;
+	}
+
+	/// <summary>Host of a callback URL for logging only - never its path/query/fragment, which can
+	/// carry sensitive material. Returns "?" when the URL has no parseable absolute host.</summary>
+	private static string CallbackHost(string callback)
+	{
+		return Uri.TryCreate(callback, UriKind.Absolute, out var uri) ? uri.Host : "?";
 	}
 
 	/// <summary>
@@ -57,6 +71,7 @@ public sealed class LinkDeeplinkEndpoint
 		// it (re)connects to the relay and drains the topic mailboxes of its pairings.
 		if (IsPath(url, "/v5/wake"))
 		{
+			_log?.Invoke("wake: ensuring relay connection");
 			_relay?.EnsureConnected();
 			return true;
 		}
@@ -73,10 +88,12 @@ public sealed class LinkDeeplinkEndpoint
 		}
 		catch (FormatException)
 		{
+			_log?.Invoke("pair drop: malformed pairing material");
 			return; // malformed pairing material is dropped, never half-accepted
 		}
 
 		var relayUrl = pairing.Relay != null ? LinkRelayClient.NormalizeRelayUrl(pairing.Relay) : null;
+		_log?.Invoke($"pair topic={pairing.Topic} mode={pairing.Mode} relay={(relayUrl != null ? "yes" : "no")} callback={(!string.IsNullOrEmpty(pairing.CallbackUrl) ? "yes" : "no")}");
 
 		// Channel-key material decides the mode (spec §18.1):
 		//   sym  - the key came in the URI (safe channel); responses go via callback or relay.
@@ -92,6 +109,7 @@ public sealed class LinkDeeplinkEndpoint
 			// relay topic (cross-device QR pairings have no usable callback on this device).
 			if (string.IsNullOrEmpty(pairing.CallbackUrl) && relayUrl == null)
 			{
+				_log?.Invoke($"pair drop topic={pairing.Topic} reason=sym-no-return-channel");
 				return;
 			}
 			channelKey = pairing.SymKey;
@@ -100,6 +118,7 @@ public sealed class LinkDeeplinkEndpoint
 		{
 			if (relayUrl == null || _relay == null || string.IsNullOrEmpty(pairing.DappName))
 			{
+				_log?.Invoke($"pair drop topic={pairing.Topic} reason=ecdh-needs-relay-and-name");
 				return;
 			}
 			var (publicKey, secretKey) = PhantasmaPhoenix.Cryptography.NaCl.GenerateKeyPair();
@@ -108,6 +127,7 @@ public sealed class LinkDeeplinkEndpoint
 		}
 		else
 		{
+			_log?.Invoke($"pair drop topic={pairing.Topic} reason=bad-mode-material");
 			return; // malformed mode/material combination
 		}
 
@@ -115,8 +135,10 @@ public sealed class LinkDeeplinkEndpoint
 		{
 			if (!approved)
 			{
+				_log?.Invoke($"pair consent declined topic={pairing.Topic}");
 				return;
 			}
+			_log?.Invoke($"pair consent approved topic={pairing.Topic}");
 			var now = DateTime.UtcNow;
 			var record = new LinkPairingRecord
 			{
@@ -146,6 +168,7 @@ public sealed class LinkDeeplinkEndpoint
 			var dappName = pairing.DappName;
 			if (string.IsNullOrEmpty(dappName))
 			{
+				_log?.Invoke($"pair topic={pairing.Topic}: no dapp name, deferring to explicit pha_connect");
 				return;
 			}
 			_dispatcher.EstablishConsentedSession(dappName!, eventJson =>
@@ -167,14 +190,17 @@ public sealed class LinkDeeplinkEndpoint
 				// callback. Exactly one path is used per pairing.
 				if (walletPublicKey != null && _relay != null)
 				{
+					_log?.Invoke($"response via relay handshake topic={record.Topic}");
 					_relay.PublishHandshake(record, walletPublicKey, eventJson);
 				}
 				else if (relayUrl != null && _relay != null)
 				{
+					_log?.Invoke($"response via relay sealed topic={record.Topic}");
 					_relay.PublishSealed(record, eventJson);
 				}
 				else if (!string.IsNullOrEmpty(pairing.CallbackUrl))
 				{
+					_log?.Invoke($"response via callback host={CallbackHost(pairing.CallbackUrl!)} topic={record.Topic}");
 					var channel = new LinkChannel(channelKey);
 					openUrl(BuildResponseUrl(pairing.CallbackUrl!, pairing.Topic, channel.SealEnvelope(eventJson)));
 				}
@@ -186,26 +212,31 @@ public sealed class LinkDeeplinkEndpoint
 	{
 		if (!TryParseRequest(url, out var topic, out var frameJson))
 		{
+			_log?.Invoke("req drop: unparseable url");
 			return;
 		}
 
 		var pairing = _pairings.Get(topic);
 		if (pairing == null)
 		{
+			_log?.Invoke($"req drop topic={topic} reason=no-pairing");
 			return; // unknown channel; no key to answer with
 		}
 
 		var channel = new LinkChannel(pairing.Key);
 		if (!channel.TryOpenEnvelope(frameJson, out var envelopeJson))
 		{
+			_log?.Invoke($"req drop topic={topic} reason=unseal-failed");
 			return; // forged or corrupted frame
 		}
 
+		_log?.Invoke($"req topic={topic}: dispatching to wallet");
 		pairing.LastSeenUtc = DateTime.UtcNow;
 		_pairings.Save(pairing);
 
 		_dispatcher.HandleMessage(envelopeJson, responseJson =>
 		{
+			_log?.Invoke($"req response via callback host={CallbackHost(pairing.CallbackUrl)} topic={topic}");
 			var responseFrame = channel.SealEnvelope(responseJson);
 			openUrl(BuildResponseUrl(pairing.CallbackUrl, topic, responseFrame));
 		});
