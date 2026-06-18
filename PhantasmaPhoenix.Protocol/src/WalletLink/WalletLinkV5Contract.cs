@@ -25,6 +25,8 @@ public enum LinkFailure
 	UnsupportedSignatureKind,
 	/// <summary>An unexpected wallet-side error. -> -32603</summary>
 	Internal,
+	/// <summary>The transaction's nexus does not match the wallet's current nexus. -> 5002</summary>
+	NexusMismatch,
 }
 
 /// <summary>The serialized transaction format the dApp asked the wallet to sign/broadcast (spec §9.4).</summary>

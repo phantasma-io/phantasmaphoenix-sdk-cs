@@ -35,6 +35,7 @@ public class WalletLinkV5
 	private const int ErrUnauthorized = 4100;
 	private const int ErrDisconnected = 4900;
 	private const int ErrPayloadTooLarge = 5001;
+	private const int ErrNexusMismatch = 5002;
 	private const int ErrUnsupportedSignatureKind = 5003;
 
 	/// <summary>Per-transaction byte ceiling = the chain's max transaction size; the guard
@@ -500,6 +501,7 @@ public class WalletLinkV5
 			case LinkFailure.InvalidTransaction: return ErrInvalidParams;
 			case LinkFailure.NotLoggedIn: return ErrDisconnected;
 			case LinkFailure.UnsupportedSignatureKind: return ErrUnsupportedSignatureKind;
+			case LinkFailure.NexusMismatch: return ErrNexusMismatch;
 			default: return ErrInternal;
 		}
 	}
