@@ -16,6 +16,7 @@ public sealed class RpcClient : IDisposable
 {
 	private const int StreamCopyBufferSize = 81920;
 	public const long DefaultMaxResponseBytes = 16L * 1024 * 1024;
+	public const string ApiKeyHeaderName = "X-Api-Key";
 
 	private readonly HttpClient _httpClient;
 	private readonly bool _ownsHttpClient;
@@ -25,6 +26,7 @@ public sealed class RpcClient : IDisposable
 	private readonly int _maxRetries;
 	private readonly TimeSpan _retryDelay;
 	private readonly long _maxResponseBytes;
+	private readonly string? _apiKey;
 
 	/// <summary>
 	/// Creates a new RPC client with optional external HttpClient and logging
@@ -34,7 +36,7 @@ public sealed class RpcClient : IDisposable
 	/// <param name="maxRetries">Number of retry attempts for transient failures</param>
 	/// <param name="retryDelayMs">Delay between retries in milliseconds</param>
 	/// <param name="maxResponseBytes">Maximum accepted JSON-RPC response body size. Defaults to 16 MiB.</param>
-	public RpcClient(HttpClient? httpClient = null, ILogger? logger = null, int maxRetries = 0, int retryDelayMs = 1000, long maxResponseBytes = DefaultMaxResponseBytes)
+	public RpcClient(HttpClient? httpClient = null, ILogger? logger = null, int maxRetries = 0, int retryDelayMs = 1000, long maxResponseBytes = DefaultMaxResponseBytes, string? apiKey = null)
 	{
 		if (maxResponseBytes <= 0)
 			throw new ArgumentOutOfRangeException(nameof(maxResponseBytes), "maxResponseBytes must be positive");
@@ -54,6 +56,7 @@ public sealed class RpcClient : IDisposable
 		_maxRetries = Math.Max(0, maxRetries);
 		_retryDelay = TimeSpan.FromMilliseconds(Math.Max(0, retryDelayMs));
 		_maxResponseBytes = maxResponseBytes;
+		_apiKey = string.IsNullOrEmpty(apiKey) ? null : apiKey;
 
 		// Keep original property names, ignore missing members, allow enums as string or int
 		_jsonSerializerSettings = new JsonSerializerSettings
@@ -64,6 +67,15 @@ public sealed class RpcClient : IDisposable
 			Converters = { new StringEnumConverter(new DefaultNamingStrategy(), allowIntegerValues: true) }
 		};
 		_jsonSerializer = JsonSerializer.Create(_jsonSerializerSettings);
+	}
+
+	/// <summary>Adds the configured API key header to an outgoing request, when one is set.</summary>
+	private void ApplyHeaders(HttpRequestMessage request)
+	{
+		if (_apiKey != null)
+		{
+			request.Headers.TryAddWithoutValidation(ApiKeyHeaderName, _apiKey);
+		}
 	}
 
 	/// <summary>
@@ -104,6 +116,7 @@ public sealed class RpcClient : IDisposable
 				var stopwatch = Stopwatch.StartNew();
 				using var content = new StringContent(body, Encoding.UTF8, "application/json");
 				using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+				ApplyHeaders(request);
 				using var resp = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
 
 				// Read raw response JSON
@@ -118,6 +131,13 @@ public sealed class RpcClient : IDisposable
 				if (_logger?.IsEnabled(LogLevel.Debug) == true)
 				{
 					_logger.LogDebug("[RPC][Response][Body] {Url} {Status} id={RequestId} {Json}", url, resp.StatusCode, req.id, text);
+				}
+
+				// Surface infrastructure rejections (e.g. 401 keys-only, 429 rate limit) clearly instead of
+				// failing later as a JSON-RPC parse error - the body is not a JSON-RPC envelope in those cases.
+				if (!resp.IsSuccessStatusCode)
+				{
+					throw new Exception($"[RPC][HTTP] {(int)resp.StatusCode} {resp.StatusCode}: {text.Trim()}");
 				}
 
 				var envelope = JObject.Parse(text);
@@ -205,7 +225,9 @@ public sealed class RpcClient : IDisposable
 			try
 			{
 				var stopwatch = Stopwatch.StartNew();
-				using var resp = await _httpClient.GetAsync(url).ConfigureAwait(false);
+				using var request = new HttpRequestMessage(HttpMethod.Get, url);
+				ApplyHeaders(request);
+				using var resp = await _httpClient.SendAsync(request).ConfigureAwait(false);
 				var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
 
 				stopwatch.Stop();
@@ -265,7 +287,9 @@ public sealed class RpcClient : IDisposable
 			{
 				var stopwatch = Stopwatch.StartNew();
 				using var content = new StringContent(bodySerialized, Encoding.UTF8, "application/json");
-				using var resp = await _httpClient.PostAsync(url, content).ConfigureAwait(false);
+				using var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+				ApplyHeaders(request);
+				using var resp = await _httpClient.SendAsync(request).ConfigureAwait(false);
 				var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
 
 				stopwatch.Stop();

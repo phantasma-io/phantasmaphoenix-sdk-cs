@@ -24,13 +24,14 @@ public class PhantasmaAPI : IDisposable
 	/// </summary>
 	/// <param name="host">RPC endpoint URL</param>
 	/// <param name="rpcClient">Optional RpcClient to use - if null a new instance will be created and disposed by this object</param>
-	public PhantasmaAPI(string host, RpcClient? rpcClient)
+	/// <param name="apiKey">Optional X-Api-Key sent on every request, used only when this wrapper creates its own RpcClient</param>
+	public PhantasmaAPI(string host, RpcClient? rpcClient = null, string? apiKey = null)
 	{
 		Host = host ?? throw new ArgumentNullException(nameof(host));
 
 		if (rpcClient == null)
 		{
-			_rpc = new RpcClient();
+			_rpc = new RpcClient(apiKey: apiKey);
 			_ownsRpcClient = true;
 		}
 		else
