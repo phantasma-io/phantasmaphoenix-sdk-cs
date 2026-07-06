@@ -29,8 +29,8 @@
     {
       "id": "PhantasmaPhoenix.Protocol.Carbon",
       "project": "PhantasmaPhoenix.Protocol.Carbon/PhantasmaPhoenix.Protocol.Carbon.csproj",
-      "version": "0.4.4",
-      "publish": false,
+      "version": "0.5.0",
+      "publish": true,
       "dependencies": {
         "PhantasmaPhoenix.Core": "0.2.6",
         "PhantasmaPhoenix.Cryptography": "0.3.0"
@@ -39,12 +39,12 @@
     {
       "id": "PhantasmaPhoenix.RPC",
       "project": "PhantasmaPhoenix.RPC/PhantasmaPhoenix.RPC.csproj",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "publish": true,
       "dependencies": {
         "PhantasmaPhoenix.Cryptography": "0.3.0",
         "PhantasmaPhoenix.Protocol": "0.3.0",
-        "PhantasmaPhoenix.Protocol.Carbon": "0.4.4"
+        "PhantasmaPhoenix.Protocol.Carbon": "0.5.0"
       }
     },
     {
@@ -62,7 +62,7 @@
       "id": "PhantasmaPhoenix.Link",
       "project": "PhantasmaPhoenix.Link/PhantasmaPhoenix.Link.csproj",
       "version": "0.3.0",
-      "publish": true,
+      "publish": false,
       "dependencies": {
         "PhantasmaPhoenix.Protocol": "0.3.0"
       }
@@ -89,11 +89,11 @@
     {
       "id": "PhantasmaPhoenix.NFT",
       "project": "PhantasmaPhoenix.NFT/PhantasmaPhoenix.NFT.csproj",
-      "version": "0.7.5",
+      "version": "0.7.6",
       "publish": true,
       "dependencies": {
         "PhantasmaPhoenix.Protocol": "0.3.0",
-        "PhantasmaPhoenix.RPC": "0.8.0",
+        "PhantasmaPhoenix.RPC": "0.9.0",
         "PhantasmaPhoenix.VM": "0.1.3"
       }
     }
