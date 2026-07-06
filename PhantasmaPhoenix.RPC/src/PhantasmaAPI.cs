@@ -488,6 +488,16 @@ public class PhantasmaAPI : IDisposable
 	public Task<ChainResult?> GetChainAsync(string name = "main", bool extended = true) =>
 		_rpc.SendRpcAsync<ChainResult>(Host, "getChain", name, extended);
 
+	/// <summary>
+	/// Gets the current on-chain gas configuration plus the chain parameters fee estimation
+	/// needs (block rate target, expiry window). Changes only via governance resolutions, so the
+	/// result is safe to cache. Feed <see cref="GasConfigResult.ToGasConfig"/> into
+	/// NativeFeeEstimator for Tier-1 fee estimates.
+	/// </summary>
+	/// <returns>Gas configuration or null</returns>
+	public Task<GasConfigResult?> GetGasConfigAsync() =>
+		_rpc.SendRpcAsync<GasConfigResult>(Host, "getGasConfig");
+
 	#endregion
 
 	#region Contract
