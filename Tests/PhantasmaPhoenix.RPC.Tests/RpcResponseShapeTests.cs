@@ -63,12 +63,22 @@ public class RpcResponseShapeTests
 		tx.Signatures![0].Kind.ShouldBe("Ed25519");
 		tx.Signatures[0].Data.ShouldBe("AA");
 
+		// Pre-v2 block shape: no producerAddress key at all - the optional must stay null.
 		var block = Decode<BlockResult>(
 			"""
 			{"hash":"BLOCK","height":456,"txs":[],"reward":"0"}
 			""");
 		block.Events.ShouldBeNull();
 		block.Oracles.ShouldBeNull();
+		block.ProducerAddress.ShouldBeNull();
+
+		// Gas-model-v2 block shape: producerAddress is present and must surface verbatim.
+		var v2Block = Decode<BlockResult>(
+			"""
+			{"hash":"BLOCK","height":457,"txs":[],"reward":"0","validatorAddress":"Pvalidator","producerAddress":"Pproducer"}
+			""");
+		v2Block.ValidatorAddress.ShouldBe("Pvalidator");
+		v2Block.ProducerAddress.ShouldBe("Pproducer");
 
 		var token = Decode<TokenResult>(
 			"""
