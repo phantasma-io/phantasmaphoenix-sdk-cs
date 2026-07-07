@@ -864,6 +864,19 @@ public class PhantasmaAPI : IDisposable
 		_rpc.SendRpcAsync<ScriptResult>(Host, "invokeRawScript", chain, scriptData);
 
 	/// <summary>
+	/// Dry-runs a serialized transaction envelope against current chain state and returns its
+	/// exact fee bill with recommended maxGas/maxData ceilings (gas-model-v2 Tier-2 estimate).
+	/// Signatures inside the envelope may be zero-filled dummies of the correct length - the
+	/// simulation skips signature checks, and dummies preserve the exact envelope byte length the
+	/// bill depends on. Until the estimate service is launched this method returns a standard RPC
+	/// error; use the Tier-1 NativeFeeEstimator with getGasConfig as the fallback.
+	/// </summary>
+	/// <param name="txData">Hex encoded serialized transaction envelope (signed or dummy-signed)</param>
+	/// <returns>Exact fee estimate or null</returns>
+	public Task<EstimateTransactionResult?> EstimateTransactionAsync(string txData) =>
+		_rpc.SendRpcAsync<EstimateTransactionResult>(Host, "estimateTransaction", txData);
+
+	/// <summary>
 	/// Builds, signs and broadcasts a transaction with a UTF8 payload
 	/// </summary>
 	/// <param name="keys">Key pair used to sign a transaction</param>
