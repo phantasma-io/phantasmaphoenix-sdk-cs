@@ -111,13 +111,15 @@ public static class TaskLogger
 		var snapshot = _taskCounts.ToArray();
 		var active = snapshot.Where(x => x.Value > 0).OrderByDescending(x => x.Value).ToArray();
 
+		// Periodic heartbeat: Debug so it stays out of the Info stream. Task cancel/exception
+		// (RunLogged) remain at Info because those are real per-task events, not the interval tick.
 		if (active.Length == 0)
 		{
-			_logger?.LogInformation($"[TaskLogger][{created}|{finished}|Δ{created - finished}] No active tasks.");
+			_logger?.LogDebug($"[TaskLogger][{created}|{finished}|Δ{created - finished}] No active tasks.");
 			return;
 		}
 
-		_logger?.LogInformation("[TaskLogger][{created}|{finished}|Δ{delta}] Active: {Summary}",
+		_logger?.LogDebug("[TaskLogger][{created}|{finished}|Δ{delta}] Active: {Summary}",
 			created, finished, created - finished,
 			string.Join(" | ", active.Select(kvp => $"{kvp.Key}: {kvp.Value}")));
 	}
