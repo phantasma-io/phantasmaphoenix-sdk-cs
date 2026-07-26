@@ -39,7 +39,7 @@
     {
       "id": "PhantasmaPhoenix.RPC",
       "project": "PhantasmaPhoenix.RPC/PhantasmaPhoenix.RPC.csproj",
-      "version": "0.11.0",
+      "version": "0.12.0",
       "publish": true,
       "dependencies": {
         "PhantasmaPhoenix.Cryptography": "0.3.0",
@@ -89,11 +89,11 @@
     {
       "id": "PhantasmaPhoenix.NFT",
       "project": "PhantasmaPhoenix.NFT/PhantasmaPhoenix.NFT.csproj",
-      "version": "0.7.8",
+      "version": "0.7.9",
       "publish": true,
       "dependencies": {
         "PhantasmaPhoenix.Protocol": "0.3.0",
-        "PhantasmaPhoenix.RPC": "0.11.0",
+        "PhantasmaPhoenix.RPC": "0.12.0",
         "PhantasmaPhoenix.VM": "0.1.3"
       }
     }
