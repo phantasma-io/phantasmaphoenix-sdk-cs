@@ -10,8 +10,11 @@ public class AccountResult
 	[ApiDescription("Info about staking if available")]
 	public StakeResult Stakes { get; set; } = new();
 
-	public string Stake { get; set; } = ""; //Deprecated
-	public string Unclaimed { get; set; } = ""; //Deprecated
+	// Flat scalars kept for wire compatibility; superseded by the Stakes object above, which carries
+	// the same amount plus the stake time. Not marked [Obsolete]: the node assigns both fields when
+	// building this response, so attributing them would turn its own loader into a warning source.
+	public string Stake { get; set; } = "";
+	public string Unclaimed { get; set; } = "";
 
 	[ApiDescription("Amount of available KCAL for relay channel")]
 	public string? Relay { get; set; }

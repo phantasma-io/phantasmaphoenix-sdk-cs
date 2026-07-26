@@ -700,7 +700,7 @@ public class PhantasmaAPI : IDisposable
 	/// <summary>
 	/// Gets an array of all tokens deployed on Phantasma with optional owner filtering
 	/// </summary>
-	/// <param name="extended">True to include extended data</param>
+	/// <param name="extended">True to include extended data. Deprecated server-side and slated for removal.</param>
 	/// <param name="ownerAddress">Optional owner address filter</param>
 	/// <returns>Array of token metadata or null</returns>
 	public Task<TokenResult[]?> GetTokensAsync(bool extended, string? ownerAddress = null) =>
@@ -709,7 +709,7 @@ public class PhantasmaAPI : IDisposable
 	/// <summary>
 	/// Gets an array of all tokens deployed on Phantasma with optional owner filtering and explicit owner address type
 	/// </summary>
-	/// <param name="extended">True to include extended data</param>
+	/// <param name="extended">True to include extended data. Deprecated server-side and slated for removal.</param>
 	/// <param name="ownerAddress">Optional owner address filter</param>
 	/// <param name="addressType">Owner address type</param>
 	/// <returns>Array of token metadata or null</returns>
@@ -817,9 +817,14 @@ public class PhantasmaAPI : IDisposable
 	/// <summary>
 	/// Gets token data for a specific token id
 	/// </summary>
+	/// <remarks>
+	/// Deprecated. The node serves this as a strict subset of getNFT - same response, with property
+	/// loading forced off - so <see cref="GetNFTAsync(string, string, bool)"/> covers it entirely.
+	/// </remarks>
 	/// <param name="symbol">Token symbol</param>
 	/// <param name="tokenId">Token id</param>
 	/// <returns>Token data or null</returns>
+	[Obsolete("Use GetNFTAsync; getTokenData is a strict subset of getNFT.")]
 	public Task<TokenDataResult?> GetTokenDataAsync(string symbol, string tokenId) =>
 		_rpc.SendRpcAsync<TokenDataResult>(Host, "getTokenData", symbol, tokenId);
 
