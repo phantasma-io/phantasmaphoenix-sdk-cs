@@ -83,19 +83,30 @@ public class PhantasmaAPI : IDisposable
 	/// <summary>
 	/// Gets account information, including balances, for the specified address
 	/// </summary>
+	/// <remarks>
+	/// Deprecated. The response embeds every NFT id the address owns, so it grows without bound with
+	/// the size of the account; the node caps each <c>Balances[].Ids</c> list at 10000 entries while
+	/// <c>Balances[].Amount</c> keeps the true count, meaning the list is silently partial for large
+	/// holders. Use <see cref="GetAccountInfoAsync(string)"/> together with
+	/// <see cref="GetAccountFungibleTokensAsync(string, string, ulong, uint, string, bool)"/> and
+	/// <see cref="GetAccountNFTsAsync(string, string, ulong, uint, uint, string, bool, bool)"/>.
+	/// </remarks>
 	/// <param name="address">Account address</param>
 	/// <returns>Account data or null if not found</returns>
+	[Obsolete("Use GetAccountInfoAsync with GetAccountFungibleTokensAsync/GetAccountNFTsAsync; getAccount caps Balances[].Ids at 10000.")]
 	public Task<AccountResult?> GetAccountAsync(string address) =>
 		_rpc.SendRpcAsync<AccountResult>(Host, "getAccount", address);
 
 	/// <summary>
 	/// Gets account information, including balances, for the specified address and address type
 	/// </summary>
+	/// <remarks>Deprecated - see <see cref="GetAccountAsync(string)"/>.</remarks>
 	/// <param name="address">Account address text</param>
 	/// <param name="extended">Deprecated server flag; kept for parity</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
 	/// <param name="addressType">Account address type</param>
 	/// <returns>Account data or null if not found</returns>
+	[Obsolete("Use GetAccountInfoAsync with GetAccountFungibleTokensAsync/GetAccountNFTsAsync; getAccount caps Balances[].Ids at 10000.")]
 	public Task<AccountResult?> GetAccountAsync(
 		string address,
 		bool extended,
@@ -106,19 +117,26 @@ public class PhantasmaAPI : IDisposable
 	/// <summary>
 	/// Gets account information for multiple addresses
 	/// </summary>
+	/// <remarks>
+	/// Deprecated for the same reason as <see cref="GetAccountAsync(string)"/>, multiplied by the
+	/// number of addresses in one call.
+	/// </remarks>
 	/// <param name="addresses">Array of account addresses</param>
 	/// <returns>Array of account results or null</returns>
+	[Obsolete("Use GetAccountInfoAsync with GetAccountFungibleTokensAsync/GetAccountNFTsAsync; getAccounts caps Balances[].Ids at 10000.")]
 	public Task<AccountResult[]?> GetAccountsAsync(string[] addresses) =>
 		_rpc.SendRpcAsync<AccountResult[]>(Host, "getAccounts", string.Join(",", addresses ?? Array.Empty<string>()));
 
 	/// <summary>
 	/// Gets account information for multiple addresses of the same address type
 	/// </summary>
+	/// <remarks>Deprecated - see <see cref="GetAccountsAsync(string[])"/>.</remarks>
 	/// <param name="addresses">Array of account addresses</param>
 	/// <param name="extended">Deprecated server flag; kept for parity</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
 	/// <param name="addressType">Account address type</param>
 	/// <returns>Array of account results or null</returns>
+	[Obsolete("Use GetAccountInfoAsync with GetAccountFungibleTokensAsync/GetAccountNFTsAsync; getAccounts caps Balances[].Ids at 10000.")]
 	public Task<AccountResult[]?> GetAccountsAsync(
 		string[] addresses,
 		bool extended,
