@@ -164,7 +164,7 @@ public class PhantasmaAPI : IDisposable
 	/// <param name="account">Account address</param>
 	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
 	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
-	/// <param name="pageSize">Items per page</param>
+	/// <param name="pageSize">Items per page; the node accepts 1..100 and rejects anything outside that range</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
 	/// <returns>Cursor paginated balances or null</returns>
@@ -191,7 +191,7 @@ public class PhantasmaAPI : IDisposable
 	/// <param name="account">Account address</param>
 	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
 	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
-	/// <param name="pageSize">Items per page</param>
+	/// <param name="pageSize">Items per page; the node accepts 1..100 and rejects anything outside that range</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
 	/// <param name="addressType">Account address type</param>
@@ -222,7 +222,7 @@ public class PhantasmaAPI : IDisposable
 	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
 	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
 	/// <param name="carbonSeriesId">Carbon series id filter (optional)</param>
-	/// <param name="pageSize">Items per page</param>
+	/// <param name="pageSize">Items per page; the node accepts 1..100, or 1..50 when <paramref name="extended"/> is true</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="extended">True to include properties</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
@@ -255,7 +255,7 @@ public class PhantasmaAPI : IDisposable
 	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
 	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
 	/// <param name="carbonSeriesId">Carbon series id filter (optional)</param>
-	/// <param name="pageSize">Items per page</param>
+	/// <param name="pageSize">Items per page; the node accepts 1..100, or 1..50 when <paramref name="extended"/> is true</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="extended">True to include properties</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
@@ -290,7 +290,7 @@ public class PhantasmaAPI : IDisposable
 	/// <param name="account">Account address</param>
 	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
 	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
-	/// <param name="pageSize">Items per page</param>
+	/// <param name="pageSize">Items per page; the node accepts 1..100 and rejects anything outside that range</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
 	/// <returns>Cursor paginated token data or null</returns>
@@ -317,7 +317,7 @@ public class PhantasmaAPI : IDisposable
 	/// <param name="account">Account address</param>
 	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
 	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
-	/// <param name="pageSize">Items per page</param>
+	/// <param name="pageSize">Items per page; the node accepts 1..100 and rejects anything outside that range</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
 	/// <param name="addressType">Account address type</param>
@@ -347,7 +347,7 @@ public class PhantasmaAPI : IDisposable
 	/// <param name="account">Account address</param>
 	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
 	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
-	/// <param name="pageSize">Items per page</param>
+	/// <param name="pageSize">Items per page; the node accepts 1..100 and rejects anything outside that range</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
 	/// <returns>Cursor paginated series data or null</returns>
@@ -374,7 +374,7 @@ public class PhantasmaAPI : IDisposable
 	/// <param name="account">Account address</param>
 	/// <param name="tokenSymbol">Token symbol filter (optional)</param>
 	/// <param name="carbonTokenId">Carbon token id filter (optional)</param>
-	/// <param name="pageSize">Items per page</param>
+	/// <param name="pageSize">Items per page; the node accepts 1..100 and rejects anything outside that range</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
 	/// <param name="addressType">Account address type</param>
@@ -611,7 +611,7 @@ public class PhantasmaAPI : IDisposable
 	/// <summary>
 	/// Gets organizations deployed on Phantasma using cursor pagination
 	/// </summary>
-	/// <param name="pageSize">Items per page</param>
+	/// <param name="pageSize">Items per page; the node accepts 1..100 and rejects anything outside that range</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="includeMemberCount">True to include the member count; this requires a server-side member range scan per organization</param>
 	/// <returns>Cursor paginated organizations or null</returns>
@@ -630,7 +630,7 @@ public class PhantasmaAPI : IDisposable
 	/// Gets members of an organization by name using cursor pagination
 	/// </summary>
 	/// <param name="name">Organization name, for example "masters"</param>
-	/// <param name="pageSize">Items per page</param>
+	/// <param name="pageSize">Items per page; the node accepts 1..100 and rejects anything outside that range</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="includeMemberTime">True to include each member join timestamp</param>
 	/// <returns>Cursor paginated organization members or null</returns>
@@ -721,7 +721,7 @@ public class PhantasmaAPI : IDisposable
 	/// </summary>
 	/// <param name="symbol">Token symbol (optional when using carbonTokenId)</param>
 	/// <param name="carbonTokenId">Carbon token id (optional when using symbol)</param>
-	/// <param name="pageSize">Items per page</param>
+	/// <param name="pageSize">Items per page; the node accepts 1..100 and rejects anything outside that range</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <returns>Cursor paginated series data or null</returns>
 	public Task<CursorPaginatedResult<TokenSeriesResult[]>?> GetTokenSeriesAsync(
@@ -765,7 +765,7 @@ public class PhantasmaAPI : IDisposable
 	/// </summary>
 	/// <param name="carbonTokenId">Carbon token id</param>
 	/// <param name="carbonSeriesId">Carbon series id filter (optional)</param>
-	/// <param name="pageSize">Items per page</param>
+	/// <param name="pageSize">Items per page; the node accepts 1..100, or 1..50 when <paramref name="extended"/> is true</param>
 	/// <param name="cursor">Cursor for the next page</param>
 	/// <param name="extended">True to include properties</param>
 	/// <param name="seriesId">Phantasma series id filter (optional). Appended at the end to preserve positional compatibility with older RPC servers.</param>
