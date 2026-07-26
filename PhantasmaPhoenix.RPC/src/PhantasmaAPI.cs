@@ -55,6 +55,32 @@ public class PhantasmaAPI : IDisposable
 	#region Account
 
 	/// <summary>
+	/// Gets a lightweight account overview (name and staking) for the specified address
+	/// </summary>
+	/// <remarks>
+	/// Cost is independent of how much the address holds, which makes this the safe replacement for
+	/// <see cref="GetAccountAsync(string)"/> in wallet refresh loops. Balances and NFTs are fetched
+	/// separately through the cursor-paginated account endpoints.
+	/// </remarks>
+	/// <param name="account">Account address</param>
+	/// <returns>Account overview or null if not found</returns>
+	public Task<AccountInfoResult?> GetAccountInfoAsync(string account) =>
+		_rpc.SendRpcAsync<AccountInfoResult>(Host, "getAccountInfo", account);
+
+	/// <summary>
+	/// Gets a lightweight account overview (name and staking) for the specified address and address type
+	/// </summary>
+	/// <param name="account">Account address text</param>
+	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <param name="addressType">Account address type</param>
+	/// <returns>Account overview or null if not found</returns>
+	public Task<AccountInfoResult?> GetAccountInfoAsync(
+		string account,
+		bool checkAddressReservedByte,
+		RpcAddressType addressType) =>
+		_rpc.SendRpcAsync<AccountInfoResult>(Host, "getAccountInfo", account, checkAddressReservedByte, addressType);
+
+	/// <summary>
 	/// Gets account information, including balances, for the specified address
 	/// </summary>
 	/// <param name="address">Account address</param>
