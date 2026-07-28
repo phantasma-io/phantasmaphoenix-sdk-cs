@@ -81,6 +81,33 @@ public class PhantasmaAPI : IDisposable
 		_rpc.SendRpcAsync<AccountInfoResult>(Host, "getAccountInfo", account, checkAddressReservedByte, addressType);
 
 	/// <summary>
+	/// Gets lightweight account overviews (name and staking) for a batch of addresses in one call
+	/// </summary>
+	/// <remarks>
+	/// Batch counterpart of <see cref="GetAccountInfoAsync(string)"/> with the same per-account
+	/// record: the node answers every address from a single state snapshot and returns results in
+	/// request order. At most 100 addresses per request; the batch is rejected as a whole when any
+	/// address is malformed. The addresses travel as a native JSON array parameter.
+	/// </remarks>
+	/// <param name="accounts">Account addresses, at most 100 per request</param>
+	/// <returns>Account overviews in request order or null</returns>
+	public Task<AccountInfoResult[]?> GetAccountInfosAsync(string[] accounts) =>
+		_rpc.SendRpcAsync<AccountInfoResult[]>(Host, "getAccountInfos", new object[] { accounts ?? Array.Empty<string>() });
+
+	/// <summary>
+	/// Gets lightweight account overviews (name and staking) for a batch of addresses of the same address type
+	/// </summary>
+	/// <param name="accounts">Account addresses, at most 100 per request</param>
+	/// <param name="checkAddressReservedByte">True to validate address reserved byte</param>
+	/// <param name="addressType">Account address type</param>
+	/// <returns>Account overviews in request order or null</returns>
+	public Task<AccountInfoResult[]?> GetAccountInfosAsync(
+		string[] accounts,
+		bool checkAddressReservedByte,
+		RpcAddressType addressType) =>
+		_rpc.SendRpcAsync<AccountInfoResult[]>(Host, "getAccountInfos", accounts ?? Array.Empty<string>(), checkAddressReservedByte, addressType);
+
+	/// <summary>
 	/// Gets account information, including balances, for the specified address
 	/// </summary>
 	/// <remarks>

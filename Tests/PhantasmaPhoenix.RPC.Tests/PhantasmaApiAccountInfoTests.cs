@@ -35,6 +35,60 @@ public class PhantasmaApiAccountInfoTests
 		});
 	}
 
+	// The batch endpoint's contract is a NATIVE JSON array parameter (Solana getMultipleAccounts
+	// style) - not the comma-joined string the deprecated getAccounts wire used. A params-array
+	// expansion bug would spread the addresses into separate positional parameters, so both the
+	// count and the array shape are pinned.
+	[Fact]
+	public async Task GetAccountInfos_Sends_Native_Address_Array()
+	{
+		using var handler = new CapturingHandler();
+		using var rpcClient = new RpcClient(new HttpClient(handler));
+		using var api = new PhantasmaAPI("http://localhost/rpc", rpcClient);
+
+		await api.GetAccountInfosAsync(new[] { "Paccount1", "Paccount2" });
+		await api.GetAccountInfosAsync(new[] { "001122" }, checkAddressReservedByte: false, RpcAddressType.Carbon);
+
+		handler.Requests.Count.ShouldBe(2);
+
+		AssertRequest(handler.Requests[0], "getAccountInfos", parameters =>
+		{
+			parameters.Count.ShouldBe(1);
+			var addresses = parameters[0].ShouldBeOfType<JArray>();
+			addresses.Select(address => address.Value<string>()).ShouldBe(new[] { "Paccount1", "Paccount2" });
+		});
+		AssertRequest(handler.Requests[1], "getAccountInfos", parameters =>
+		{
+			parameters.Count.ShouldBe(3);
+			var addresses = parameters[0].ShouldBeOfType<JArray>();
+			addresses.Select(address => address.Value<string>()).ShouldBe(new[] { "001122" });
+			parameters[1]!.Value<bool>().ShouldBeFalse();
+			parameters[2]!.Value<string>().ShouldBe(nameof(RpcAddressType.Carbon));
+		});
+	}
+
+	// Results decode per element with the same stake-vs-stakes wire nuance as the single endpoint,
+	// and the request order must survive the round-trip.
+	[Fact]
+	public async Task GetAccountInfos_Maps_Wire_Shape_And_Order_To_Model()
+	{
+		using var handler = new CapturingHandler();
+		using var rpcClient = new RpcClient(new HttpClient(handler));
+		using var api = new PhantasmaAPI("http://localhost/rpc", rpcClient);
+
+		var infos = await api.GetAccountInfosAsync(new[] { "Paccount1", "Paccount2" });
+
+		infos.ShouldNotBeNull();
+		infos!.Length.ShouldBe(2);
+		infos[0].Address.ShouldBe("Paccount1");
+		infos[0].Name.ShouldBe("anonymous");
+		infos[0].Stake.Amount.ShouldBe("0");
+		infos[1].Address.ShouldBe("Paccount2");
+		infos[1].Name.ShouldBe("myname");
+		infos[1].Stake.Amount.ShouldBe("1500000000000");
+		infos[1].Stake.Unclaimed.ShouldBe("42000000000");
+	}
+
 	// The node names the staking object "stake" on this endpoint, while the legacy getAccount response
 	// carries the same object as "stakes". Binding the wrong one silently yields an empty stake, so the
 	// mapping is asserted against the exact wire shape the node returns.
@@ -101,6 +155,33 @@ public class PhantasmaApiAccountInfoTests
 						["amount"] = "1500000000000",
 						["time"] = 1743520000,
 						["unclaimed"] = "42000000000"
+					}
+				},
+				// Batch counterpart: same per-account shape, one element per requested address, in
+				// request order. Distinct names/stakes make an order or attribution mix-up visible.
+				"getAccountInfos" => new JArray
+				{
+					new JObject
+					{
+						["address"] = "Paccount1",
+						["name"] = "anonymous",
+						["stake"] = new JObject
+						{
+							["amount"] = "0",
+							["time"] = 0,
+							["unclaimed"] = "0"
+						}
+					},
+					new JObject
+					{
+						["address"] = "Paccount2",
+						["name"] = "myname",
+						["stake"] = new JObject
+						{
+							["amount"] = "1500000000000",
+							["time"] = 1743520000,
+							["unclaimed"] = "42000000000"
+						}
 					}
 				},
 				_ => JValue.CreateNull()
