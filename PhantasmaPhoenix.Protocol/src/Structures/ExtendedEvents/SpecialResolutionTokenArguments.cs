@@ -73,7 +73,7 @@ public sealed class CreateTokenArguments : SpecialResolutionArguments
 	public string Flags { get; set; } = string.Empty;
 
 	/// <summary>Decoded metadata fields; absent when the token carries none.</summary>
-	public Dictionary<string, string>? Metadata { get; set; }
+	public Dictionary<string, VmValue>? Metadata { get; set; }
 
 	/// <summary>NFT schema blob as hex; absent for fungible tokens.</summary>
 	public string? TokenSchemas { get; set; }
@@ -89,7 +89,7 @@ public class TokenSeriesArguments : TokenReferenceArguments
 	public string MaxSupply { get; set; } = string.Empty;
 
 	/// <summary>Decoded series metadata; absent when the token declares no schema for it.</summary>
-	public Dictionary<string, string>? Metadata { get; set; }
+	public Dictionary<string, VmValue>? Metadata { get; set; }
 
 	/// <summary>Phantasma series id taken from the decoded metadata, when the schema carries one.</summary>
 	public string? SeriesId { get; set; }
@@ -177,7 +177,7 @@ public sealed class TokensConfigArguments : SpecialResolutionArguments
 
 public sealed class UpdateTokenMetadataArguments : TokenReferenceArguments
 {
-	public Dictionary<string, string>? Metadata { get; set; }
+	public Dictionary<string, VmValue>? Metadata { get; set; }
 }
 
 public sealed class UpdateSeriesMetadataArguments : TokenReferenceArguments

@@ -95,7 +95,7 @@ public sealed class NestedResolutionArguments : SpecialResolutionArguments
 
 public sealed class MetadataArguments : SpecialResolutionArguments
 {
-	public Dictionary<string, string> Metadata { get; set; } = new Dictionary<string, string>();
+	public Dictionary<string, VmValue> Metadata { get; set; } = new Dictionary<string, VmValue>();
 }
 
 public sealed class ConsensusNode

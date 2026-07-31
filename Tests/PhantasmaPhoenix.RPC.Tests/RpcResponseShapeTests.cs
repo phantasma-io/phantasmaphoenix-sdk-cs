@@ -99,7 +99,7 @@ public class RpcResponseShapeTests
 			""");
 		token.CarbonId.ShouldBe("4");
 		token.Metadata![0].Key.ShouldBe("name");
-		token.Metadata[0].Value.ShouldBe("Crown");
+		token.Metadata[0].Value!.Text.ShouldBe("Crown");
 		token.Series[0].SeriesId.ShouldBe("0");
 		token.Series[0].carbonSeriesId.ShouldBe("1");
 		token.Script.ShouldBeNull();
@@ -128,7 +128,7 @@ public class RpcResponseShapeTests
 		nft.Id.ShouldBe("114421");
 		nft.Series.ShouldBe("0");
 		nft.carbonSeriesId.ShouldBe("1");
-		nft.Properties[0].Value.ShouldBe("Crown #1");
+		nft.Properties[0].Value!.Text.ShouldBe("Crown #1");
 
 		var chain = Decode<ChainResult>("""{"height":0}""");
 		chain.Name.ShouldBeNull();
@@ -157,7 +157,7 @@ public class RpcResponseShapeTests
 		organization.Owner.ShouldBe("Powner");
 		organization.CarbonOwner.ShouldBe("00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff");
 		organization.Metadata[0].Key.ShouldBe("role");
-		organization.Metadata[0].Value.ShouldBe("validators");
+		organization.Metadata[0].Value!.Text.ShouldBe("validators");
 		organization.MemberCount.ShouldBe("1106");
 
 		var organizationPage = Decode<CursorPaginatedResult<OrganizationResult[]>>(
@@ -215,7 +215,8 @@ public class RpcResponseShapeTests
 
 		var property = Decode<TokenPropertyResult>("""{"Key":"name","Value":"Crown"}""");
 		property.Key.ShouldBe(string.Empty);
-		property.Value.ShouldBe(string.Empty);
+		// The stale PascalCase "Value" is dropped, so nothing is decoded into the typed value.
+		property.Value.ShouldBeNull();
 
 		var nft = Decode<TokenDataResult>(
 			"""
