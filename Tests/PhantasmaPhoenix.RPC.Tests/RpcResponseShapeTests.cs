@@ -51,7 +51,9 @@ public class RpcResponseShapeTests
 			""");
 
 		tx.CarbonTxType.ShouldBe((byte)9);
-		tx.CarbonTxData.ShouldBe("BEEF");
+		// The member carries bytes now and still renders as the same hex. The cast is what an extension
+		// method needs: an implicit conversion does not apply to an extension-method receiver.
+		((string?)tx.CarbonTxData).ShouldBe("BEEF");
 		tx.DebugComment.ShouldBe("mint");
 		tx.Sender.ShouldBe("Psender");
 		tx.GasPayer.ShouldBe("Pgas");

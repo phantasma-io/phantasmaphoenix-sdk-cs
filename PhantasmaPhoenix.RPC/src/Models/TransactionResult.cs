@@ -1,3 +1,5 @@
+using Newtonsoft.Json;
+using PhantasmaPhoenix.Core;
 using PhantasmaPhoenix.Cryptography;
 using PhantasmaPhoenix.Protocol;
 
@@ -12,7 +14,12 @@ public class TransactionResult
 	public string? BlockHash { get; set; }
 	public string? Script { get; set; }
 	public byte CarbonTxType { get; set; }
-	public string? CarbonTxData { get; set; }
+
+	// The transaction message bytes. Hex on the wire exactly as before; the type carries the bytes so
+	// that a node answering a multi-megabyte transaction never builds the hex string in memory. Reading
+	// this property as a string still works and yields the same hex.
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes? CarbonTxData { get; set; }
 	public string? Payload { get; set; }
 	public string? DebugComment { get; set; }
 	public EventResult[]? Events { get; set; }
