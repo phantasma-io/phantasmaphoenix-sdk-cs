@@ -3,7 +3,9 @@ using PhantasmaPhoenix.Core.Extensions;
 
 namespace PhantasmaPhoenix.Protocol.Carbon;
 
-public struct Bytes64 : ICarbonBlob
+// Same equality contract as Bytes32: see the comments there for why IEquatable and a full-content hash
+// are required rather than optional.
+public struct Bytes64 : ICarbonBlob, IEquatable<Bytes64>
 {
 	public readonly static Bytes64 Empty = new();
 
@@ -27,19 +29,22 @@ public struct Bytes64 : ICarbonBlob
 
 	public override int GetHashCode()
 	{
-		return BitConverter.ToInt32(bytes, 0);
+		return ByteArrayUtils.HashBytes(bytes);
 	}
 
 	public override bool Equals(object? obj)
 	{
-		if (obj == null || !(obj is Bytes64))
-			return false;
-		return ((Bytes64)obj).bytes.SequenceEqual(bytes);
+		return obj is Bytes64 other && Equals(other);
 	}
 
 	public bool Equals(Bytes64 obj)
 	{
-		return obj.bytes.SequenceEqual(bytes);
+		return AsSpan().SequenceEqual(obj.AsSpan());
+	}
+
+	private readonly ReadOnlySpan<byte> AsSpan()
+	{
+		return bytes;
 	}
 
 	public void Write(BinaryWriter w)

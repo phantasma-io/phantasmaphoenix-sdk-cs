@@ -6,7 +6,7 @@ using Throw = PhantasmaPhoenix.Core.Throw;
 
 namespace PhantasmaPhoenix.Cryptography;
 
-public struct Address : ISerializable, IComparable<Address>
+public struct Address : ISerializable, IComparable<Address>, IEquatable<Address>
 {
 	public static readonly Address Null = new Address(NullPublicKey);
 
@@ -216,9 +216,19 @@ public struct Address : ISerializable, IComparable<Address>
 		return this.Text;
 	}
 
+	// Hash the address content. The previous implementation returned the identity hash of the backing
+	// array, so two addresses that compare equal produced different hash codes whenever they were built
+	// from different arrays - which breaks every Dictionary/HashSet/Distinct/GroupBy keyed by Address.
+	// Equals treats a default-initialized address (no backing array) as equal to Address.Null, so both
+	// must land on the same hash code; that is what the IsNull branch preserves.
 	public override int GetHashCode()
 	{
-		return _bytes.GetHashCode();
+		if (IsNull)
+		{
+			return 0;
+		}
+
+		return ByteArrayUtils.HashBytes(_bytes);
 	}
 	public override bool Equals(object? obj)
 	{
@@ -227,8 +237,13 @@ public struct Address : ISerializable, IComparable<Address>
 			return false;
 		}
 
-		var otherAddress = (Address)obj;
+		return Equals((Address)obj);
+	}
 
+	// Typed equality with exactly the semantics of the object overload above; declaring IEquatable keeps
+	// the generic collections off the boxing object comparer.
+	public bool Equals(Address otherAddress)
+	{
 		var thisBytes = this._bytes;
 		var otherBytes = otherAddress._bytes;
 

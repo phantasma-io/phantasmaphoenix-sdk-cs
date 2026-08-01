@@ -3,6 +3,35 @@
 public static class ByteArrayUtils
 {
 	/// <summary>
+	/// Computes a content hash code over the whole array, for value types that are used as dictionary
+	/// or set keys. A key type must hash its full content: hashing only a prefix lets any group of
+	/// values that share their first bytes collapse into a single bucket, which turns every lookup in
+	/// that dictionary into a linear scan.
+	/// FNV-1a is used because System.HashCode does not exist on netstandard2.0. A null array hashes the
+	/// same as an empty one; hash codes are not stable across processes and must never be persisted.
+	/// </summary>
+	public static int HashBytes(byte[]? bytes)
+	{
+		unchecked
+		{
+			const uint fnvOffsetBasis = 2166136261;
+			const uint fnvPrime = 16777619;
+
+			var hash = fnvOffsetBasis;
+			if (bytes != null)
+			{
+				for (var i = 0; i < bytes.Length; i++)
+				{
+					hash ^= bytes[i];
+					hash *= fnvPrime;
+				}
+			}
+
+			return (int)hash;
+		}
+	}
+
+	/// <summary>
 	/// Merges two byte arrays
 	/// </summary>
 	/// <param name="source1">first byte array</param>
