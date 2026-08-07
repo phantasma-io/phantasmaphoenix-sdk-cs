@@ -44,11 +44,11 @@ public class SpecialResolutionCallTests
 		arguments.ContractsCount.ShouldBe("1");
 		var contract = arguments.Contracts.ShouldHaveSingleItem();
 		contract.Name.ShouldBe("pharming");
-		contract.Script.ShouldBe("010203");
-		contract.RootVariables.ShouldHaveSingleItem().Value.ShouldBe("2223");
+		contract.Script.ToString().ShouldBe("010203");
+		contract.RootVariables.ShouldHaveSingleItem().Value.ToString().ShouldBe("2223");
 		var table = contract.Tables.ShouldHaveSingleItem();
 		table.Name.ShouldBe("balances");
-		table.Rows.ShouldHaveSingleItem().Key.ShouldBe("31");
+		table.Rows.ShouldHaveSingleItem().Key.ToString().ShouldBe("31");
 	}
 
 	[Fact]
@@ -96,7 +96,7 @@ public class SpecialResolutionCallTests
 		var arguments = JsonConvert.DeserializeObject<SpecialResolutionCall>(json)
 			.Arguments.ShouldBeOfType<RawArguments>();
 
-		arguments.RawArgs.ShouldBe("0102FF");
+		arguments.RawArgs.ToString().ShouldBe("0102FF");
 	}
 
 	// Same rule when the method IS in the map: an older node answering with a raw dump must not be
@@ -146,5 +146,133 @@ public class SpecialResolutionCallTests
 		var nested = call.Calls.ShouldHaveSingleItem();
 		nested.Arguments.ShouldBeOfType<AddressArguments>()
 			.Address.ShouldBe("P2KFNXEbt65rQiWqogAzqkVGMqFirPmqPw8mQyxvRKsrXV8");
+	}
+
+	// The heavy fields are carried as bytes in memory (HexBytes), but the wire is the hex string it
+	// always was: a parse-serialize round trip must reproduce the hex verbatim, or the type change
+	// would leak onto the wire.
+	[Fact]
+	public void Heavy_fields_round_trip_as_the_same_hex_strings()
+	{
+		const string json = """
+		{
+			"moduleId": 2,
+			"module": "phantasma_vm",
+			"methodId": 5,
+			"method": "ImportContracts",
+			"arguments": {
+				"contractsCount": "1",
+				"contracts": [
+					{
+						"name": "pharming",
+						"address": "S3d6cUXRwJbudV4ADbRtMz3P9527ts7D2Lh9h2J96m48FPW",
+						"owner": "P2KFNXEbt65rQiWqogAzqkVGMqFirPmqPw8mQyxvRKsrXV8",
+						"script": "010203",
+						"abi": "0A",
+						"rootVariables": [ { "key": "11", "value": "2223" } ],
+						"tables": [
+							{ "name": "balances", "rows": [ { "key": "31", "value": "4142" } ] }
+						]
+					}
+				]
+			}
+		}
+		""";
+
+		var serialized = SerializeAsANodeWould(JsonConvert.DeserializeObject<SpecialResolutionCall>(json));
+
+		var reparsed = JsonConvert.DeserializeObject<SpecialResolutionCall>(serialized);
+		var contract = reparsed.Arguments.ShouldBeOfType<ImportContractsArguments>()
+			.Contracts.ShouldHaveSingleItem();
+		contract.Script.ToString().ShouldBe("010203");
+		contract.Abi.ToString().ShouldBe("0A");
+		contract.Tables.ShouldHaveSingleItem().Rows.ShouldHaveSingleItem().Value.ToString().ShouldBe("4142");
+	}
+
+	// Blob ARRAYS are the one shape a member-level converter does not cover: the attribute would bind
+	// to the array itself rather than to its elements, and the field would serialize as a list of
+	// objects instead of hex strings - a silent wire break no round trip through our own reader would
+	// notice. So the assertion is on the serialized text, not only on the reparsed model.
+	[Fact]
+	public void Blob_arrays_stay_arrays_of_hex_strings()
+	{
+		const string json = """
+		{
+			"moduleId": 1,
+			"module": "token",
+			"methodId": 30,
+			"method": "CreateMintedTokenSeries",
+			"arguments": {
+				"token": "GHOST",
+				"tokenId": "4",
+				"owner": "P2KFNXEbt65rQiWqogAzqkVGMqFirPmqPw8mQyxvRKsrXV8",
+				"maxMint": "10",
+				"maxSupply": "10",
+				"recipient": "P2KFNXEbt65rQiWqogAzqkVGMqFirPmqPw8mQyxvRKsrXV8",
+				"metadataRaw": "AABB",
+				"roms": [ "0102", "0304" ],
+				"rams": [ "05", "" ]
+			}
+		}
+		""";
+
+		var serialized = SerializeAsANodeWould(JsonConvert.DeserializeObject<SpecialResolutionCall>(json));
+
+		serialized.ShouldContain("\"roms\":[\"0102\",\"0304\"]");
+		serialized.ShouldContain("\"rams\":[\"05\",\"\"]");
+
+		var arguments = JsonConvert.DeserializeObject<SpecialResolutionCall>(serialized)
+			.Arguments.ShouldBeOfType<CreateMintedTokenSeriesArguments>();
+		arguments.Roms.Length.ShouldBe(2);
+		arguments.Roms[0].ToString().ShouldBe("0102");
+		arguments.Roms[1].ToString().ShouldBe("0304");
+		arguments.Rams[0].ToString().ShouldBe("05");
+		arguments.Rams[1].ToString().ShouldBe("");
+		arguments.MetadataRaw!.ToString().ShouldBe("AABB");
+	}
+
+	// The same byte-typed contract on the governance module: a contract deployment carries the two
+	// largest blobs in the family, and they must reach the wire as the hex strings they always were.
+	[Fact]
+	public void Governance_contract_blobs_round_trip_as_hex_strings()
+	{
+		const string json = """
+		{
+			"moduleId": 2,
+			"module": "phantasma_vm",
+			"methodId": 3,
+			"method": "DeployContract",
+			"arguments": {
+				"from": "P2KFNXEbt65rQiWqogAzqkVGMqFirPmqPw8mQyxvRKsrXV8",
+				"contractName": "pharming",
+				"script": "0102FF",
+				"abi": "0A0B"
+			}
+		}
+		""";
+
+		var serialized = SerializeAsANodeWould(JsonConvert.DeserializeObject<SpecialResolutionCall>(json));
+
+		serialized.ShouldContain("\"script\":\"0102FF\"");
+		serialized.ShouldContain("\"abi\":\"0A0B\"");
+
+		var arguments = JsonConvert.DeserializeObject<SpecialResolutionCall>(serialized)
+			.Arguments.ShouldBeOfType<DeployContractArguments>();
+		arguments.Script.ToString().ShouldBe("0102FF");
+		arguments.Abi.ToString().ShouldBe("0A0B");
+	}
+
+	// The call model is read-only for its converter; a node serializes it by property contract with
+	// camel-cased names. Mirror that here, or a round trip would emit Pascal-cased JSON no reader
+	// recognizes.
+	private static string SerializeAsANodeWould(SpecialResolutionCall call)
+	{
+		return JsonConvert.SerializeObject(call, new JsonSerializerSettings
+		{
+			ContractResolver = new Newtonsoft.Json.Serialization.DefaultContractResolver
+			{
+				NamingStrategy = new Newtonsoft.Json.Serialization.CamelCaseNamingStrategy { ProcessDictionaryKeys = false }
+			}
+		});
 	}
 }

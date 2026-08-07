@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using Newtonsoft.Json;
+using PhantasmaPhoenix.Core;
 
 namespace PhantasmaPhoenix.Protocol.ExtendedEvents;
 
@@ -18,6 +20,18 @@ namespace PhantasmaPhoenix.Protocol.ExtendedEvents;
 ///
 /// Every numeric field is a string: chain values are big integers, and JSON numbers silently lose
 /// precision above 2^53 in JavaScript consumers.
+///
+/// Field types across this whole family follow one rule, so a consumer can predict them without
+/// reading the decoder:
+/// <list type="bullet">
+/// <item>an opaque byte payload - a script, an ABI, a ROM/RAM blob, a metadata or schema blob, an
+/// undecoded argument buffer - is <see cref="PhantasmaPhoenix.Core.HexBytes"/>, so it can be used as
+/// bytes without a round trip through text (the wire is the same hex string it always was);</item>
+/// <item>an identifier keeps its canonical text form - an address stays base58, a series or instance
+/// id stays a decimal string, a node id stays hex text - because callers match, key and display those
+/// values rather than decode them;</item>
+/// <item>a value whose type the VM decides at runtime is <see cref="Protocol.VmValue"/>, never bytes.</item>
+/// </list>
 /// </remarks>
 public abstract class SpecialResolutionArguments
 {
@@ -28,7 +42,8 @@ public abstract class SpecialResolutionArguments
 /// </summary>
 public sealed class RawArguments : SpecialResolutionArguments
 {
-	public string RawArgs { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes RawArgs { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 }
 
 /// <summary>
@@ -36,9 +51,11 @@ public sealed class RawArguments : SpecialResolutionArguments
 /// </summary>
 public sealed class ContractStorageRow
 {
-	public string Key { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Key { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
-	public string Value { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Value { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 }
 
 /// <summary>
@@ -62,9 +79,11 @@ public sealed class ImportedContract
 
 	public string Owner { get; set; } = string.Empty;
 
-	public string Script { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Script { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
-	public string Abi { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Abi { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
 	/// <summary>Root-level contract variables.</summary>
 	public ContractStorageRow[] RootVariables { get; set; } = System.Array.Empty<ContractStorageRow>();
@@ -97,11 +116,14 @@ public sealed class SeriesSupplement
 
 	public string Mode { get; set; } = string.Empty;
 
-	public string Script { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Script { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
-	public string Abi { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Abi { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
-	public string Rom { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Rom { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 }
 
 /// <summary>
@@ -117,9 +139,11 @@ public sealed class SeriesMintCountRepair
 
 	public string ImportedLiveCount { get; set; } = string.Empty;
 
-	public string Script { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Script { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
-	public string Abi { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Abi { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 }
 
 public sealed class RepairSeriesArguments : SpecialResolutionArguments
@@ -144,9 +168,11 @@ public sealed class TokenRepair
 
 	public string Symbol { get; set; } = string.Empty;
 
-	public string Script { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Script { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
-	public string Abi { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Abi { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
 	public string TokenFlags { get; set; } = string.Empty;
 

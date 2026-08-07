@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using Newtonsoft.Json;
+using PhantasmaPhoenix.Core;
 
 namespace PhantasmaPhoenix.Protocol.ExtendedEvents;
 
@@ -133,7 +135,8 @@ public sealed class ExecuteScriptArguments : SpecialResolutionArguments
 
 	public string GasFrom { get; set; } = string.Empty;
 
-	public string Script { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Script { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 }
 
 public sealed class RegisterTokenContractArguments : SpecialResolutionArguments
@@ -142,9 +145,11 @@ public sealed class RegisterTokenContractArguments : SpecialResolutionArguments
 
 	public string Symbol { get; set; } = string.Empty;
 
-	public string Script { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Script { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
-	public string Abi { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Abi { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
 	/// <summary>Resolved token symbol; absent when the token could not be resolved at answer time.</summary>
 	public string? Token { get; set; }
@@ -156,9 +161,11 @@ public sealed class DeployContractArguments : SpecialResolutionArguments
 
 	public string ContractName { get; set; } = string.Empty;
 
-	public string Script { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Script { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
-	public string Abi { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Abi { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 }
 
 public sealed class PhantasmaVmConfigArguments : SpecialResolutionArguments

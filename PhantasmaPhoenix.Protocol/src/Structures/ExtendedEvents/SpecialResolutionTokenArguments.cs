@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using Newtonsoft.Json;
+using PhantasmaPhoenix.Core;
 
 namespace PhantasmaPhoenix.Protocol.ExtendedEvents;
 
@@ -75,8 +77,9 @@ public sealed class CreateTokenArguments : SpecialResolutionArguments
 	/// <summary>Decoded metadata fields; absent when the token carries none.</summary>
 	public Dictionary<string, VmValue>? Metadata { get; set; }
 
-	/// <summary>NFT schema blob as hex; absent for fungible tokens.</summary>
-	public string? TokenSchemas { get; set; }
+	/// <summary>NFT schema blob; absent for fungible tokens.</summary>
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes? TokenSchemas { get; set; }
 }
 
 /// <summary>Series definition, as carried by a series-creating call.</summary>
@@ -94,17 +97,20 @@ public class TokenSeriesArguments : TokenReferenceArguments
 	/// <summary>Phantasma series id taken from the decoded metadata, when the schema carries one.</summary>
 	public string? SeriesId { get; set; }
 
-	/// <summary>Metadata blob as hex, reported instead of <see cref="Metadata"/> when it cannot be decoded.</summary>
-	public string? MetadataRaw { get; set; }
+	/// <summary>Metadata blob, reported instead of <see cref="Metadata"/> when it cannot be decoded.</summary>
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes? MetadataRaw { get; set; }
 }
 
 public sealed class CreateMintedTokenSeriesArguments : TokenSeriesArguments
 {
 	public string Recipient { get; set; } = string.Empty;
 
-	public string[] Roms { get; set; } = System.Array.Empty<string>();
+	[JsonProperty(ItemConverterType = typeof(HexBytesJsonConverter))]
+	public HexBytes[] Roms { get; set; } = System.Array.Empty<HexBytes>();
 
-	public string[] Rams { get; set; } = System.Array.Empty<string>();
+	[JsonProperty(ItemConverterType = typeof(HexBytesJsonConverter))]
+	public HexBytes[] Rams { get; set; } = System.Array.Empty<HexBytes>();
 }
 
 /// <summary>One NFT to mint, addressed by the carbon series id.</summary>
@@ -112,9 +118,11 @@ public sealed class NftMint
 {
 	public string SeriesId { get; set; } = string.Empty;
 
-	public string Rom { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Rom { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
-	public string Ram { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Ram { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 }
 
 /// <summary>One NFT to mint, addressed by the 32-byte Phantasma series id.</summary>
@@ -122,9 +130,11 @@ public sealed class PhantasmaNftMint
 {
 	public string PhantasmaSeriesId { get; set; } = string.Empty;
 
-	public string Rom { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Rom { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 
-	public string Ram { get; set; } = string.Empty;
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Ram { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 }
 
 public sealed class MintNonFungibleArguments : TokenReferenceArguments
@@ -184,6 +194,7 @@ public sealed class UpdateSeriesMetadataArguments : TokenReferenceArguments
 {
 	public string SeriesId { get; set; } = string.Empty;
 
-	/// <summary>Metadata blob as hex: this call carries it unschematized.</summary>
-	public string Metadata { get; set; } = string.Empty;
+	/// <summary>Metadata blob: this call carries it unschematized.</summary>
+	[JsonConverter(typeof(HexBytesJsonConverter))]
+	public HexBytes Metadata { get; set; } = HexBytes.FromBytes(System.Array.Empty<byte>());
 }
