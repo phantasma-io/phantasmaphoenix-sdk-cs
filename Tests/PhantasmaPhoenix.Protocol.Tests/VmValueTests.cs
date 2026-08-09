@@ -57,4 +57,18 @@ public class VmValueTests
 
 		text.ShouldBe("Crown");
 	}
+
+	// A scalar with no readable content is real chain data - a shared-ROM NFT property whose VM entry
+	// carries no string - and it has to travel as JSON null. The text "null" would be indistinguishable
+	// from a property whose value really is that word.
+	[Fact]
+	public void Scalar_without_content_is_json_null()
+	{
+		var value = VmValue.FromText(null);
+
+		value.IsText.ShouldBeFalse();
+		value.Text.ShouldBeNull();
+		value.ToString().ShouldBe(string.Empty);
+		JsonConvert.SerializeObject(value).ShouldBe("null");
+	}
 }

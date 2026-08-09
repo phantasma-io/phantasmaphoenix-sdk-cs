@@ -7,8 +7,12 @@ namespace PhantasmaPhoenix.Protocol;
 /// A value decoded from VM storage: a scalar, an array, or a struct.
 /// </summary>
 /// <remarks>
-/// VM values are dynamically typed, so this is a union rather than a fixed model. Exactly one of
-/// <see cref="Text"/>, <see cref="Items"/> and <see cref="Fields"/> is set.
+/// VM values are dynamically typed, so this is a union rather than a fixed model. At most one of
+/// <see cref="Text"/>, <see cref="Items"/> and <see cref="Fields"/> is set: a scalar whose content the
+/// producer could not read carries none of them and travels as JSON null. That state is real chain
+/// data, not a defensive case - a shared-ROM NFT property can have no string content at all, and it is
+/// still answered so that its key does not disappear - so a consumer reading <see cref="Text"/> must
+/// handle null.
 ///
 /// On the wire it is the plain JSON value - a string, an array or an object - never a JSON document
 /// packed into a string, which is what these values used to be.
@@ -34,7 +38,12 @@ public sealed class VmValue
 		Fields = fields;
 	}
 
-	public static VmValue FromText(string text) => new VmValue(text, null, null);
+	/// <summary>
+	/// A scalar. Null text is accepted on purpose - it means the value has no readable content - so a
+	/// producer does not have to suppress a warning to express it, and the state stays visible in
+	/// <see cref="Text"/>, which consumers already have to null-check.
+	/// </summary>
+	public static VmValue FromText(string? text) => new VmValue(text, null, null);
 
 	public static VmValue FromItems(VmValue[] items) => new VmValue(null, items, null);
 
