@@ -59,6 +59,13 @@ public enum TokenContract_Methods
 	MintPhantasmaNonFungible = 27,
 }
 
+/// <summary>Governance-module call ids the SDK recognises.</summary>
+public enum GovernanceContract_Methods
+{
+	RegisterName = 1,
+	SetGasConfig = 3,
+}
+
 public enum MarketContract_Methods
 {
 	SellToken = 0,

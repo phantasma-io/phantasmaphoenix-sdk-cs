@@ -28,6 +28,7 @@ public static class StandardMeta
 		public static SmallString phantasma_script = new("_phs");
 		public static SmallString phantasma_abi = new("_phb");
 		public static SmallString pre_burn = new("_brn");
+		public static SmallString inflation_period = new("_ip");
 
 		public static class Nft
 		{
