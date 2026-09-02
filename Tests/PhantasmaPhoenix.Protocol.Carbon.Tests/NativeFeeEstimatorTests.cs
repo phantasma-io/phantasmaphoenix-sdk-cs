@@ -98,7 +98,7 @@ public class NativeFeeEstimatorTests
 	}
 
 	// Mainnet tx 6C1A6412... (block 9,075,820): a PoltergeistLite transfer of 178 bytes was billed
-	// 44,600,000 - the figure the node printed in its "gas fees" abort.
+	// 44,600,000, which is the figure the node printed in its "gas fees" abort.
 	[Fact]
 	public void Reproduces_the_first_live_mainnet_bill()
 	{
@@ -109,7 +109,8 @@ public class NativeFeeEstimatorTests
 	// A native MintFungible of 171 bytes into a fresh holder of a token whose supply row is in
 	// place. The call returns the new balance, and a call result is block data exactly like the
 	// envelope. The result's size depends on the balance it reports: 9 bytes while it fits int64, up
-	// to 33 beyond - so stating BigFungible = false prices the 9-byte result exactly, and leaving it
+	// to 33 beyond. Stating BigFungible = false therefore prices the 9-byte result exactly, and
+	// leaving it
 	// unstated prices the 33-byte maximum, 24 bytes of block data more.
 	[Fact]
 	public void Bills_a_fungible_mint_with_its_9_byte_result_when_the_token_is_declared_small()
@@ -125,7 +126,8 @@ public class NativeFeeEstimatorTests
 	}
 
 	// An NFT transfer of 170 bytes into a fresh holder. The owner's lookup row is deleted and the
-	// recipient's created (net zero), the fresh balance row is the one net quantum; both new rows are
+	// recipient's created, which is net zero. The fresh balance row is the one net quantum. Both new
+	// rows are
 	// escrowed, the deleted row's deposit comes back at its own price.
 	[Fact]
 	public void Bills_an_NFT_transfer_for_its_net_rows_and_escrows_its_new_ones()
@@ -146,7 +148,7 @@ public class NativeFeeEstimatorTests
 			.ExpectedGasBill.ShouldBe(42_950_000UL);
 
 		// Minting into an NFT address pays the same owner lookup, once per call, on all three mint
-		// kinds - the chain checks the recipient the same way it does for a transfer.
+		// kinds. The chain checks the recipient the same way it does for a transfer.
 		foreach (var kind in new[] { NativeFeeKind.MintFungible, NativeFeeKind.MintNonFungible, NativeFeeKind.MintPhantasmaNonFungible })
 		{
 			var plain = Estimate(kind, V2Config(), new NativeFeeParams { EnvelopeBytes = 200, TokenId = 7, RomBytes = 10 });
@@ -155,7 +157,8 @@ public class NativeFeeEstimatorTests
 		}
 	}
 
-	// A native NFT burn of 138 bytes; the mint's ten quanta are deleted and refunded, no net block
+	// A native NFT burn of 138 bytes. The mint's ten quanta are deleted and refunded, with no net
+	// block
 	// data, the token had been burned before and its supply row was in place.
 	[Fact]
 	public void Bills_an_NFT_burn_for_its_work_and_envelope_only()
@@ -176,7 +179,7 @@ public class NativeFeeEstimatorTests
 	}
 
 	// Two settled CreateToken bills with 7-character symbols. The fungible one is 374 signed bytes
-	// and writes the symbol, token-info and supply rows and returns the u64 token id; the NFT-capable
+	// and writes the symbol, token-info and supply rows and returns the u64 token id. The NFT-capable
 	// one (466 bytes) adds the series counter. Policy fee 10 KCAL + 10 KCAL >> 6.
 	[Fact]
 	public void Reproduces_the_two_localnet_CreateToken_bills_to_the_atom()
@@ -205,6 +208,28 @@ public class NativeFeeEstimatorTests
 		nft.MaxData.ShouldBe(200_000UL);
 	}
 
+	// Validating token metadata that names a staking organisation looks the organisation up, and
+	// metadata that names a reward token reads that token: one query fee each, on top of the
+	// policy fee and the rows.
+	[Fact]
+	public void Charges_the_lookups_that_staking_metadata_costs_a_token_creation()
+	{
+		NativeFeeParams Create(bool org, bool reward) => new()
+		{
+			EnvelopeBytes = 374,
+			SymbolLength = 7,
+			TokenInfoBytes = 374 - 100 - 58,
+			HasStakingOrganisation = org,
+			HasStakingRewardToken = reward
+		};
+		var plain = Estimate(NativeFeeKind.CreateToken, LocalnetConfig(), Create(false, false));
+		(Estimate(NativeFeeKind.CreateToken, LocalnetConfig(), Create(true, false)).ExpectedGasBill - plain.ExpectedGasBill).ShouldBe(100_000UL);
+		(Estimate(NativeFeeKind.CreateToken, LocalnetConfig(), Create(false, true)).ExpectedGasBill - plain.ExpectedGasBill).ShouldBe(100_000UL);
+		var both = Estimate(NativeFeeKind.CreateToken, LocalnetConfig(), Create(true, true));
+		(both.ExpectedGasBill - plain.ExpectedGasBill).ShouldBe(200_000UL);
+		both.NewStorageQuanta.ShouldBe(plain.NewStorageQuanta);
+	}
+
 	[Fact]
 	public void Reproduces_the_localnet_CreateTokenSeries_bill()
 	{
@@ -220,7 +245,8 @@ public class NativeFeeEstimatorTests
 	}
 
 	// Two settled deterministic Phantasma mints. The 182-byte public ROM was the token's first mint
-	// to that owner (fresh balance row, 5 quanta); the 3,083-byte one found the balance row in place
+	// to that owner, with a fresh balance row and 5 quanta. The 3,083-byte one found the balance row
+	// in place
 	// and its canonical ROM alone took seven quanta (10 in total). Each instance pays the mint plus
 	// two query fees and returns 40 bytes after the 4-byte count.
 	//
@@ -332,8 +358,8 @@ public class NativeFeeEstimatorTests
 		}).NewStorageQuanta.ShouldBe(5u);
 	}
 
-	// A duplicated series is read twice per instance rather than once - the mode check and the
-	// shared ROM each read the token info - and its supply is read once per series for the whole
+	// A duplicated series is read twice per instance and not once, because the mode check and the
+	// shared ROM each read the token info. Its supply is read once per series for the whole
 	// transaction, because the chain reuses the number it already read. The counts therefore scale
 	// differently and the model has to keep them apart.
 	[Fact]
@@ -391,8 +417,9 @@ public class NativeFeeEstimatorTests
 
 	// Burning an NFT returns whatever its own address holds, and the chain charges for each returned
 	// asset as the transfers it performs: a transfer fee plus the owner lookup of the NFT-address
-	// source per fungible token; an instance query, a transfer per instance and that lookup per NFT
-	// token. The returned rows never add block data - a burn refunds more than the returns create -
+	// source per fungible token. An NFT token costs an instance query, a transfer per instance and
+	// that same lookup. The returned rows never add block data, because a burn refunds more than the
+	// returns create.
 	// so the bill moves by the work alone, while the escrow ceiling covers a balance row the burner
 	// lacks and the moved lookup rows. Measured live 2026-09-02: +200,000 for one infused KCAL atom,
 	// +700,000 for KCAL, a custom token and an NFT together.
@@ -419,7 +446,7 @@ public class NativeFeeEstimatorTests
 		kcal.DeletedStorageQuanta.ShouldBe(empty.DeletedStorageQuanta);
 
 		// A custom token the burner does not hold: the same work, plus the balance row the return
-		// creates - and the NFT address's own row, which the return deletes.
+		// creates. The NFT address's own row is deleted by the return.
 		var custom = Estimate(NativeFeeKind.BurnNonFungible, V2Config(), Burn(new InfusedAsset { TokenId = 97 }));
 		(custom.ExpectedGasBill - empty.ExpectedGasBill).ShouldBe(20UL * 10_000);
 		custom.NewStorageQuanta.ShouldBe(empty.NewStorageQuanta + 1);
@@ -431,14 +458,15 @@ public class NativeFeeEstimatorTests
 		Estimate(NativeFeeKind.BurnNonFungible, V2Config(), Burn(new InfusedAsset()))
 			.NewStorageQuanta.ShouldBe(empty.NewStorageQuanta + 1);
 
-		// Two instances of an NFT token: the instance query, two transfers, the lookup; a balance row
+		// Two instances of an NFT token cost the instance query, two transfers and the lookup. A
+		// balance row
 		// plus two moved lookup rows created, the NFT address's balance row and two lookups deleted.
 		var nft = Estimate(NativeFeeKind.BurnNonFungible, V2Config(), Burn(new InfusedAsset { TokenId = 9, NonFungible = true, InstanceCount = 2 }));
 		(nft.ExpectedGasBill - empty.ExpectedGasBill).ShouldBe(40UL * 10_000);
 		nft.NewStorageQuanta.ShouldBe(empty.NewStorageQuanta + 3);
 		nft.DeletedStorageQuanta.ShouldBe(empty.DeletedStorageQuanta + 3);
 
-		// The live combination: KCAL, a held custom token and one NFT - seventy units.
+		// The live combination is KCAL, a held custom token and one NFT. That is seventy units.
 		var all = Estimate(NativeFeeKind.BurnNonFungible, V2Config(), Burn(
 			new InfusedAsset { TokenId = 1 },
 			new InfusedAsset { TokenId = 97, BurnerHoldsToken = true },
@@ -491,7 +519,8 @@ public class NativeFeeEstimatorTests
 		(assumed.MaxData - without.MaxData).ShouldBe(V2Config().dataEscrowPerRow);
 	}
 
-	// Same flag, same default on a burn - it keeps the deleted rows mirroring what the mint wrote -
+	// The same flag has the same default on a burn. It keeps the deleted rows mirroring what the mint
+	// wrote.
 	// but there it moves a reported number and nothing else. Deleted rows are refunded, MaxData
 	// covers only the rows an operation CREATES, and a burn always deletes more than it creates, so
 	// the block-data term floors at zero whichever way the flag goes. This pins both halves: the
@@ -516,8 +545,9 @@ public class NativeFeeEstimatorTests
 		assumed.NewStorageQuanta.ShouldBe(without.NewStorageQuanta + 1);
 	}
 
-	// The supply row disappears when its balance reaches exactly zero - a limited token fully in
-	// circulation, an unlimited one with nothing outstanding - and the next mint or burn recreates
+	// The supply row disappears when its balance reaches exactly zero. That happens to a limited token
+	// fully in circulation and to an unlimited one with nothing outstanding. The next mint or burn
+	// then recreates
 	// it. Unstated, every mint and burn prices that recreation: one quantum in the bill and the
 	// escrow ceiling. Transfers never touch the row, and the chain's own gas and data tokens are
 	// free rows, so neither moves with the flag.
@@ -538,7 +568,7 @@ public class NativeFeeEstimatorTests
 			assumed.NewStorageQuanta.ShouldBe(inPlace.NewStorageQuanta + 1);
 			(assumed.MaxData - inPlace.MaxData).ShouldBe(V2Config().dataEscrowPerRow);
 			// An NFT burn deletes more quanta than it creates, so its block-data term floors at zero
-			// either way and only the escrow ceiling moves; everywhere else the bill moves too.
+			// either way and only the escrow ceiling moves. Everywhere else the bill moves too.
 			(assumed.ExpectedGasBill - inPlace.ExpectedGasBill).ShouldBe(kind == NativeFeeKind.BurnNonFungible ? 0UL : 25UL * 10_000);
 		}
 
@@ -607,7 +637,8 @@ public class NativeFeeEstimatorTests
 			.ExpectedGasBill.ShouldBe(config.minimumGasBill);
 	}
 
-	// A VM script has no closed-form bill; the estimate is a budget of work units, event bytes and
+	// No formula gives the bill of a VM script. The estimate is a budget of work units, event bytes
+	// and
 	// storage quanta that a caller sizes, not a prediction.
 	[Fact]
 	public void Budgets_a_VM_allowance_for_scripts()
@@ -638,8 +669,8 @@ public class NativeFeeEstimatorTests
 		NativeFeeEstimator.PhantasmaCanonicalRomBytes(182).ShouldBe(400u);
 	}
 
-	// The chain's length-halved policy fee is defined up to 64 characters; longer names and symbols
-	// have no offline price, so the calculator refuses instead of quoting one. A length the chain
+	// The chain's length-halved policy fee is defined up to 64 characters. A longer name or symbol has
+	// no offline price, so the calculator refuses and quotes nothing. A length the chain
 	// itself could never admit is refused on that ground first.
 	[Fact]
 	public void Refuses_to_price_a_name_or_symbol_past_the_length_the_chain_can_shift()

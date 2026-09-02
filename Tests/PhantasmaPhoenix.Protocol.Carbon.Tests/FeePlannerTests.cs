@@ -191,6 +191,40 @@ public class FeePlannerTests
 		plan.NewStorageQuanta.ShouldBe(5u);
 	}
 
+	// Staking metadata costs a token creation lookups the plan reads out of the same struct: a
+	// staking organisation is looked up and a reward token is read, one query fee each.
+	[Fact]
+	public void Counts_the_lookups_the_staking_metadata_costs()
+	{
+		byte[] Metadata(params VmNamedDynamicVariable[] extra)
+		{
+			var fields = new List<VmNamedDynamicVariable>
+			{
+				new() { name = new SmallString("name"), value = new VmDynamicVariable("Plan probe") },
+				new() { name = new SmallString("icon"), value = new VmDynamicVariable("data:image/png;base64,iVBORw0KGgo=") },
+				new() { name = new SmallString("url"), value = new VmDynamicVariable("https://example.invalid/p") },
+				new() { name = new SmallString("description"), value = new VmDynamicVariable("x") }
+			};
+			fields.AddRange(extra);
+			fields.Sort((a, b) => a.name.CompareTo(b.name));
+			return CarbonBlob.Serialize(new VmDynamicStruct { fields = fields.ToArray() });
+		}
+		FeePlan PlanOf(byte[] metadata) =>
+			FeePlanner.Plan(TokenCall(TokenContract_Methods.CreateToken, CarbonBlob.Serialize(TokenInfo(false, metadata))), Config, OneWitness);
+		var policy = 100_000_000_000_000UL + (100_000_000_000_000UL >> 2); // 3-char symbol
+
+		var plain = PlanOf(Metadata());
+		plain.ExpectedGasBill.ShouldBe(Bill(0, plain.EnvelopeBytes + 3 + 8, policy));
+		var org = PlanOf(Metadata(new VmNamedDynamicVariable { name = StandardMeta.Token.staking_org_id, value = new VmDynamicVariable(3L) }));
+		org.ExpectedGasBill.ShouldBe(Bill(10, org.EnvelopeBytes + 3 + 8, policy));
+		var reward = PlanOf(Metadata(new VmNamedDynamicVariable { name = StandardMeta.Token.staking_reward_token, value = new VmDynamicVariable(97L) }));
+		reward.ExpectedGasBill.ShouldBe(Bill(10, reward.EnvelopeBytes + 3 + 8, policy));
+		var both = PlanOf(Metadata(
+			new VmNamedDynamicVariable { name = StandardMeta.Token.staking_org_id, value = new VmDynamicVariable(3L) },
+			new VmNamedDynamicVariable { name = StandardMeta.Token.staking_reward_token, value = new VmDynamicVariable(97L) }));
+		both.ExpectedGasBill.ShouldBe(Bill(20, both.EnvelopeBytes + 3 + 8, policy));
+	}
+
 	[Fact]
 	public void Reads_the_series_being_created_out_of_the_call()
 	{

@@ -140,6 +140,12 @@ public sealed class NativeFeeParams
 	/// <summary>The token metadata carries an inflation schedule (CreateToken): the next-inflation row is created.</summary>
 	public bool HasInflationSchedule { get; set; }
 
+	/// <summary>The token metadata names a staking organisation (CreateToken): the creation looks the organisation up, one query fee.</summary>
+	public bool HasStakingOrganisation { get; set; }
+
+	/// <summary>The token metadata names a staking reward token (CreateToken): the creation reads that token's info, one query fee.</summary>
+	public bool HasStakingRewardToken { get; set; }
+
 	/// <summary>Serialized <c>SeriesInfo</c> length (CreateTokenSeries) - the Call arguments after the token id.</summary>
 	public uint SeriesInfoBytes { get; set; }
 
@@ -606,8 +612,11 @@ public static class NativeFeeEstimator
 					var basePrice = v2 ? config.policyFeeCreateTokenBase : config.gasFeeCreateTokenBase;
 					var symbolPrice = hasSymbol ? (v2 ? config.policyFeeCreateTokenSymbol : config.gasFeeCreateTokenSymbol) >> shift : 0;
 					var price = SaturatingAdd(basePrice, symbolPrice);
+					// Validating the metadata looks up a staking organisation it names and reads a reward
+					// token it names: one query fee each, on top of the policy fee.
+					var metadataQueries = SaturatingMul(config.gasFeeQuery, (p.HasStakingOrganisation ? 1UL : 0UL) + (p.HasStakingRewardToken ? 1UL : 0UL));
 					return new OperationModel(
-						v2 ? 0 : price,
+						SaturatingAdd(v2 ? 0 : price, metadataQueries),
 						v2 ? price : 0,
 						8, // the new token id, u64
 						quanta,

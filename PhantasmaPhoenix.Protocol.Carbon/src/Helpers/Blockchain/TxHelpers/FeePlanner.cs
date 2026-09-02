@@ -276,15 +276,17 @@ public static class FeePlanner
 							: (VmDynamicStruct?)null;
 						// The token-info row is the Call arguments as submitted: the chain stores the
 						// TokenInfo it was given, metadata included, and measured bills confirm the row equals
-						// the arguments. Which extra rows the creation writes is decided by the metadata, which
-						// is a named struct the plan can read.
+						// the arguments. Which extra rows the creation writes, and which lookups validating it
+						// costs, is decided by the metadata, which is a named struct the plan can read.
 						return (NativeFeeKind.CreateToken, new NativeFeeParams
 						{
 							SymbolLength = info.symbol.data?.Length ?? 0,
 							TokenInfoBytes = (uint)call.args.Length,
 							NonFungible = (info.flags & TokenFlags.NonFungible) != 0,
 							HasPreBurn = metadata?.GetValue(StandardMeta.Token.pre_burn) != null,
-							HasInflationSchedule = metadata?.GetValue(StandardMeta.Token.inflation_period) != null
+							HasInflationSchedule = metadata?.GetValue(StandardMeta.Token.inflation_period) != null,
+							HasStakingOrganisation = metadata?.GetValue(StandardMeta.Token.staking_org_id) != null,
+							HasStakingRewardToken = metadata?.GetValue(StandardMeta.Token.staking_reward_token) != null
 						});
 					}
 				case TokenContract_Methods.CreateTokenSeries:
