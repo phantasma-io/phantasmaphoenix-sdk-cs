@@ -39,13 +39,18 @@ public static class CreateTokenTxHelper
 		return BuildTxAndSign(tokenInfo, signer, feeOptions, maxData, expiry).ToHex();
 	}
 
+	/// <summary>
+	/// The token id the creation returned. Token.CreateToken answers with a u64, and a token id is a
+	/// ulong everywhere else in the SDK - reading only its low half would return a wrong id rather
+	/// than fail.
+	/// </summary>
 	public static ulong ParseResult(string resultHex)
 	{
 		ulong carbonTokenId;
-		using (var s = new MemoryStream(Base16.Decode(resultHex)))
+		using (var s = new MemoryStream(Base16.Decode(resultHex) ?? Array.Empty<byte>()))
 		using (var r = new BinaryReader(s))
 		{
-			BinaryStreamExt.Read4(r, out carbonTokenId);
+			BinaryStreamExt.Read8(r, out carbonTokenId);
 		}
 
 		return carbonTokenId;
