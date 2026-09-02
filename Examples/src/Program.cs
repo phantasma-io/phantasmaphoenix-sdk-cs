@@ -105,6 +105,13 @@ class Program
 							break;
 						}
 					case 11: await Example11_SeedPhrase.Run(); break;
+					case 12:
+						{
+							await InitPrivateKey();
+							var destination = EnvOrAsk("DEST_PUBLIC_KEY", "Enter destination public key (32 bytes, hex): ");
+							await Example12_CarbonTransferFeePlan.Run(api, keys!, destination);
+							break;
+						}
 					default:
 						Console.WriteLine("Unknown choice");
 						break;
@@ -160,7 +167,8 @@ class Program
 		Console.WriteLine("  8  = UnstakeSoul");
 		Console.WriteLine("  9  = ClaimKcal");
 		Console.WriteLine("  10 = WaitIncomingTx (scan blocks)");
-		Console.WriteLine("  11  = SeedPhrase");
+		Console.WriteLine("  11 = SeedPhrase");
+		Console.WriteLine("  12 = CarbonTransferFeePlan (plan a native transfer's fee, no send)");
 		Console.WriteLine("  0  = Exit");
 	}
 }
