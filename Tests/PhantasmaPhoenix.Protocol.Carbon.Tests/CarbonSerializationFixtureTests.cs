@@ -212,12 +212,8 @@ public class CarbonSerializationFixtureTests
 					var txSender = PhantasmaKeys.FromWIF(wif);
 					var txSenderPubKey = new Bytes32(txSender.PublicKey);
 
-					var feeOptions = new CreateTokenFeeOptions(
-						gasFeeBase,
-						gasFeeCreateTokenBase,
-						gasFeeCreateTokenSymbol,
-						feeMultiplier
-					);
+					// The vector pins the gas-model-v1 offer the SDK used to compute from fee constants.
+					var expectedMaxGas = (gasFeeBase + gasFeeCreateTokenBase + (gasFeeCreateTokenSymbol >> (symbol.Length - 1))) * feeMultiplier;
 
 					var tx = (TxMsg)decoded!;
 					tx.type.ShouldBe(TxTypes.Call);
@@ -249,7 +245,6 @@ public class CarbonSerializationFixtureTests
 					var schemas = CarbonBlob.New<TokenSchemas>(tokenInfo.tokenSchemas);
 					ExpectStandardTokenSchemas(schemas);
 
-					var expectedMaxGas = feeOptions.CalculateMaxGas(tokenInfo.symbol);
 					tx.maxGas.ShouldBe(expectedMaxGas);
 
 					ExpectReencoded(tx, row.Hex);
@@ -268,11 +263,7 @@ public class CarbonSerializationFixtureTests
 					var txSenderPubKey = new Bytes32(txSender.PublicKey);
 					var newPhantasmaSeriesId = (BigInteger.One << 256) - 1;
 
-					var feeOptions = new CreateSeriesFeeOptions(
-						gasFeeBase,
-						gasFeeCreateTokenSeries,
-						feeMultiplier
-					);
+					var expectedMaxGas = (gasFeeBase + gasFeeCreateTokenSeries) * feeMultiplier;
 
 					var tx = (TxMsg)decoded!;
 					tx.type.ShouldBe(TxTypes.Call);
@@ -304,7 +295,6 @@ public class CarbonSerializationFixtureTests
 					ExpectStructInt8(seriesMeta, "mode", 0);
 					ExpectStructBytes(seriesMeta, "rom", Array.Empty<byte>());
 
-					var expectedMaxGas = feeOptions.CalculateMaxGas();
 					tx.maxGas.ShouldBe(expectedMaxGas);
 
 					ExpectReencoded(tx, row.Hex);
@@ -325,7 +315,7 @@ public class CarbonSerializationFixtureTests
 					BigInteger phantasmaId = (BigInteger.One << 256) - 1;
 					byte[] phantasmaRomData = { 0x01, 0x42 };
 
-					var feeOptions = new MintNftFeeOptions(gasFeeBase, feeMultiplier);
+					var expectedMaxGas = gasFeeBase * feeMultiplier;
 
 					var tx = (TxMsg)decoded!;
 					tx.type.ShouldBe(TxTypes.MintNonFungible);
@@ -350,7 +340,6 @@ public class CarbonSerializationFixtureTests
 					ExpectStructString(romStruct, "infoURL", "https://images.nasa.gov/details/PIA13227");
 					ExpectStructInt32(romStruct, "royalties", 10000000);
 
-					var expectedMaxGas = feeOptions.CalculateMaxGas();
 					tx.maxGas.ShouldBe(expectedMaxGas);
 
 					ExpectReencoded(tx, row.Hex);
@@ -689,19 +678,13 @@ public class CarbonSerializationFixtureTests
 			TokenSchemasBuilder.BuildAndSerialize(null)
 		);
 
-		var feeOptions = new CreateTokenFeeOptions(
-			gasFeeBase,
-			gasFeeCreateTokenBase,
-			gasFeeCreateTokenSymbol,
-			feeMultiplier
-		);
+		// The vector pins the gas-model-v1 offer the SDK used to compute from fee constants.
+		var maxGas = (gasFeeBase + gasFeeCreateTokenBase + (gasFeeCreateTokenSymbol >> (symbol.Length - 1))) * feeMultiplier;
 
 		return CreateTokenTxHelper.BuildTx(
 			tokenInfo,
 			txSenderPubKey,
-			feeOptions,
-			maxData,
-			1759711416000
+			new TxLimits { MaxGas = maxGas, MaxData = maxData, Expiry = 1759711416000 }
 		);
 	}
 
@@ -726,19 +709,13 @@ public class CarbonSerializationFixtureTests
 			txSenderPubKey
 		);
 
-		var feeOptions = new CreateSeriesFeeOptions(
-			gasFeeBase,
-			gasFeeCreateTokenSeries,
-			feeMultiplier
-		);
+		var maxGas = (gasFeeBase + gasFeeCreateTokenSeries) * feeMultiplier;
 
 		return CreateTokenSeriesTxHelper.BuildTx(
 			tokenId,
 			seriesInfo,
 			txSenderPubKey,
-			feeOptions,
-			maxData,
-			1759711416000
+			new TxLimits { MaxGas = maxGas, MaxData = maxData, Expiry = 1759711416000 }
 		);
 	}
 
@@ -769,19 +746,25 @@ public class CarbonSerializationFixtureTests
 
 		var rom = NftRomBuilder.BuildAndSerialize(tokenSchemas.rom, phantasmaId, metadataFields);
 
-		var feeOptions = new MintNftFeeOptions(gasFeeBase, feeMultiplier);
-
-		return MintNonFungibleTxHelper.BuildTx(
-			carbonTokenId,
-			carbonSeriesId,
-			new Bytes32(txSender.PublicKey),
-			new Bytes32(txSender.PublicKey),
-			rom,
-			Array.Empty<byte>(),
-			feeOptions,
-			maxData,
-			1759711416000
-		);
+		// The SDK ships no builder for the native NFT mint (the chain's token config disables the
+		// operation), so the vector is the raw wire message with the gas-model-v1 offer it always had.
+		return new TxMsg
+		{
+			type = TxTypes.MintNonFungible,
+			expiry = 1759711416000,
+			maxGas = gasFeeBase * feeMultiplier,
+			maxData = maxData,
+			gasFrom = new Bytes32(txSender.PublicKey),
+			payload = SmallString.Empty,
+			msg = new TxMsgMintNonFungible
+			{
+				tokenId = carbonTokenId,
+				seriesId = carbonSeriesId,
+				to = new Bytes32(txSender.PublicKey),
+				rom = rom,
+				ram = Array.Empty<byte>()
+			}
+		};
 	}
 
 	private static void ExpectReencoded<T>(T value, string expectedHex) where T : ICarbonBlob, new()

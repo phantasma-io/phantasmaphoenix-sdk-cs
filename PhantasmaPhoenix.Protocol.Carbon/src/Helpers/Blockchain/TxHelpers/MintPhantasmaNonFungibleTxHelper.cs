@@ -1,66 +1,44 @@
-using System.Numerics;
 using PhantasmaPhoenix.Core.Extensions;
 using PhantasmaPhoenix.Cryptography;
 using PhantasmaPhoenix.Protocol.Carbon.Blockchain.Modules;
 
 namespace PhantasmaPhoenix.Protocol.Carbon.Blockchain.TxHelpers;
 
+/// <summary>A deterministic Phantasma NFT mint. It is one call with one recipient and one entry per
+/// minted instance.</summary>
+public sealed class PhantasmaNftMintParams
+{
+	public ulong TokenId { get; set; }
+
+	/// <summary>The account that pays the gas and signs the mint.</summary>
+	public Bytes32 Sender { get; set; }
+
+	/// <summary>The account that receives every instance this call mints.</summary>
+	public Bytes32 To { get; set; }
+
+	/// <summary>
+	/// One entry per instance. Each entry names the Phantasma series the instance is minted into and
+	/// carries the public ROM. Instances of several series may share one call. A single mint passes one
+	/// entry.
+	/// </summary>
+	public PhantasmaNftMintInfo[] Tokens { get; set; } = Array.Empty<PhantasmaNftMintInfo>();
+}
+
 public static class MintPhantasmaNonFungibleTxHelper
 {
-	public static TxMsg BuildTx(
-		ulong tokenId,
-		BigInteger phantasmaSeriesId,
-		Bytes32 senderPublicKey,
-		Bytes32 receiverPublicKey,
-		byte[] publicRom,
-		byte[]? ram,
-		MintNftFeeOptions? feeOptions = null,
-		ulong? maxData = null,
-		long? expiry = null)
+	/// <summary>Builds the Token.MintPhantasmaNonFungible call. Fees are planned from the message
+	/// afterwards.</summary>
+	public static TxMsg BuildTx(PhantasmaNftMintParams p, TxLimits? limits = null)
 	{
-		return BuildTx(
-			tokenId,
-			senderPublicKey,
-			receiverPublicKey,
-			new[]
-			{
-				new PhantasmaNftMintInfo
-				{
-					phantasmaSeriesId = new IntX(phantasmaSeriesId),
-					rom = publicRom,
-					ram = ram ?? Array.Empty<byte>()
-				}
-			},
-			feeOptions,
-			maxData,
-			expiry);
-	}
+		if (p == null) throw new ArgumentNullException(nameof(p));
+		if (p.Tokens == null || p.Tokens.Length == 0)
+			throw new ArgumentException("Tokens must not be empty", nameof(p));
 
-	public static TxMsg BuildTx(
-		ulong tokenId,
-		Bytes32 senderPublicKey,
-		Bytes32 receiverPublicKey,
-		PhantasmaNftMintInfo[] tokens,
-		MintNftFeeOptions? feeOptions = null,
-		ulong? maxData = null,
-		long? expiry = null)
-	{
-		if (tokens == null)
-		{
-			throw new ArgumentNullException(nameof(tokens));
-		}
-
-		// Match the raw mint fee calculation. This helper only packages the Token.Call ABI surface.
-		var fees = feeOptions ?? new MintNftFeeOptions();
-		ulong maxGas = fees.CalculateMaxGas(tokens.Length);
-
-		return new TxMsg
+		// This helper only packages the Token.Call ABI surface.
+		return TxLimits.Apply(new TxMsg
 		{
 			type = TxTypes.Call,
-			expiry = expiry ?? DateTimeOffset.UtcNow.AddSeconds(60).ToUnixTimeMilliseconds(),
-			maxGas = maxGas,
-			maxData = maxData ?? 0,
-			gasFrom = senderPublicKey,
+			gasFrom = p.Sender,
 			payload = SmallString.Empty,
 			msg = new TxMsgCall
 			{
@@ -68,68 +46,27 @@ public static class MintPhantasmaNonFungibleTxHelper
 				methodId = (uint)TokenContract_Methods.MintPhantasmaNonFungible,
 				args = CarbonBlob.Serialize(new MintPhantasmaNonFungibleArgs
 				{
-					tokenId = tokenId,
-					address = receiverPublicKey,
-					tokens = tokens
+					tokenId = p.TokenId,
+					address = p.To,
+					tokens = (PhantasmaNftMintInfo[])p.Tokens.Clone()
 				})
 			}
-		};
+		}, limits);
 	}
 
-	public static byte[] BuildTxAndSign(
-		ulong tokenId,
-		BigInteger phantasmaSeriesId,
-		PhantasmaKeys signer,
-		Bytes32 receiverPublicKey,
-		byte[] publicRom,
-		byte[]? ram,
-		MintNftFeeOptions? feeOptions = null,
-		ulong? maxData = null,
-		long? expiry = null)
+	/// <summary>
+	/// Builds the call, plans it against <paramref name="config"/>, signs it with in-memory keys and
+	/// returns the envelope bytes. The signer must be <c>p.Sender</c>.
+	/// </summary>
+	public static byte[] BuildTxAndSign(PhantasmaNftMintParams p, PhantasmaKeys signer, in GasConfig config, PlanAndSignOptions? options = null)
 	{
-		var senderPub = new Bytes32(signer.PublicKey);
-		var tx = BuildTx(tokenId, phantasmaSeriesId, senderPub, receiverPublicKey, publicRom, ram, feeOptions, maxData, expiry);
-		return TxMsgSigner.Sign(tx, signer);
+		var tx = BuildTx(p, options?.Limits);
+		return PlanAndSign.WithKeys(tx, new IKeyPair[] { signer }, config, options);
 	}
 
-	public static byte[] BuildTxAndSign(
-		ulong tokenId,
-		PhantasmaNftMintInfo[] tokens,
-		PhantasmaKeys signer,
-		Bytes32 receiverPublicKey,
-		MintNftFeeOptions? feeOptions = null,
-		ulong? maxData = null,
-		long? expiry = null)
+	public static string BuildTxAndSignHex(PhantasmaNftMintParams p, PhantasmaKeys signer, in GasConfig config, PlanAndSignOptions? options = null)
 	{
-		var senderPub = new Bytes32(signer.PublicKey);
-		var tx = BuildTx(tokenId, senderPub, receiverPublicKey, tokens, feeOptions, maxData, expiry);
-		return TxMsgSigner.Sign(tx, signer);
-	}
-
-	public static string BuildTxAndSignHex(
-		ulong tokenId,
-		BigInteger phantasmaSeriesId,
-		PhantasmaKeys signer,
-		Bytes32 receiverPublicKey,
-		byte[] publicRom,
-		byte[]? ram,
-		MintNftFeeOptions? feeOptions = null,
-		ulong? maxData = null,
-		long? expiry = null)
-	{
-		return BuildTxAndSign(tokenId, phantasmaSeriesId, signer, receiverPublicKey, publicRom, ram, feeOptions, maxData, expiry).ToHex();
-	}
-
-	public static string BuildTxAndSignHex(
-		ulong tokenId,
-		PhantasmaNftMintInfo[] tokens,
-		PhantasmaKeys signer,
-		Bytes32 receiverPublicKey,
-		MintNftFeeOptions? feeOptions = null,
-		ulong? maxData = null,
-		long? expiry = null)
-	{
-		return BuildTxAndSign(tokenId, tokens, signer, receiverPublicKey, feeOptions, maxData, expiry).ToHex();
+		return BuildTxAndSign(p, signer, config, options).ToHex();
 	}
 
 	public static PhantasmaNftMintResult[] ParseResult(string resultHex)

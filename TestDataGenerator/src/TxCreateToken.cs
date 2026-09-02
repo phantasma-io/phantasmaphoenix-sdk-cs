@@ -38,18 +38,14 @@ public static partial class TxGenerators
 			TokenMetadataBuilder.BuildAndSerialize(fields),
 			TokenSchemasBuilder.BuildAndSerialize(null));
 
-		var feeOptions = new CreateTokenFeeOptions(
-			gasFeeBase,
-			gasFeeCreateTokenBase,
-			gasFeeCreateTokenSymbol,
-			feeMultiplier
-		);
+		// The vector pins the gas-model-v1 offer the SDK used to compute from fee constants:
+		// (base + token price + symbol price halved per character after the first) x multiplier.
+		var symbolShift = symbol.Length > 0 ? symbol.Length - 1 : 0;
+		var maxGas = (gasFeeBase + gasFeeCreateTokenBase + (gasFeeCreateTokenSymbol >> symbolShift)) * feeMultiplier;
 
 		var tx = CreateTokenTxHelper.BuildTx(tokenInfo,
 			txSenderPubKey,
-			feeOptions,
-			maxData,
-			1759711416000);
+			new TxLimits { MaxGas = maxGas, MaxData = maxData, Expiry = 1759711416000 });
 
 		return CarbonBlob.Serialize(tx).ToHex();
 	}

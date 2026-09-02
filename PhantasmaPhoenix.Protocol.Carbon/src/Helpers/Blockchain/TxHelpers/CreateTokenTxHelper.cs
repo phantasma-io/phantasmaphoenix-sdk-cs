@@ -6,17 +6,12 @@ namespace PhantasmaPhoenix.Protocol.Carbon.Blockchain.TxHelpers;
 
 public static class CreateTokenTxHelper
 {
-	public static TxMsg BuildTx(TokenInfo tokenInfo, Bytes32 creatorPublicKey, CreateTokenFeeOptions? feeOptions = null, ulong? maxData = null, long? expiry = null)
+	/// <summary>Builds the Token.CreateToken call. Fees are planned from the message afterwards.</summary>
+	public static TxMsg BuildTx(TokenInfo tokenInfo, Bytes32 creatorPublicKey, TxLimits? limits = null)
 	{
-		var fees = feeOptions ?? new CreateTokenFeeOptions();
-		ulong maxGas = fees.CalculateMaxGas(tokenInfo.symbol);
-
-		return new TxMsg
+		return TxLimits.Apply(new TxMsg
 		{
 			type = TxTypes.Call,
-			expiry = expiry ?? DateTimeOffset.UtcNow.AddSeconds(60).ToUnixTimeMilliseconds(),
-			maxGas = maxGas,
-			maxData = maxData ?? 0,
 			gasFrom = creatorPublicKey,
 			payload = SmallString.Empty,
 			msg = new TxMsgCall
@@ -25,24 +20,26 @@ public static class CreateTokenTxHelper
 				methodId = (uint)TokenContract_Methods.CreateToken,
 				args = CarbonBlob.Serialize(tokenInfo)
 			}
-		};
+		}, limits);
 	}
 
-	public static byte[] BuildTxAndSign(TokenInfo tokenInfo, PhantasmaKeys signer, CreateTokenFeeOptions? feeOptions = null, ulong? maxData = null, long? expiry = null)
+	/// <summary>Builds the call, plans it against <paramref name="config"/>, signs it with in-memory
+	/// keys and returns the envelope bytes.</summary>
+	public static byte[] BuildTxAndSign(TokenInfo tokenInfo, PhantasmaKeys signer, in GasConfig config, PlanAndSignOptions? options = null)
 	{
-		var tx = BuildTx(tokenInfo, new Bytes32(signer.PublicKey), feeOptions, maxData, expiry);
-		return TxMsgSigner.Sign(tx, signer);
+		var tx = BuildTx(tokenInfo, new Bytes32(signer.PublicKey), options?.Limits);
+		return PlanAndSign.WithKeys(tx, new IKeyPair[] { signer }, config, options);
 	}
 
-	public static string BuildTxAndSignHex(TokenInfo tokenInfo, PhantasmaKeys signer, CreateTokenFeeOptions? feeOptions = null, ulong? maxData = null, long? expiry = null)
+	public static string BuildTxAndSignHex(TokenInfo tokenInfo, PhantasmaKeys signer, in GasConfig config, PlanAndSignOptions? options = null)
 	{
-		return BuildTxAndSign(tokenInfo, signer, feeOptions, maxData, expiry).ToHex();
+		return BuildTxAndSign(tokenInfo, signer, config, options).ToHex();
 	}
 
 	/// <summary>
 	/// The token id the creation returned. Token.CreateToken answers with a u64, and a token id is a
-	/// ulong everywhere else in the SDK - reading only its low half would return a wrong id rather
-	/// than fail.
+	/// ulong everywhere else in the SDK. Reading only its low half would return a wrong id and would
+	/// not fail.
 	/// </summary>
 	public static ulong ParseResult(string resultHex)
 	{

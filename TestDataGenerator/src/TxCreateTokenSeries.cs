@@ -26,18 +26,13 @@ public static partial class TxGenerators
 			0,
 			txSenderPubKey);
 
-		var feeOptions = new CreateSeriesFeeOptions(
-			gasFeeBase,
-			gasFeeCreateTokenSeries,
-			feeMultiplier
-		);
+		// The vector pins the gas-model-v1 offer the SDK used to compute from fee constants.
+		var maxGas = (gasFeeBase + gasFeeCreateTokenSeries) * feeMultiplier;
 
 		var tx = CreateTokenSeriesTxHelper.BuildTx(tokenId,
 			seriesInfo,
 			txSenderPubKey,
-			feeOptions,
-			maxData,
-			1759711416000);
+			new TxLimits { MaxGas = maxGas, MaxData = maxData, Expiry = 1759711416000 });
 
 		return CarbonBlob.Serialize(tx).ToHex();
 	}

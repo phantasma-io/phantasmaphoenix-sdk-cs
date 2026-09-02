@@ -49,6 +49,8 @@ public class FeePlanOptions
 	/// <c>PhantasmaAPI.SendTransactionAsync</c> fills it in from the signers it was given.
 	/// </summary>
 	public int? WitnessCount { get; set; }
+
+	internal FeePlanOptions CloneOptions() => (FeePlanOptions)MemberwiseClone();
 }
 
 /// <summary>A fee plan for one message: the estimate, what it was computed from, and how to apply it.</summary>

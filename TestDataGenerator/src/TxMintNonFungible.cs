@@ -2,6 +2,7 @@ using System.Numerics;
 using PhantasmaPhoenix.Core.Extensions;
 using PhantasmaPhoenix.Cryptography;
 using PhantasmaPhoenix.Protocol.Carbon;
+using PhantasmaPhoenix.Protocol.Carbon.Blockchain;
 using PhantasmaPhoenix.Protocol.Carbon.Blockchain.Modules.Builders;
 using PhantasmaPhoenix.Protocol.Carbon.Blockchain.TxHelpers;
 
@@ -34,22 +35,25 @@ public static partial class TxGenerators
 
 		var rom = NftRomBuilder.BuildAndSerialize(tokenSchemas.rom, phantasmaId, metadataFields);
 
-		var feeOptions = new MintNftFeeOptions(
-			gasFeeBase,
-			feeMultiplier
-		);
-
-		var tx = MintNonFungibleTxHelper.BuildTx(
-			carbonTokenId,
-			carbonSeriesId,
-			new Bytes32(txSender.PublicKey),
-			new Bytes32(txSender.PublicKey),
-			rom,
-			Array.Empty<byte>(),
-			feeOptions,
-			maxData,
-			1759711416000
-		);
+		// The SDK ships no builder for the native NFT mint (the chain's token config disables the
+		// operation), so the vector is the raw wire message with the gas-model-v1 offer it always had.
+		var tx = new TxMsg
+		{
+			type = TxTypes.MintNonFungible,
+			expiry = 1759711416000,
+			maxGas = gasFeeBase * feeMultiplier,
+			maxData = maxData,
+			gasFrom = new Bytes32(txSender.PublicKey),
+			payload = SmallString.Empty,
+			msg = new TxMsgMintNonFungible
+			{
+				tokenId = carbonTokenId,
+				seriesId = carbonSeriesId,
+				to = new Bytes32(txSender.PublicKey),
+				rom = rom,
+				ram = Array.Empty<byte>()
+			}
+		};
 		return CarbonBlob.Serialize(tx).ToHex();
 	}
 }

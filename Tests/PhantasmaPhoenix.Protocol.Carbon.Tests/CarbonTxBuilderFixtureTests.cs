@@ -13,6 +13,14 @@ namespace PhantasmaPhoenix.Protocol.Carbon.Tests;
 
 public class CarbonTxBuilderFixtureTests
 {
+	// The vectors were generated with the SDK's former gas-model-v1 fee constants:
+	// (10,000 base + product fee) x multiplier. The offers are part of the pinned bytes, so they are
+	// reproduced here as the explicit limits the builders now take.
+	private const long VectorExpiry = 1759711416000;
+	private const ulong CreateTokenMaxGas = (10000UL + 10000000000UL + (10000000000UL >> 4)) * 10000; // 5-char symbol
+	private const ulong CreateSeriesMaxGas = (10000UL + 2500000000UL) * 10000;
+	private const ulong MintNftMaxGas = 10000UL * 1000;
+
 	private const string SamplePngIconDataUri =
 		"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
 
@@ -117,9 +125,7 @@ public class CarbonTxBuilderFixtureTests
 		return CreateTokenTxHelper.BuildTx(
 			tokenInfo,
 			senderPub,
-			new CreateTokenFeeOptions(10000, 10000000000, 10000000000, 10000),
-			100000000,
-			1759711416000);
+			new TxLimits { MaxGas = CreateTokenMaxGas, MaxData = 100000000, Expiry = VectorExpiry });
 	}
 
 	private static TxMsg BuildCreateTokenSeriesTx(Bytes32 senderPub)
@@ -135,9 +141,7 @@ public class CarbonTxBuilderFixtureTests
 			ulong.MaxValue,
 			seriesInfo,
 			senderPub,
-			new CreateSeriesFeeOptions(10000, 2500000000, 10000),
-			100000000,
-			1759711416000);
+			new TxLimits { MaxGas = CreateSeriesMaxGas, MaxData = 100000000, Expiry = VectorExpiry });
 	}
 
 	private static TxMsg BuildMintNonFungibleTx(Bytes32 senderPub)
@@ -148,16 +152,25 @@ public class CarbonTxBuilderFixtureTests
 			(BigInteger.One << 256) - 1,
 			NftMetadata(includeRawRom: true));
 
-		return MintNonFungibleTxHelper.BuildTx(
-			ulong.MaxValue,
-			uint.MaxValue,
-			senderPub,
-			senderPub,
-			rom,
-			Array.Empty<byte>(),
-			new MintNftFeeOptions(10000, 1000),
-			100000000,
-			1759711416000);
+		// Built as the raw wire message: the SDK ships no builder for the native NFT mint, which the
+		// chain's token config disables, but the wire type and its pinned bytes stay.
+		return new TxMsg
+		{
+			type = TxTypes.MintNonFungible,
+			expiry = VectorExpiry,
+			maxGas = MintNftMaxGas,
+			maxData = 100000000,
+			gasFrom = senderPub,
+			payload = SmallString.Empty,
+			msg = new TxMsgMintNonFungible
+			{
+				tokenId = ulong.MaxValue,
+				seriesId = uint.MaxValue,
+				to = senderPub,
+				rom = rom,
+				ram = Array.Empty<byte>()
+			}
+		};
 	}
 
 	private static TxMsg BuildMintPhantasmaNonFungibleTx(Bytes32 senderPub, Bytes32 receiverPub)
@@ -166,15 +179,22 @@ public class CarbonTxBuilderFixtureTests
 		var publicRom = PhantasmaNftRomBuilder.BuildAndSerialize(schemas.rom, NftMetadata(includeRawRom: false));
 
 		return MintPhantasmaNonFungibleTxHelper.BuildTx(
-			42,
-			(BigInteger.One << 255) - 1,
-			senderPub,
-			receiverPub,
-			publicRom,
-			Array.Empty<byte>(),
-			new MintNftFeeOptions(10000, 1000),
-			123,
-			1759711416000);
+			new PhantasmaNftMintParams
+			{
+				TokenId = 42,
+				Sender = senderPub,
+				To = receiverPub,
+				Tokens = new[]
+				{
+					new PhantasmaNftMintInfo
+					{
+						phantasmaSeriesId = new IntX((BigInteger.One << 255) - 1),
+						rom = publicRom,
+						ram = Array.Empty<byte>()
+					}
+				}
+			},
+			new TxLimits { MaxGas = MintNftMaxGas, MaxData = 123, Expiry = VectorExpiry });
 	}
 
 	private static MetadataField[] NftMetadata(bool includeRawRom)

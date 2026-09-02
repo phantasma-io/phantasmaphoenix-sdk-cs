@@ -42,17 +42,22 @@ public class PhantasmaSafeMintTests
 		var rom = PhantasmaNftRomBuilder.BuildAndSerialize(tokenSchemas.rom, BuildMetadataFields());
 
 		var tx = MintPhantasmaNonFungibleTxHelper.BuildTx(
-			tokenId: 42,
-			phantasmaSeriesId: new BigInteger(777),
-			senderPublicKey: Sender,
-			receiverPublicKey: Receiver,
-			publicRom: rom,
-			ram: Array.Empty<byte>(),
-			feeOptions: new MintNftFeeOptions(),
-			maxData: 123,
-			expiry: 999);
+			new PhantasmaNftMintParams
+			{
+				TokenId = 42,
+				Sender = Sender,
+				To = Receiver,
+				Tokens = new[]
+				{
+					new PhantasmaNftMintInfo { phantasmaSeriesId = new IntX(new BigInteger(777)), rom = rom, ram = Array.Empty<byte>() }
+				}
+			},
+			new TxLimits { MaxData = 123, Expiry = 999 });
 
 		tx.type.ShouldBe(TxTypes.Call);
+		tx.gasFrom.Equals(Sender).ShouldBeTrue();
+		tx.expiry.ShouldBe(999);
+		tx.maxData.ShouldBe(123UL);
 		var call = (TxMsgCall)tx.msg;
 		call.moduleId.ShouldBe((uint)ModuleId.Token);
 		call.methodId.ShouldBe((uint)TokenContract_Methods.MintPhantasmaNonFungible);
@@ -66,44 +71,34 @@ public class PhantasmaSafeMintTests
 		decoded.tokens[0].ram.ShouldBeEmpty();
 	}
 
+	// The builder assembles the message only: without a MaxGas the offer stays zero, which marks the
+	// message as not yet planned, and every instance the caller passed is carried whatever the limits
+	// are. The fee is planned from these arguments afterwards, so a builder that dropped or merged an
+	// instance would produce an offer for a cheaper transaction than the one being sent.
 	[Fact]
-	public void FeeOptions_scale_only_count_sensitive_mint_fees()
-	{
-		var baseFees = new FeeOptions(10, 1_000);
-		baseFees.CalculateMaxGas().ShouldBe(10_000UL);
-		baseFees.CalculateMaxGas(3).ShouldBe(30_000UL);
-
-		var seriesFees = new CreateSeriesFeeOptions(10, 20, 30);
-		IFeeOptions seriesLike = seriesFees;
-		seriesFees.CalculateMaxGas().ShouldBe(900UL);
-		seriesLike.CalculateMaxGas(1).ShouldBe(900UL);
-		Should.Throw<ArgumentOutOfRangeException>(() => seriesLike.CalculateMaxGas(2));
-
-		var mintFees = new MintNftFeeOptions(10, 1_000);
-		mintFees.CalculateMaxGas().ShouldBe(10_000UL);
-		mintFees.CalculateMaxGas(3).ShouldBe(30_000UL);
-		mintFees.CalculateMaxGas(BuildMintInfos(3, Array.Empty<byte>())).ShouldBe(30_000UL);
-		Should.Throw<ArgumentOutOfRangeException>(() => mintFees.CalculateMaxGas(Array.Empty<PhantasmaNftMintInfo>()));
-	}
-
-	[Fact]
-	public void MintPhantasmaNonFungibleTxHelper_scales_max_gas_by_token_count()
+	public void MintPhantasmaNonFungibleTxHelper_leaves_the_offer_unplanned_unless_limits_are_given()
 	{
 		var tokens = BuildMintInfos(3, new byte[] { 0xAA });
 
-		var tx = MintPhantasmaNonFungibleTxHelper.BuildTx(
-			tokenId: 42,
-			senderPublicKey: Sender,
-			receiverPublicKey: Receiver,
-			tokens: tokens,
-			feeOptions: new MintNftFeeOptions(10, 1_000),
-			maxData: 123,
-			expiry: 999);
+		var unplanned = MintPhantasmaNonFungibleTxHelper.BuildTx(new PhantasmaNftMintParams { TokenId = 42, Sender = Sender, To = Receiver, Tokens = tokens });
+		unplanned.maxGas.ShouldBe(0UL);
+		unplanned.maxData.ShouldBe(0UL);
 
-		tx.maxGas.ShouldBe(30_000UL);
-		var call = (TxMsgCall)tx.msg;
-		var decoded = CarbonBlob.New<MintPhantasmaNonFungibleArgs>(call.args);
-		decoded.tokens.Length.ShouldBe(3);
+		var limited = MintPhantasmaNonFungibleTxHelper.BuildTx(
+			new PhantasmaNftMintParams { TokenId = 42, Sender = Sender, To = Receiver, Tokens = tokens },
+			new TxLimits { MaxGas = 20_000, MaxData = 123, Expiry = 999 });
+		limited.maxGas.ShouldBe(20_000UL);
+		limited.maxData.ShouldBe(123UL);
+		limited.expiry.ShouldBe(999);
+
+		foreach (var built in new[] { unplanned, limited })
+		{
+			var decoded = CarbonBlob.New<MintPhantasmaNonFungibleArgs>(((TxMsgCall)built.msg).args);
+			decoded.tokens.Length.ShouldBe(3);
+			decoded.tokens.Select(t => (BigInteger)t.phantasmaSeriesId).ShouldBe(new BigInteger[] { 1, 2, 3 });
+		}
+
+		Should.Throw<ArgumentException>(() => MintPhantasmaNonFungibleTxHelper.BuildTx(new PhantasmaNftMintParams { TokenId = 42, Sender = Sender, To = Receiver }));
 	}
 
 	[Fact]
