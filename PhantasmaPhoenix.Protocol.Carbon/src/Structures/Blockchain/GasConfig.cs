@@ -22,10 +22,9 @@ public struct GasConfig : ICarbonBlob
 	public UInt64 gasBurnRatioMul;
 	public Byte gasBurnRatioShift;
 
-	// Gas-model-v2 extension, serialized only for version >= 1 (mirrors the node's
-	// data_blockchain.h wire format exactly). The version-0 byte image is frozen forever for
-	// historical replay; a version>=1 image truncated to the v0 length must fail to parse
-	// (the tail read below throws on end of stream).
+	// Gas-model-v2 extension, serialized only for version >= 1, mirroring the chain's wire format
+	// exactly. The version-0 byte image is frozen forever for historical replay; a version>=1 image
+	// truncated to the v0 length must fail to parse (the tail read below throws on end of stream).
 
 	// Floor applied to every settled gas bill (kcal-base). 0 = no floor (v1-equivalent).
 	public UInt64 minimumGasBill;

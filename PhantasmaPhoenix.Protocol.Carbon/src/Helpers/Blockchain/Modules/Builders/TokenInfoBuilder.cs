@@ -72,7 +72,7 @@ public static class TokenInfoBuilder
 		return big >= long.MinValue && big <= long.MaxValue;
 	}
 
-	// Mirrors carbon::CheckIsValidSymbol from contracts/token.cpp.
+	// Mirrors the chain's own symbol validation, so a symbol this accepts is one CreateToken accepts.
 	private static (bool ok, string? error) CheckIsValidSymbol(string symbol)
 	{
 		if (string.IsNullOrEmpty(symbol))
