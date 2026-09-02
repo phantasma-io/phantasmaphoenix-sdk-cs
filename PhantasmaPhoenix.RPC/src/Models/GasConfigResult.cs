@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using PhantasmaPhoenix.Protocol.Carbon.Blockchain;
+using PhantasmaPhoenix.Protocol.Carbon.Blockchain.TxHelpers;
 using PhantasmaPhoenix.RPC.Annotations;
 
 namespace PhantasmaPhoenix.RPC.Models;
@@ -31,7 +32,9 @@ public class GasConfigResult
 
 	/// <summary>
 	/// Converts the JSON model to the wire-format GasConfig struct consumed by the Tier-1 fee
-	/// estimator (NativeFeeEstimator). Throws FormatException on malformed numeric strings.
+	/// estimator (NativeFeeEstimator). It throws on malformed numeric strings, on a v2 response missing
+	/// tail fields, and on a byte price this SDK does not implement. Fees estimated from silently
+	/// zeroed or silently stale v2 prices would produce rejected transactions.
 	/// </summary>
 	public GasConfig ToGasConfig()
 	{
@@ -72,6 +75,17 @@ public class GasConfigResult
 			result.policyFeeCreateTokenSeries = ParseU64(c.PolicyFeeCreateTokenSeries, nameof(c.PolicyFeeCreateTokenSeries));
 			result.policyFeeRegisterName = ParseU64(c.PolicyFeeRegisterName, nameof(c.PolicyFeeRegisterName));
 			result.legacyDataEscrowPerRow = ParseU64(c.LegacyDataEscrowPerRow, nameof(c.LegacyDataEscrowPerRow));
+			// The v2 byte price is a versioned consensus constant and not a config field, so the
+			// calculator holds it as a constant. The node reports it in this very response. A node
+			// quoting a different price runs a gas model this SDK does not implement, and every offer
+			// computed from it would be wrong on the largest term of the bill. The mismatch is reported
+			// here. The alternative is to under-offer every transaction until someone notices.
+			if (UnitsPerBlockDataByte.HasValue && UnitsPerBlockDataByte.Value != NativeFeeEstimator.GasModelV2UnitsPerBlockDataByte)
+			{
+				throw new InvalidOperationException(
+					$"this node prices block data at {UnitsPerBlockDataByte.Value} gas units per byte, " +
+					$"this SDK implements {NativeFeeEstimator.GasModelV2UnitsPerBlockDataByte}: upgrade the SDK");
+			}
 		}
 		return result;
 	}

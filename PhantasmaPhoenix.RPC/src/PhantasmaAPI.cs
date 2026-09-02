@@ -1,17 +1,31 @@
 using System.Globalization;
 using System.Text;
 using PhantasmaPhoenix.Cryptography;
-using PhantasmaPhoenix.Protocol.Carbon;
 using PhantasmaPhoenix.Protocol.Carbon.Blockchain;
 using PhantasmaPhoenix.RPC.Models;
 using PhantasmaPhoenix.RPC.Types;
 
 namespace PhantasmaPhoenix.RPC;
 
+public sealed class SendTransactionOptions : PlanRequestOptions
+{
+	/// <summary>
+	/// For a token creation, ask the chain whether the symbol is already taken and refuse unless the
+	/// chain answered that it is free (see <see cref="TransactionPreflight.PreflightAsync"/>). Every other
+	/// message is unaffected. Default true; false skips the lookup.
+	/// <para>
+	/// It refuses a lookup that did not answer, not only one that answered "taken": the policy fee is
+	/// spent before the contract looks at the symbol, so sending on an unestablished state is exactly
+	/// the outcome worth paying a round trip to avoid.
+	/// </para>
+	/// </summary>
+	public bool Preflight { get; set; } = true;
+}
+
 /// <summary>
 /// Plain .NET RPC wrapper for Phantasma API using RpcClient with async and await
 /// </summary>
-public class PhantasmaAPI : IDisposable
+public class PhantasmaAPI : IDisposable, IGasConfigSource, IPreflightSource
 {
 	/// <summary>RPC endpoint URL like https://testnet.phantasma.info/rpc</summary>
 	public string Host { get; }
@@ -1003,33 +1017,86 @@ public class PhantasmaAPI : IDisposable
 		return txHashFromRpc;
 	}
 
+	private ChainFeePlanner? _fees;
+
 	/// <summary>
-	/// Signs, serializes and broadcasts a carbon transaction
+	/// The fee planner of the chain this client talks to: reads the chain's gas config through this
+	/// client, caches it briefly, and prices messages with it (<c>api.Fees.PlanAsync(msg)</c>).
 	/// </summary>
-	/// <param name="keys">Key pair used to sign a transaction</param>
-	/// <param name="txMsg">Carbon TxMsg struct</param>
-	/// <returns>Transaction hash text or null</returns>
-	public async Task<string?> SignAndSendCarbonTransactionAsync(
-		IKeyPair keys, TxMsg txMsg)
+	public ChainFeePlanner Fees => _fees ??= new ChainFeePlanner(this);
+
+	/// <summary>
+	/// The gas token's id, which the pre-flight uses as its control lookup: it certainly exists on any
+	/// live chain. It comes from the same cached gas config the planner reads, so asking costs a round
+	/// trip only once a minute. Null when this client cannot read that config - the pre-flight then
+	/// reports <see cref="PreflightVerdict.Unknown"/> rather than guessing.
+	/// </summary>
+	public async Task<ulong?> ControlTokenIdAsync()
 	{
-		var signedTxMsg = new SignedTxMsg
+		try
 		{
-			msg = txMsg,
-			witnesses = new Witness[] {
-				new Witness
-				{
-					address = new Bytes32(keys.PublicKey),
-					signature = new Bytes64(Ed25519.Sign(CarbonBlob.Serialize(txMsg), keys.PrivateKey))
-				}
-			}
-		};
-
-		var signedTxBytes = CarbonBlob.Serialize(signedTxMsg);
-		var encoded = Base16.Encode(signedTxBytes);
-
-		var txHashFromRpc = await SendCarbonTransactionAsync(encoded);
-		return txHashFromRpc;
+			return (await Fees.ConfigAsync().ConfigureAwait(false)).gasTokenId;
+		}
+		catch
+		{
+			return null;
+		}
 	}
+
+	/// <summary>
+	/// Sends a message in one step: pre-flight, fee plan, signatures, broadcast. A message whose
+	/// <c>maxGas</c> is still zero is planned against this chain's prices (<see cref="Fees"/>); one the
+	/// caller already planned is sent as it is. Every witness signs through its <see cref="ITxSigner"/>
+	/// - keys, hardware, or a remote service. Returns the transaction hash.
+	/// <para>
+	/// The pre-flight refuses a token creation whose symbol the chain says is taken, and one it could
+	/// not establish anything about; see <see cref="SendTransactionOptions.Preflight"/>.
+	/// </para>
+	/// </summary>
+	public async Task<string> SendTransactionAsync(TxMsg msg, IReadOnlyList<ITxSigner> signers, SendTransactionOptions? options = null, CancellationToken cancellationToken = default)
+	{
+		if (signers == null) throw new ArgumentNullException(nameof(signers));
+		options ??= new SendTransactionOptions();
+		if (options.Preflight)
+		{
+			var check = await TransactionPreflight.PreflightAsync(this, msg).ConfigureAwait(false);
+			if (check.Verdict == PreflightVerdict.Taken)
+				throw new TransactionPreflightException($"{check.Subject} is already taken");
+			if (check.Verdict == PreflightVerdict.Unknown)
+				throw new TransactionPreflightException($"Could not establish whether {check.Subject} is taken: {check.Reason}");
+		}
+		var planned = msg;
+		if (msg.maxGas == 0)
+		{
+			// Only the witness-array types take their witness count from the caller; for every other type
+			// the message itself fixes the slots, and one signer may legitimately fill two of them.
+			var planOptions = (PlanRequestOptions)options.Clone();
+			if (!planOptions.WitnessCount.HasValue && SignedTxMsg.RequiredWitnesses(msg) == null)
+				planOptions.WitnessCount = signers.Count;
+			planned = (await Fees.PlanAsync(msg, planOptions).ConfigureAwait(false)).Apply(msg);
+		}
+		var bytes = await TxMsgSigner.SignAndSerializeWithAsync(planned, signers, cancellationToken).ConfigureAwait(false);
+		return await SendCarbonTransactionAsync(Base16.Encode(bytes)).ConfigureAwait(false)
+			?? throw new InvalidOperationException("sendCarbonTransaction returned no transaction hash");
+	}
+
+	/// <summary>Sends a message signed by one <see cref="ITxSigner"/>. See the list overload.</summary>
+	public Task<string> SendTransactionAsync(TxMsg msg, ITxSigner signer, SendTransactionOptions? options = null, CancellationToken cancellationToken = default) =>
+		SendTransactionAsync(msg, new[] { signer ?? throw new ArgumentNullException(nameof(signer)) }, options, cancellationToken);
+
+	/// <summary>Sends a message signed by in-memory keys, one key per witness the message needs. See the list overload.</summary>
+	public Task<string> SendTransactionAsync(TxMsg msg, IKeyPair[] keys, SendTransactionOptions? options = null, CancellationToken cancellationToken = default)
+	{
+		if (keys == null) throw new ArgumentNullException(nameof(keys));
+		var signers = new ITxSigner[keys.Length];
+		for (var i = 0; i < keys.Length; i++)
+			signers[i] = new KeyPairSigner(keys[i]);
+		return SendTransactionAsync(msg, signers, options, cancellationToken);
+	}
+
+	/// <summary>Sends a message signed by one in-memory key pair. See the list overload.</summary>
+	public Task<string> SendTransactionAsync(TxMsg msg, IKeyPair keys, SendTransactionOptions? options = null, CancellationToken cancellationToken = default) =>
+		SendTransactionAsync(msg, new ITxSigner[] { new KeyPairSigner(keys ?? throw new ArgumentNullException(nameof(keys))) }, options, cancellationToken);
 
 	#endregion
 

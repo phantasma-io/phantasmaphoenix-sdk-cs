@@ -50,7 +50,8 @@ public class FeePlanOptions
 	/// </summary>
 	public int? WitnessCount { get; set; }
 
-	internal FeePlanOptions CloneOptions() => (FeePlanOptions)MemberwiseClone();
+	/// <summary>A shallow copy, of the same runtime type, for callers that fill in a field without touching the caller's options.</summary>
+	public FeePlanOptions Clone() => (FeePlanOptions)MemberwiseClone();
 }
 
 /// <summary>A fee plan for one message: the estimate, what it was computed from, and how to apply it.</summary>
