@@ -6,7 +6,7 @@ using Xunit;
 namespace PhantasmaPhoenix.RPC.Tests;
 
 // estimateTransaction response decoding: the node serializes 64-bit amounts as decimal strings
-// (JSON-number precision), and a completed estimate must convert into the same NativeFeeEstimate
+// (JSON-number precision), and a completed estimate must convert into the same FeeQuote
 // struct Tier-1 produces so wallet code consumes both tiers identically.
 public class EstimateTransactionResultTests
 {
@@ -53,7 +53,7 @@ public class EstimateTransactionResultTests
 		result.DataEscrowAtoms.ShouldBe("200000");
 		result.DataRefundAtoms.ShouldBe("0");
 
-		var estimate = result.ToFeeEstimate();
+		var estimate = result.ToFeeQuote();
 		estimate.MaxGas.ShouldBe(100000000000000000UL);
 		estimate.MaxData.ShouldBe(400000UL);
 		estimate.ExpectedGasBill.ShouldBe(10000000UL);
@@ -72,7 +72,7 @@ public class EstimateTransactionResultTests
 
 		// No recommendations exist for an aborted run; converting must fail loudly, not yield zeros
 		// a wallet could sign with.
-		var error = Should.Throw<InvalidOperationException>(() => result.ToFeeEstimate());
+		var error = Should.Throw<InvalidOperationException>(() => result.ToFeeQuote());
 		error.Message.ShouldContain("gas fees");
 	}
 
@@ -83,6 +83,6 @@ public class EstimateTransactionResultTests
 		var result = JsonConvert.DeserializeObject<EstimateTransactionResult>("""{ "wouldAbort": false }""");
 
 		result.ShouldNotBeNull();
-		Should.Throw<FormatException>(() => result.ToFeeEstimate());
+		Should.Throw<FormatException>(() => result.ToFeeQuote());
 	}
 }

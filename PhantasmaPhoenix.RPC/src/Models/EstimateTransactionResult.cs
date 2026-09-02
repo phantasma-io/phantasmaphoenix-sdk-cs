@@ -42,16 +42,17 @@ public class EstimateTransactionResult
 	public EstimateTransactionResult() { }
 
 	/// <summary>
-	/// Converts the completed estimate to the same struct Tier-1 estimates use, so wallet code
-	/// consumes both tiers identically: MaxGas/MaxData are the recommended ceilings and
-	/// ExpectedGasBill is the exact settled bill. Throws when WouldAbort is set - an aborted
-	/// simulation has no recommendations (retry with a higher offer or fall back to Tier-1).
+	/// Converts a completed estimate into the same <see cref="FeeQuote"/> that Tier-1 estimates
+	/// produce. Wallet code then reads both tiers the same way. MaxGas and MaxData are the
+	/// recommended ceilings, and ExpectedGasBill is the exact settled bill. Throws when WouldAbort is
+	/// set, because an aborted simulation has no recommendations. Retry with a higher offer, or fall
+	/// back to Tier-1.
 	/// </summary>
-	public NativeFeeEstimate ToFeeEstimate()
+	public FeeQuote ToFeeQuote()
 	{
 		if (WouldAbort)
 			throw new InvalidOperationException($"estimateTransaction reported the transaction would abort: {AbortReason}");
-		return new NativeFeeEstimate(
+		return new FeeQuote(
 			ParseU64(RecommendedMaxGas, nameof(RecommendedMaxGas)),
 			ParseU64(RecommendedMaxData, nameof(RecommendedMaxData)),
 			ParseU64(GasBillKcalBase, nameof(GasBillKcalBase)));
