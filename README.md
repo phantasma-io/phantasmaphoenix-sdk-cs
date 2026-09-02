@@ -67,6 +67,13 @@ Under gas model v2 there are two things to know, and `SendTransactionAsync` hand
   refuses on `Taken` and on `Unknown`. A caller who would rather decide for itself - warn before
   spending the fee, retry against another node - calls `TransactionPreflight.PreflightAsync`, reads
   the verdict and sends with `new SendTransactionOptions { Preflight = false }`.
+- A burn returns whatever the NFT holds at its own address, and the chain charges for each
+  returned asset: a transfer fee and an owner lookup per fungible token, an instance query, a
+  transfer per instance and that lookup per NFT token, plus a balance row for a returned token the
+  burner does not hold. That set is chain state with no costlier bound, so `FeePlanner.Plan`
+  demands `FeePlanOptions.Infusions` for a burn - an empty list says the NFT holds nothing - while
+  `api.Fees.PlanAsync`, and so `SendTransactionAsync`, reads it from the chain
+  (`PhantasmaAPI.InfusedAssetsAsync`).
 - Any witness that implements `ITxSigner` (`PublicKey` + `SignAsync(bytes)`) can sign, and
   `TxMsgSigner.SignWithAsync` accepts several - the gas-payer transaction types take two. A wallet
   that signs elsewhere plans with `api.Fees.PlanAsync` and hands `plan.Apply(msg)` over.

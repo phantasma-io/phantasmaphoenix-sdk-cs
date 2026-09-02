@@ -42,6 +42,22 @@ public class ChainFeePlannerTests
 	private static readonly Bytes32 Owner = new(PhantasmaKeys.FromWIF("KwPpBSByydVKqStGHAnZzQofCqhDmD2bfRgc9BmZqM3ZmsdWJw4d").PublicKey);
 	private static readonly Bytes32 Receiver = new(Enumerable.Repeat((byte)7, 32).ToArray());
 
+	// A source that also knows what NFTs hold, the way a PhantasmaAPI does.
+	private sealed class HoldingsSource : IGasConfigSource, IInfusionSource
+	{
+		public int InfusionReads { get; private set; }
+		public IReadOnlyList<InfusedAsset> Holdings { get; set; } = new[] { new InfusedAsset { TokenId = 1 }, new InfusedAsset { TokenId = 97 } };
+		public Task<GasConfigResult?> GetGasConfigAsync() => Task.FromResult(JsonConvert.DeserializeObject<GasConfigResult>(GasConfigJson));
+		public Task<IReadOnlyList<InfusedAsset>> InfusedAssetsAsync(ulong tokenId, ulong instanceId)
+		{
+			InfusionReads++;
+			return Task.FromResult(Holdings);
+		}
+	}
+
+	private static TxMsg Burn() =>
+		NativeTxHelper.BurnNonFungible(new BurnNonFungibleParams { From = Owner, TokenId = 9, InstanceId = 5, Expiry = 1_787_000_000_000 });
+
 	private static TxMsg Transfer() =>
 		NativeTxHelper.TransferFungible(new TransferFungibleParams { From = Owner, To = Receiver, TokenId = 1, Amount = 5, Expiry = 1_787_000_000_000 });
 
@@ -88,6 +104,27 @@ public class ChainFeePlannerTests
 		source.Reads.ShouldBe(1);
 		planner.PlanWith(config, Transfer()).ExpectedGasBill.ShouldBe(42_600_000UL);
 		source.Reads.ShouldBe(1);
+	}
+
+	// A burn is planned for what the NFT holds: read from the source unless the caller stated it.
+	[Fact]
+	public async Task Reads_what_a_burned_NFT_holds_unless_the_caller_states_it()
+	{
+		var source = new HoldingsSource();
+		var planner = new ChainFeePlanner(source);
+		var read = await planner.PlanAsync(Burn());
+		source.InfusionReads.ShouldBe(1);
+		var stated = planner.PlanWith(await planner.ConfigAsync(), Burn(), new FeePlanOptions { Infusions = source.Holdings });
+		read.ExpectedGasBill.ShouldBe(stated.ExpectedGasBill);
+
+		var empty = await planner.PlanAsync(Burn(), new PlanRequestOptions { Infusions = Array.Empty<InfusedAsset>() });
+		source.InfusionReads.ShouldBe(1);
+		(read.ExpectedGasBill - empty.ExpectedGasBill).ShouldBe(40UL * 10_000);
+
+		// A source that cannot read holdings still plans everything but an unstated burn.
+		var blind = new ChainFeePlanner(new CountingSource());
+		(await blind.PlanAsync(Transfer())).ExpectedGasBill.ShouldBe(42_600_000UL);
+		(await Should.ThrowAsync<InvalidOperationException>(() => blind.PlanAsync(Burn()))).Message.ShouldContain("Infusions");
 	}
 
 	[Fact]

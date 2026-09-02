@@ -274,6 +274,31 @@ public class FeePlannerTests
 		(assumed.MaxData - inPlace.MaxData).ShouldBe(Config.dataEscrowPerRow);
 	}
 
+	// What a burned NFT holds is chain state with no costlier reading - it can hold anything - so
+	// the planner demands the list instead of assuming an empty address; an empty list is the
+	// statement that nothing is infused. The RPC-side planner fills it in from the chain.
+	[Fact]
+	public void Demands_what_a_burned_NFT_holds_and_prices_its_return()
+	{
+		var burn = Msg(TxTypes.BurnNonFungible, new TxMsgBurnNonFungible { tokenId = 9, instanceId = 5 });
+		Should.Throw<ArgumentException>(() => FeePlanner.Plan(burn, Config)).Message.ShouldContain("Infusions");
+
+		var empty = FeePlanner.Plan(burn, Config, new FeePlanOptions { Infusions = Array.Empty<InfusedAsset>(), TokenBurnedBefore = true, SupplyRowExists = true });
+		empty.Kind.ShouldBe(NativeFeeKind.BurnNonFungible);
+		empty.ExpectedGasBill.ShouldBe(Bill(30, empty.EnvelopeBytes));
+
+		var returned = FeePlanner.Plan(burn, Config, new FeePlanOptions
+		{
+			Infusions = new[] { new InfusedAsset { TokenId = 1 }, new InfusedAsset { TokenId = 97 }, new InfusedAsset { TokenId = 9, NonFungible = true, InstanceCount = 2 } },
+			TokenBurnedBefore = true,
+			SupplyRowExists = true
+		});
+		// KCAL and the custom token: a transfer and a query each; the NFT: a query, two transfers, a query.
+		(returned.ExpectedGasBill - empty.ExpectedGasBill).ShouldBe(80UL * 10_000);
+		// The custom token's balance row, the NFT token's balance row and its two moved lookups.
+		(returned.MaxData - empty.MaxData).ShouldBe(4UL * Config.dataEscrowPerRow);
+	}
+
 	// Whether the recipient is an NFT-derived address decides one query fee, and the address is in
 	// the message, so the planner reads it there instead of asking. A user address adds nothing; the
 	// NFT form does; a zero instance id is not an NFT address, exactly as the chain reads it.

@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Text;
 using PhantasmaPhoenix.Cryptography;
 using PhantasmaPhoenix.Protocol.Carbon.Blockchain;
+using PhantasmaPhoenix.Protocol.Carbon.Blockchain.Modules;
+using PhantasmaPhoenix.Protocol.Carbon.Blockchain.TxHelpers;
 using PhantasmaPhoenix.RPC.Models;
 using PhantasmaPhoenix.RPC.Types;
 
@@ -10,13 +12,14 @@ namespace PhantasmaPhoenix.RPC;
 public sealed class SendTransactionOptions : PlanRequestOptions
 {
 	/// <summary>
-	/// For a token creation, ask the chain whether the symbol is already taken and refuse unless the
-	/// chain answered that it is free (see <see cref="TransactionPreflight.PreflightAsync"/>). Every other
-	/// message is unaffected. Default true; false skips the lookup.
+	/// For a token creation, ask the chain whether the symbol is already taken. The send goes ahead only
+	/// when the chain answered that the symbol is free, see
+	/// <see cref="TransactionPreflight.PreflightAsync"/>. Every other message is unaffected. Default
+	/// true. False skips the lookup.
 	/// <para>
-	/// It refuses a lookup that did not answer, not only one that answered "taken": the policy fee is
-	/// spent before the contract looks at the symbol, so sending on an unestablished state is exactly
-	/// the outcome worth paying a round trip to avoid.
+	/// The send is also refused when the lookup answered nothing at all. The policy fee is spent before
+	/// the contract looks at the symbol, so sending on an unestablished state is the outcome worth
+	/// paying a round trip to avoid.
 	/// </para>
 	/// </summary>
 	public bool Preflight { get; set; } = true;
@@ -25,7 +28,7 @@ public sealed class SendTransactionOptions : PlanRequestOptions
 /// <summary>
 /// Plain .NET RPC wrapper for Phantasma API using RpcClient with async and await
 /// </summary>
-public class PhantasmaAPI : IDisposable, IGasConfigSource, IPreflightSource
+public class PhantasmaAPI : IDisposable, IGasConfigSource, IPreflightSource, IInfusionSource
 {
 	/// <summary>RPC endpoint URL like https://testnet.phantasma.info/rpc</summary>
 	public string Host { get; }
@@ -1020,16 +1023,17 @@ public class PhantasmaAPI : IDisposable, IGasConfigSource, IPreflightSource
 	private ChainFeePlanner? _fees;
 
 	/// <summary>
-	/// The fee planner of the chain this client talks to: reads the chain's gas config through this
-	/// client, caches it briefly, and prices messages with it (<c>api.Fees.PlanAsync(msg)</c>).
+	/// The fee planner of the chain this client talks to. It reads the chain's gas config through this
+	/// client, caches it briefly, and prices messages with it. Call it as
+	/// <c>api.Fees.PlanAsync(msg)</c>.
 	/// </summary>
 	public ChainFeePlanner Fees => _fees ??= new ChainFeePlanner(this);
 
 	/// <summary>
-	/// The gas token's id, which the pre-flight uses as its control lookup: it certainly exists on any
-	/// live chain. It comes from the same cached gas config the planner reads, so asking costs a round
-	/// trip only once a minute. Null when this client cannot read that config - the pre-flight then
-	/// reports <see cref="PreflightVerdict.Unknown"/> rather than guessing.
+	/// The gas token's id. The pre-flight uses it as its control lookup, because that token certainly
+	/// exists on any live chain. The id comes from the same cached gas config the planner reads, so
+	/// asking for it costs a round trip only once a minute. It is null when this client cannot read
+	/// that config, and the pre-flight then reports <see cref="PreflightVerdict.Unknown"/>.
 	/// </summary>
 	public async Task<ulong?> ControlTokenIdAsync()
 	{
@@ -1044,13 +1048,75 @@ public class PhantasmaAPI : IDisposable, IGasConfigSource, IPreflightSource
 	}
 
 	/// <summary>
-	/// Sends a message in one step: pre-flight, fee plan, signatures, broadcast. A message whose
-	/// <c>maxGas</c> is still zero is planned against this chain's prices (<see cref="Fees"/>); one the
-	/// caller already planned is sent as it is. Every witness signs through its <see cref="ITxSigner"/>
-	/// - keys, hardware, or a remote service. Returns the transaction hash.
+	/// Returns what NFT <paramref name="instanceId"/> of token <paramref name="tokenId"/> holds at its
+	/// own address, in the form the fee planner prices. A burn of that NFT returns every one of these
+	/// to the burner and pays for each.
 	/// <para>
-	/// The pre-flight refuses a token creation whose symbol the chain says is taken, and one it could
-	/// not establish anything about; see <see cref="SendTransactionOptions.Preflight"/>.
+	/// The assets are read through the account queries, with the address in its Carbon form. Fungible
+	/// balances are resolved to token ids, so the free rows of the gas and data tokens are recognised.
+	/// Whether the burner already holds a returned token is left at the costlier reading, and that
+	/// moves the escrow ceiling alone.
+	/// </para>
+	/// </summary>
+	public async Task<IReadOnlyList<InfusedAsset>> InfusedAssetsAsync(ulong tokenId, ulong instanceId)
+	{
+		var address = TokenHelper.GetNftAddress(tokenId, instanceId).ToHex();
+		var assets = new List<InfusedAsset>();
+		var balances = await ReadAllPagesAsync(cursor => GetAccountFungibleTokensAsync(address, string.Empty, 0, 100, cursor, false, RpcAddressType.Carbon)).ConfigureAwait(false);
+		foreach (var balance in balances)
+		{
+			var token = await GetTokenAsync(balance.Symbol).ConfigureAwait(false)
+				?? throw new InvalidOperationException($"getToken returned nothing for {balance.Symbol}");
+			assets.Add(new InfusedAsset { TokenId = ulong.Parse(token.CarbonId, CultureInfo.InvariantCulture), NonFungible = false });
+		}
+		var owned = await ReadAllPagesAsync(cursor => GetAccountOwnedTokensAsync(address, string.Empty, 0, 100, cursor, false, RpcAddressType.Carbon)).ConfigureAwait(false);
+		foreach (var token in owned)
+		{
+			var balance = await GetTokenBalanceAsync(address, token.Symbol, "main", false, RpcAddressType.Carbon).ConfigureAwait(false)
+				?? throw new InvalidOperationException($"getTokenBalance returned nothing for {token.Symbol}");
+			assets.Add(new InfusedAsset
+			{
+				TokenId = ulong.Parse(token.CarbonId, CultureInfo.InvariantCulture),
+				NonFungible = true,
+				InstanceCount = (uint)ulong.Parse(balance.Amount, CultureInfo.InvariantCulture)
+			});
+		}
+		return assets;
+	}
+
+	// Walks a cursor-paginated query to the end. The cursor the node returns drives the loop, and an
+	// item count never does. The loop stops on a cursor it has already seen, and it stops past a page
+	// cap. A misbehaving node therefore cannot keep it going forever.
+	private static async Task<List<T>> ReadAllPagesAsync<T>(Func<string, Task<CursorPaginatedResult<T[]>?>> page)
+	{
+		const int maxPages = 1000;
+		var items = new List<T>();
+		var seen = new HashSet<string>();
+		var cursor = string.Empty;
+		for (var i = 0; i < maxPages; i++)
+		{
+			var result = await page(cursor).ConfigureAwait(false);
+			if (result?.Result != null)
+				items.AddRange(result.Result);
+			if (string.IsNullOrEmpty(result?.Cursor) || !seen.Add(result!.Cursor!))
+				return items;
+			cursor = result.Cursor!;
+		}
+		throw new InvalidOperationException($"the node kept returning pages past {maxPages}");
+	}
+
+	/// <summary>
+	/// Sends a message in one step. The steps are pre-flight, fee plan, signatures and broadcast.
+	/// Returns the transaction hash.
+	/// <para>
+	/// A message whose <c>maxGas</c> is still zero is planned against this chain's prices, see
+	/// <see cref="Fees"/>. A message the caller already planned is sent as it is. Every witness signs
+	/// through its <see cref="ITxSigner"/>, which can hold keys, drive hardware or call a remote
+	/// service.
+	/// </para>
+	/// <para>
+	/// The pre-flight refuses a token creation whose symbol the chain says is taken. It also refuses
+	/// one it could establish nothing about. See <see cref="SendTransactionOptions.Preflight"/>.
 	/// </para>
 	/// </summary>
 	public async Task<string> SendTransactionAsync(TxMsg msg, IReadOnlyList<ITxSigner> signers, SendTransactionOptions? options = null, CancellationToken cancellationToken = default)
@@ -1068,8 +1134,8 @@ public class PhantasmaAPI : IDisposable, IGasConfigSource, IPreflightSource
 		var planned = msg;
 		if (msg.maxGas == 0)
 		{
-			// Only the witness-array types take their witness count from the caller; for every other type
-			// the message itself fixes the slots, and one signer may legitimately fill two of them.
+			// Only the witness-array types take their witness count from the caller. Every other type
+			// fixes its own slots in the message, and one signer may fill two of them.
 			var planOptions = (PlanRequestOptions)options.Clone();
 			if (!planOptions.WitnessCount.HasValue && SignedTxMsg.RequiredWitnesses(msg) == null)
 				planOptions.WitnessCount = signers.Count;

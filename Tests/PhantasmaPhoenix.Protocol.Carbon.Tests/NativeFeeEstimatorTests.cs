@@ -389,6 +389,66 @@ public class NativeFeeEstimatorTests
 		estimate.MaxData.ShouldBe(0UL);
 	}
 
+	// Burning an NFT returns whatever its own address holds, and the chain charges for each returned
+	// asset as the transfers it performs: a transfer fee plus the owner lookup of the NFT-address
+	// source per fungible token; an instance query, a transfer per instance and that lookup per NFT
+	// token. The returned rows never add block data - a burn refunds more than the returns create -
+	// so the bill moves by the work alone, while the escrow ceiling covers a balance row the burner
+	// lacks and the moved lookup rows. Measured live 2026-09-02: +200,000 for one infused KCAL atom,
+	// +700,000 for KCAL, a custom token and an NFT together.
+	[Fact]
+	public void Prices_the_assets_a_burned_NFT_returns()
+	{
+		NativeFeeParams Burn(params InfusedAsset[] infusions) => new()
+		{
+			EnvelopeBytes = 138,
+			TokenId = 7,
+			RomBytes = 3067 * 2 + 36,
+			RomHasMetaId = true,
+			TokenBurnedBefore = true,
+			SupplyRowExists = true,
+			Infusions = infusions
+		};
+		var empty = Estimate(NativeFeeKind.BurnNonFungible, V2Config(), Burn());
+		empty.ExpectedGasBill.ShouldBe(34_800_000UL);
+
+		// One fungible token: a transfer and a query. The gas token's rows are free, so nothing else.
+		var kcal = Estimate(NativeFeeKind.BurnNonFungible, V2Config(), Burn(new InfusedAsset { TokenId = 1 }));
+		(kcal.ExpectedGasBill - empty.ExpectedGasBill).ShouldBe(20UL * 10_000);
+		kcal.NewStorageQuanta.ShouldBe(empty.NewStorageQuanta);
+		kcal.DeletedStorageQuanta.ShouldBe(empty.DeletedStorageQuanta);
+
+		// A custom token the burner does not hold: the same work, plus the balance row the return
+		// creates - and the NFT address's own row, which the return deletes.
+		var custom = Estimate(NativeFeeKind.BurnNonFungible, V2Config(), Burn(new InfusedAsset { TokenId = 97 }));
+		(custom.ExpectedGasBill - empty.ExpectedGasBill).ShouldBe(20UL * 10_000);
+		custom.NewStorageQuanta.ShouldBe(empty.NewStorageQuanta + 1);
+		custom.DeletedStorageQuanta.ShouldBe(empty.DeletedStorageQuanta + 1);
+		custom.MaxData.ShouldBe(empty.MaxData + V2Config().dataEscrowPerRow);
+		Estimate(NativeFeeKind.BurnNonFungible, V2Config(), Burn(new InfusedAsset { TokenId = 97, BurnerHoldsToken = true }))
+			.NewStorageQuanta.ShouldBe(empty.NewStorageQuanta);
+		// An id the reader could not resolve is priced as a paid row: over-covering, never short.
+		Estimate(NativeFeeKind.BurnNonFungible, V2Config(), Burn(new InfusedAsset()))
+			.NewStorageQuanta.ShouldBe(empty.NewStorageQuanta + 1);
+
+		// Two instances of an NFT token: the instance query, two transfers, the lookup; a balance row
+		// plus two moved lookup rows created, the NFT address's balance row and two lookups deleted.
+		var nft = Estimate(NativeFeeKind.BurnNonFungible, V2Config(), Burn(new InfusedAsset { TokenId = 9, NonFungible = true, InstanceCount = 2 }));
+		(nft.ExpectedGasBill - empty.ExpectedGasBill).ShouldBe(40UL * 10_000);
+		nft.NewStorageQuanta.ShouldBe(empty.NewStorageQuanta + 3);
+		nft.DeletedStorageQuanta.ShouldBe(empty.DeletedStorageQuanta + 3);
+
+		// The live combination: KCAL, a held custom token and one NFT - seventy units.
+		var all = Estimate(NativeFeeKind.BurnNonFungible, V2Config(), Burn(
+			new InfusedAsset { TokenId = 1 },
+			new InfusedAsset { TokenId = 97, BurnerHoldsToken = true },
+			new InfusedAsset { TokenId = 9, NonFungible = true, InstanceCount = 1, BurnerHoldsToken = true }));
+		(all.ExpectedGasBill - empty.ExpectedGasBill).ShouldBe(70UL * 10_000);
+
+		Should.Throw<ArgumentOutOfRangeException>(() => Estimate(NativeFeeKind.BurnNonFungible, V2Config(), Burn(new InfusedAsset { TokenId = 9, NonFungible = true, InstanceCount = 0 })))
+			.Message.ShouldContain("InstanceCount");
+	}
+
 	// A tiny v2 tx can never bill below the consensus floor; the offer must also respect the
 	// admission check maxGas >= minimumGasBill.
 	[Fact]

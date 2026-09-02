@@ -10,6 +10,17 @@ public interface IGasConfigSource
 	Task<GasConfigResult?> GetGasConfigAsync();
 }
 
+/// <summary>
+/// Where a planner reads what a burned NFT holds - a <see cref="PhantasmaAPI"/>, or anything shaped
+/// like one. A source without it can still plan every message but a burn, for which the caller must
+/// then state <see cref="FeePlanOptions.Infusions"/>.
+/// </summary>
+public interface IInfusionSource
+{
+	/// <summary>The assets held at the address of NFT <paramref name="instanceId"/> of token <paramref name="tokenId"/>, in the form the fee model prices.</summary>
+	Task<IReadOnlyList<InfusedAsset>> InfusedAssetsAsync(ulong tokenId, ulong instanceId);
+}
+
 public sealed class ChainFeePlannerOptions
 {
 	/// <summary>
@@ -92,7 +103,43 @@ public sealed class ChainFeePlanner
 	public async Task<FeePlan> PlanAsync(TxMsg msg, PlanRequestOptions? options = null)
 	{
 		var config = await ConfigAsync(options?.RefreshConfig ?? false).ConfigureAwait(false);
-		return FeePlanner.Plan(msg, config, options);
+		var planOptions = await WithInfusionsAsync(msg, options).ConfigureAwait(false);
+		return FeePlanner.Plan(msg, config, planOptions);
+	}
+
+	// A burn returns whatever the NFT's own address holds, and the chain charges for each returned
+	// asset. That set is chain state the message does not carry and has no costlier bound, so the
+	// pure planner demands it; here, with a chain to ask, it is read unless the caller stated it (an
+	// empty list states that the NFT holds nothing).
+	private async Task<PlanRequestOptions?> WithInfusionsAsync(TxMsg msg, PlanRequestOptions? options)
+	{
+		if (options?.Infusions != null)
+			return options;
+		ulong tokenId, instanceId;
+		switch (msg.type)
+		{
+			case TxTypes.BurnNonFungible:
+				{
+					var burn = (TxMsgBurnNonFungible)msg.msg;
+					tokenId = burn.tokenId;
+					instanceId = burn.instanceId;
+					break;
+				}
+			case TxTypes.BurnNonFungible_GasPayer:
+				{
+					var burn = (TxMsgBurnNonFungible_GasPayer)msg.msg;
+					tokenId = burn.tokenId;
+					instanceId = burn.instanceId;
+					break;
+				}
+			default:
+				return options;
+		}
+		if (_source is not IInfusionSource infusions)
+			throw new InvalidOperationException("This planner's source cannot read what a burned NFT holds: pass Infusions (empty when it holds nothing) or plan through a PhantasmaAPI");
+		var filled = (PlanRequestOptions)(options ?? new PlanRequestOptions()).Clone();
+		filled.Infusions = await infusions.InfusedAssetsAsync(tokenId, instanceId).ConfigureAwait(false);
+		return filled;
 	}
 
 	/// <summary>Plans a message against a config the caller already holds - no network, no cache.</summary>

@@ -8,7 +8,9 @@ namespace PhantasmaPhoenix.Protocol.Carbon.Blockchain.TxHelpers;
 /// Facts about chain state and signing that a message does not carry but the fee depends on. Every
 /// state fact left null takes the calculator's default, which is the case that costs more, so an
 /// unspecified plan is an upper bound the settlement can only undercut; the defaults themselves
-/// belong to <see cref="NativeFeeParams"/>, which documents each one.
+/// belong to <see cref="NativeFeeParams"/>, which documents each one. The one fact without a
+/// costlier reading is <see cref="Infusions"/>: a burned NFT can hold any number of assets, so the
+/// planner demands it instead of assuming, and <c>PhantasmaAPI.Fees</c> reads it from the chain.
 /// <para>
 /// The facts the message itself carries - counts, sizes, token ids, the NFT-address recipient,
 /// <c>nonFungible</c>, <c>pre_burn</c> - are deliberately absent: <see cref="FeePlanner.Plan"/> reads
@@ -34,6 +36,13 @@ public class FeePlanOptions
 	public bool? RomHasMetaId { get; set; }
 	/// <inheritdoc cref="NativeFeeParams.SeriesHasMetaId"/>
 	public bool? SeriesHasMetaId { get; set; }
+	/// <summary>
+	/// What the burned NFT holds at its own address (BurnNonFungible), which the burn returns to
+	/// the burner at a price - see <see cref="NativeFeeParams.Infusions"/>. Required to plan a burn
+	/// through <see cref="FeePlanner.Plan"/>: an empty list says the NFT holds nothing.
+	/// <c>PhantasmaAPI.Fees.PlanAsync</c> reads it from the chain when it is not given.
+	/// </summary>
+	public IReadOnlyList<InfusedAsset>? Infusions { get; set; }
 	/// <inheritdoc cref="NativeFeeParams.ScriptUnitsAllowance"/>
 	public ulong? ScriptUnitsAllowance { get; set; }
 	/// <inheritdoc cref="NativeFeeParams.ScriptEventBytes"/>
@@ -229,11 +238,17 @@ public static class FeePlanner
 					// The stored ROM is chain state the message does not carry, so the deleted quanta are
 					// a lower bound. That does not touch the offer: a burn deletes more than it creates,
 					// and only the rows it creates are escrowed.
+					// What the NFT holds is chain state with no costlier bound, so it is demanded, not
+					// assumed: a burn planned as if the address were empty is short by every returned
+					// asset and aborts, billed, on every retry.
+					if (options.Infusions == null)
+						throw new ArgumentException("A burn returns whatever the NFT holds: pass Infusions (empty when it holds nothing) or plan through PhantasmaAPI.Fees, which reads them from the chain", nameof(options));
 					var p = StateFacts();
 					p.TokenId = msg.type == TxTypes.BurnNonFungible
 						? ((TxMsgBurnNonFungible)msg.msg).tokenId
 						: ((TxMsgBurnNonFungible_GasPayer)msg.msg).tokenId;
 					p.Count = 1;
+					p.Infusions = options.Infusions;
 					return (NativeFeeKind.BurnNonFungible, p);
 				}
 			case TxTypes.Call:

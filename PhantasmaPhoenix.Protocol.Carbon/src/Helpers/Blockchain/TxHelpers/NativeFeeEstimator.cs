@@ -112,6 +112,19 @@ public sealed class NativeFeeParams
 	/// </summary>
 	public bool SupplyRowExists { get; set; }
 
+	/// <summary>
+	/// What the burned NFTs hold at their own addresses (BurnNonFungible), one entry per asset per
+	/// burned instance. The burn returns every one of them to the burner, and the chain charges for
+	/// each: a transfer fee plus the owner-lookup query of the NFT-address source per fungible token,
+	/// an instance query plus a transfer per instance plus that lookup per NFT token, and the
+	/// burner's balance row of a returned token the burner does not hold. This is chain state the
+	/// message does not carry, and it has no costlier bound - an NFT can hold any number of assets -
+	/// so nothing is assumed: null prices an empty address (direct callers of this calculator state
+	/// what they know), while <c>FeePlanner.Plan</c> demands the list and <c>PhantasmaAPI.Fees</c>
+	/// reads it from the chain.
+	/// </summary>
+	public IReadOnlyList<InfusedAsset>? Infusions { get; set; }
+
 	/// <summary>Token symbol length in characters (CreateToken). 0 = no symbol.</summary>
 	public int SymbolLength { get; set; }
 
@@ -201,6 +214,32 @@ public sealed class NativeFeeParams
 
 	/// <summary>New storage quanta allowance for the Script kind. Default 4.</summary>
 	public uint ScriptStorageQuanta { get; set; } = 4;
+}
+
+/// <summary>
+/// An asset held at a burned NFT's own address, which the burn returns to the burner. See
+/// <see cref="NativeFeeParams.Infusions"/>.
+/// </summary>
+public sealed class InfusedAsset
+{
+	/// <summary>
+	/// The token's id. Rows of the chain's gas and data tokens are free, which only the id can
+	/// tell; null prices the rows as paid, which can only over-cover the escrow ceiling.
+	/// </summary>
+	public ulong? TokenId { get; set; }
+
+	/// <summary>An NFT token: the burn returns every instance the address holds (<see cref="InstanceCount"/>).</summary>
+	public bool NonFungible { get; set; }
+
+	/// <summary>Instances of an NFT token the address holds; each is a transfer and a moved lookup row. Default 1.</summary>
+	public uint InstanceCount { get; set; } = 1;
+
+	/// <summary>
+	/// The burner already holds this token, so no balance row is created when it comes back.
+	/// Default false - the costlier reading, which moves the escrow ceiling and never the bill: a
+	/// burn refunds more rows than the return creates.
+	/// </summary>
+	public bool BurnerHoldsToken { get; set; }
 }
 
 /// <summary>
@@ -530,10 +569,11 @@ public static class NativeFeeEstimator
 					var rams = PerInstance(p.RamBytes, p.RamBytesPerInstance, count, nameof(p.RamBytesPerInstance));
 					// The instance, owner, lookup (and RAM, meta-id) rows are deleted and refunded; the burnt
 					// counter row is created on the token's first burn, and the supply row when it must be
-					// recreated. Each instance's infusion sweep reads the NFT address balances twice. The
-					// deleted rows mirror what the mint created, which is why the meta-id row is counted the
-					// same way here - but see DeletedStorageQuanta: on a burn this total is reported, never
-					// billed.
+					// recreated. Each instance's infusion sweep reads the NFT address balances twice, and
+					// whatever the sweep finds is returned to the burner and charged as the transfers it
+					// takes (see ReturnedAssets). The deleted rows mirror what the mint created, which is
+					// why the meta-id row is counted the same way here - but see DeletedStorageQuanta: on a
+					// burn this total is reported, never billed.
 					var romHasMetaId = p.RomHasMetaId ?? true;
 					var deleted = 0u;
 					for (var i = 0; i < count; i++)
@@ -542,12 +582,13 @@ public static class NativeFeeEstimator
 						if (rams[i] > 0) deleted += StorageQuantaFor(NftRamRowOverhead + rams[i]);
 						if (romHasMetaId) deleted += 1;
 					}
+					var returned = ReturnedAssets(p, config);
 					return new OperationModel(
-						SaturatingMul(SaturatingAdd(config.gasFeeTransfer, SaturatingMul(config.gasFeeQuery, 2)), count),
+						SaturatingAdd(SaturatingMul(SaturatingAdd(config.gasFeeTransfer, SaturatingMul(config.gasFeeQuery, 2)), count), returned.WorkUnits),
 						0,
 						0,
-						burntRow + supplyRow,
-						deleted);
+						burntRow + supplyRow + returned.NewQuanta,
+						deleted + returned.DeletedQuanta);
 				}
 			case NativeFeeKind.CreateToken:
 				{
@@ -602,6 +643,43 @@ public static class NativeFeeEstimator
 			default:
 				throw new ArgumentOutOfRangeException(nameof(kind), $"unknown fee kind: {kind}");
 		}
+	}
+
+	// What burning the NFTs gives back to the burner, priced as the transfers the chain performs: per
+	// fungible token one transfer plus the owner lookup of the NFT-address source; per NFT token one
+	// instance query, one transfer per instance and that same lookup. Rows: a balance row of a token
+	// the burner does not hold is created (paid unless the token is the gas or data token, which only
+	// the id can tell - an unknown id is priced as paid), every returned instance moves its lookup
+	// row, and the NFT address's own rows are deleted. The deletions always match or exceed the
+	// creations, so the returns never add block data; they add work, and rows to the escrow ceiling.
+	private static OperationModel ReturnedAssets(NativeFeeParams p, in GasConfig config)
+	{
+		ulong work = 0;
+		uint created = 0, deleted = 0;
+		if (p.Infusions == null)
+			return new OperationModel(0, 0, 0, 0, 0);
+		foreach (var asset in p.Infusions)
+		{
+			if (asset == null)
+				throw new ArgumentException("Infusions must not contain null entries", nameof(p));
+			var freeRows = asset.TokenId.HasValue && (asset.TokenId.Value == config.gasTokenId || asset.TokenId.Value == config.dataTokenId);
+			var balanceRow = asset.BurnerHoldsToken || freeRows ? 0u : 1u;
+			if (asset.NonFungible)
+			{
+				if (asset.InstanceCount < 1)
+					throw new ArgumentOutOfRangeException(nameof(p), "InstanceCount of a returned NFT token must be a positive integer");
+				work = SaturatingAdd(work, SaturatingAdd(SaturatingMul(config.gasFeeQuery, 2), SaturatingMul(config.gasFeeTransfer, asset.InstanceCount)));
+				created += balanceRow + asset.InstanceCount;
+				deleted += 1 + asset.InstanceCount;
+			}
+			else
+			{
+				work = SaturatingAdd(work, SaturatingAdd(config.gasFeeTransfer, config.gasFeeQuery));
+				created += balanceRow;
+				deleted += freeRows ? 0u : 1u;
+			}
+		}
+		return new OperationModel(work, 0, 0, created, deleted);
 	}
 
 	// Distinct series a duplicated mint touches, defaulting to one. More series than instances is
