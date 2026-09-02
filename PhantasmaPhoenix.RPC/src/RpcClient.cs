@@ -133,10 +133,18 @@ public sealed class RpcClient : IDisposable
 					_logger.LogDebug("[RPC][Response][Body] {Url} {Status} id={RequestId} {Json}", url, resp.StatusCode, req.id, text);
 				}
 
-				// Surface infrastructure rejections (e.g. 401 keys-only, 429 rate limit) clearly instead of
-				// failing later as a JSON-RPC parse error - the body is not a JSON-RPC envelope in those cases.
 				if (!resp.IsSuccessStatusCode)
 				{
+					// The RPC answers an application failure with an HTTP error status AND a JSON-RPC error
+					// body. Examples of such a failure are "Token symbol not found" and "name not
+					// registered". The body is the answer. The status alone would hide it behind
+					// "HTTP 400: Bad Request".
+					var rpcError = TryReadJsonRpcError(text);
+					if (rpcError != null)
+						throw new Exception($"[RPC][Error] {rpcError.Code}: {rpcError.Message}");
+					// An infrastructure rejection carries no JSON-RPC envelope. Examples are 401 keys-only and
+					// 429 rate limit. Such a rejection is reported here. Otherwise it would fail later as a
+					// JSON-RPC parse error.
 					throw new Exception($"[RPC][HTTP] {(int)resp.StatusCode} {resp.StatusCode}: {text.Trim()}");
 				}
 
@@ -182,6 +190,30 @@ public sealed class RpcClient : IDisposable
 		}
 
 		return default;
+	}
+
+	// Returns the JSON-RPC error of an HTTP error body, when the body is a JSON-RPC envelope that
+	// carries one. It returns null for anything else: an empty body, an HTML error page, a bare
+	// string.
+	private RpcError? TryReadJsonRpcError(string text)
+	{
+		if (string.IsNullOrWhiteSpace(text))
+			return null;
+		try
+		{
+			var envelope = JObject.Parse(text);
+			var error = envelope["error"];
+			if (error == null || error.Type == JTokenType.Null)
+				return null;
+			if (error.Type == JTokenType.String)
+				return new RpcError(0, error.Value<string>() ?? string.Empty);
+			var parsed = error.ToObject<RpcError>(_jsonSerializer);
+			return parsed != null && !string.IsNullOrEmpty(parsed.Message) ? parsed : null;
+		}
+		catch (JsonException)
+		{
+			return null;
+		}
 	}
 
 	private async Task<string> ReadContentAsStringAsync(HttpContent content)
