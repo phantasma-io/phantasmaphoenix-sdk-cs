@@ -10,7 +10,7 @@ using Xunit;
 namespace PhantasmaPhoenix.RPC.Tests;
 
 // The per-client planner reads the chain's config once, keeps it briefly, and prices messages with
-// it; a wallet talking to two chains gets two planners and no shared state.
+// it. A wallet talking to two chains gets two planners and shares no state between them.
 public class ChainFeePlannerTests
 {
 	private const string GasConfigJson = """
@@ -68,7 +68,7 @@ public class ChainFeePlannerTests
 		var planner = new ChainFeePlanner(source);
 
 		var plan = await planner.PlanAsync(Transfer());
-		plan.Kind.ShouldBe(NativeFeeKind.TransferFungible);
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.TransferFungible });
 		plan.ExpectedGasBill.ShouldBe(42_600_000UL);
 		await planner.PlanAsync(Transfer());
 		(await planner.ChainParamsAsync()).ExpiryWindow.ShouldBe(3_600_000u);
@@ -136,8 +136,8 @@ public class ChainFeePlannerTests
 		a.Fees.ShouldNotBeSameAs(b.Fees);
 	}
 
-	// The v2 byte price is a constant of the gas model; a node reporting another one runs a model this
-	// SDK does not implement, and the config must be refused rather than produce wrong offers.
+	// The v2 byte price is a constant of the gas model. A node reporting another one runs a model this
+	// SDK does not implement. The config is then refused, because it would produce wrong offers.
 	[Fact]
 	public void Refuses_a_config_that_prices_block_data_differently()
 	{

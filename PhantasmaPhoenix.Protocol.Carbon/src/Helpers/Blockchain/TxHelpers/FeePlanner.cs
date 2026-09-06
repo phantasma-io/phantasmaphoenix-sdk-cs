@@ -67,16 +67,20 @@ public class FeePlanOptions
 public sealed class FeePlan
 {
 	/// <summary>
-	/// The operation the message was recognised as, which is also what the bill was computed from.
+	/// The operations the message was recognised as, in call order, which is also what the bill was
+	/// computed from: one entry for an ordinary message, one per inner call for a <c>Call_Multi</c>.
+	/// <para>
 	/// Every kind but <see cref="NativeFeeKind.Script"/> is priced with the chain's own formula for that
 	/// operation; <c>Script</c> covers VM scripts and unmodelled calls, whose work depends on execution
 	/// and can only be budgeted (see <see cref="FeePlanOptions.ScriptUnitsAllowance"/> and its neighbours).
+	/// So a plan is a prediction when no entry is <c>Script</c>, and a budget in the part that is.
+	/// </para>
 	/// <para>
 	/// A formula-priced bill is exact for the facts it was given and an upper bound for the ones it
 	/// had to assume: a state fact left unspecified is filled with its costlier default.
 	/// </para>
 	/// </summary>
-	public NativeFeeKind Kind { get; }
+	public IReadOnlyList<NativeFeeKind> Kinds { get; }
 
 	/// <summary>The signed size the plan was computed for - the bytes the block will carry.</summary>
 	public int EnvelopeBytes { get; }
@@ -95,9 +99,9 @@ public sealed class FeePlan
 	/// <summary>The underlying Tier-1 estimate.</summary>
 	public NativeFeeEstimate Estimate { get; }
 
-	public FeePlan(NativeFeeKind kind, int envelopeBytes, NativeFeeEstimate estimate)
+	public FeePlan(IReadOnlyList<NativeFeeKind> kinds, int envelopeBytes, NativeFeeEstimate estimate)
 	{
-		Kind = kind;
+		Kinds = kinds;
 		EnvelopeBytes = envelopeBytes;
 		Estimate = estimate;
 	}
@@ -128,13 +132,57 @@ public static class FeePlanner
 		// the calculator takes on a missing envelope size.
 		if (SignedTxMsg.RequiredWitnesses(msg) == null && !options.WitnessCount.HasValue)
 			throw new ArgumentException($"{msg.type} transactions choose their own witnesses: pass WitnessCount to plan one", nameof(options));
-		var (kind, p) = Describe(msg, options);
+		var parts = Describe(msg, options);
 		var envelopeBytes = SignedTxMsg.EnvelopeBytes(msg, options.WitnessCount);
-		p.EnvelopeBytes = (uint)envelopeBytes;
-		return new FeePlan(kind, envelopeBytes, NativeFeeEstimator.EstimateNativeFee(kind, config, p));
+		var estimate = NativeFeeEstimator.EstimateNativeFeeBatch(
+			parts, config, new NativeFeeTransaction { EnvelopeBytes = (uint)envelopeBytes });
+		return new FeePlan(parts.Select(part => part.Kind).ToArray(), envelopeBytes, estimate);
 	}
 
-	private static (NativeFeeKind, NativeFeeParams) Describe(in TxMsg msg, FeePlanOptions options)
+	/// <summary>
+	/// The NFT instances a message burns: the native burn types, a <c>Token.BurnNonFungible</c> call,
+	/// and every such call inside a <c>Call_Multi</c>. A burn returns whatever the instance's own
+	/// address holds and pays for each returned asset, so a planner with a chain to ask reads them
+	/// per instance and hands the union to <see cref="FeePlanOptions.Infusions"/>. It lives beside
+	/// the decomposition that decides which calls are burns so the two cannot come to disagree.
+	/// </summary>
+	public static IReadOnlyList<(UInt64 TokenId, UInt64 InstanceId)> BurnedInstances(in TxMsg msg)
+	{
+		switch (msg.type)
+		{
+			case TxTypes.BurnNonFungible:
+				{
+					var inner = (TxMsgBurnNonFungible)msg.msg;
+					return new[] { (inner.tokenId, inner.instanceId) };
+				}
+			case TxTypes.BurnNonFungible_GasPayer:
+				{
+					var inner = (TxMsgBurnNonFungible_GasPayer)msg.msg;
+					return new[] { (inner.tokenId, inner.instanceId) };
+				}
+			case TxTypes.Call:
+				return BurnedByCall((TxMsgCall)msg.msg);
+			case TxTypes.Call_Multi:
+				// A batch with no call array burns nothing, the same reading Describe takes of it.
+				return (((TxMsgCall_Multi)msg.msg).calls ?? Array.Empty<TxMsgCall>()).SelectMany(BurnedByCall).ToArray();
+			default:
+				return Array.Empty<(UInt64, UInt64)>();
+		}
+	}
+
+	private static IReadOnlyList<(UInt64 TokenId, UInt64 InstanceId)> BurnedByCall(TxMsgCall call)
+	{
+		if (call.sections.HasSections
+			|| call.moduleId != (uint)ModuleId.Token
+			|| call.methodId != (uint)TokenContract_Methods.BurnNonFungible)
+			return Array.Empty<(UInt64, UInt64)>();
+		var args = CarbonBlob.New<BurnNonFungibleArgs>(call.args);
+		return args.instanceIds.Select(id => (args.tokenId, id)).ToArray();
+	}
+
+	// What a message does, as the calculator's operations. One entry for an ordinary message; a
+	// Call_Multi yields one per inner call, which is what lets a batch be priced instead of budgeted.
+	private static IReadOnlyList<NativeFeePart> Describe(in TxMsg msg, FeePlanOptions options)
 	{
 		// Passed through unset and all: the calculator owns every default, so no default is decided
 		// in two places. Whether the recipient is an NFT-derived address is NOT here: the address form
@@ -156,7 +204,7 @@ public static class FeePlanner
 					var p = StateFacts();
 					p.TokenId = inner.tokenId;
 					p.ToIsNftAddress = TokenHelper.IsNftAddress(inner.to);
-					return (NativeFeeKind.TransferFungible, p);
+					return One(NativeFeeKind.TransferFungible, p);
 				}
 			case TxTypes.TransferFungible_GasPayer:
 				{
@@ -164,7 +212,7 @@ public static class FeePlanner
 					var p = StateFacts();
 					p.TokenId = inner.tokenId;
 					p.ToIsNftAddress = TokenHelper.IsNftAddress(inner.to);
-					return (NativeFeeKind.TransferFungible, p);
+					return One(NativeFeeKind.TransferFungible, p);
 				}
 			case TxTypes.TransferNonFungible_Single:
 				{
@@ -173,7 +221,7 @@ public static class FeePlanner
 					p.TokenId = inner.tokenId;
 					p.Count = 1;
 					p.ToIsNftAddress = TokenHelper.IsNftAddress(inner.to);
-					return (NativeFeeKind.TransferNonFungible, p);
+					return One(NativeFeeKind.TransferNonFungible, p);
 				}
 			case TxTypes.TransferNonFungible_Single_GasPayer:
 				{
@@ -182,7 +230,7 @@ public static class FeePlanner
 					p.TokenId = inner.tokenId;
 					p.Count = 1;
 					p.ToIsNftAddress = TokenHelper.IsNftAddress(inner.to);
-					return (NativeFeeKind.TransferNonFungible, p);
+					return One(NativeFeeKind.TransferNonFungible, p);
 				}
 			case TxTypes.TransferNonFungible_Multi:
 				{
@@ -191,7 +239,7 @@ public static class FeePlanner
 					p.TokenId = inner.tokenId;
 					p.Count = (uint)inner.instanceIds.Length;
 					p.ToIsNftAddress = TokenHelper.IsNftAddress(inner.to);
-					return (NativeFeeKind.TransferNonFungible, p);
+					return One(NativeFeeKind.TransferNonFungible, p);
 				}
 			case TxTypes.TransferNonFungible_Multi_GasPayer:
 				{
@@ -200,7 +248,7 @@ public static class FeePlanner
 					p.TokenId = inner.tokenId;
 					p.Count = (uint)inner.instanceIds.Length;
 					p.ToIsNftAddress = TokenHelper.IsNftAddress(inner.to);
-					return (NativeFeeKind.TransferNonFungible, p);
+					return One(NativeFeeKind.TransferNonFungible, p);
 				}
 			case TxTypes.MintFungible:
 				{
@@ -208,19 +256,19 @@ public static class FeePlanner
 					var p = StateFacts();
 					p.TokenId = inner.tokenId;
 					p.ToIsNftAddress = TokenHelper.IsNftAddress(inner.to);
-					return (NativeFeeKind.MintFungible, p);
+					return One(NativeFeeKind.MintFungible, p);
 				}
 			case TxTypes.BurnFungible:
 				{
 					var p = StateFacts();
 					p.TokenId = ((TxMsgBurnFungible)msg.msg).tokenId;
-					return (NativeFeeKind.BurnFungible, p);
+					return One(NativeFeeKind.BurnFungible, p);
 				}
 			case TxTypes.BurnFungible_GasPayer:
 				{
 					var p = StateFacts();
 					p.TokenId = ((TxMsgBurnFungible_GasPayer)msg.msg).tokenId;
-					return (NativeFeeKind.BurnFungible, p);
+					return One(NativeFeeKind.BurnFungible, p);
 				}
 			case TxTypes.MintNonFungible:
 				{
@@ -230,7 +278,7 @@ public static class FeePlanner
 					p.RomBytes = (uint)inner.rom.Length;
 					p.RamBytes = (uint)inner.ram.Length;
 					p.ToIsNftAddress = TokenHelper.IsNftAddress(inner.to);
-					return (NativeFeeKind.MintNonFungible, p);
+					return One(NativeFeeKind.MintNonFungible, p);
 				}
 			case TxTypes.BurnNonFungible:
 			case TxTypes.BurnNonFungible_GasPayer:
@@ -238,36 +286,110 @@ public static class FeePlanner
 					// The stored ROM is chain state the message does not carry, so the deleted quanta are
 					// a lower bound. That does not touch the offer: a burn deletes more than it creates,
 					// and only the rows it creates are escrowed.
-					// What the NFT holds is chain state with no costlier bound, so it is demanded, not
-					// assumed: a burn planned as if the address were empty is short by every returned
-					// asset and aborts, billed, on every retry.
-					if (options.Infusions == null)
-						throw new ArgumentException("A burn returns whatever the NFT holds: pass Infusions (empty when it holds nothing) or plan through PhantasmaAPI.Fees, which reads them from the chain", nameof(options));
 					var p = StateFacts();
 					p.TokenId = msg.type == TxTypes.BurnNonFungible
 						? ((TxMsgBurnNonFungible)msg.msg).tokenId
 						: ((TxMsgBurnNonFungible_GasPayer)msg.msg).tokenId;
 					p.Count = 1;
-					p.Infusions = options.Infusions;
-					return (NativeFeeKind.BurnNonFungible, p);
+					p.Infusions = RequireInfusions(options.Infusions);
+					return One(NativeFeeKind.BurnNonFungible, p);
 				}
 			case TxTypes.Call:
-				return DescribeCall((TxMsgCall)msg.msg, options, StateFacts);
+				return new[] { DescribeCall((TxMsgCall)msg.msg, options, StateFacts, options.Infusions) };
 			case TxTypes.Call_Multi:
+				{
+					// The chain runs the calls in a loop and bills their sum, so the plan is the sum of
+					// their models. Infusions cover every burn in the batch and the returns cost the same
+					// wherever they are counted, so the first burn takes the whole list and the burns
+					// after it take none.
+					var calls = ((TxMsgCall_Multi)msg.msg).calls ?? Array.Empty<TxMsgCall>();
+					var parts = new List<NativeFeePart>(calls.Length);
+					var returns = options.Infusions;
+					foreach (var call in calls)
+					{
+						var part = DescribeCall(call, options, StateFacts, returns);
+						if (part.Kind == NativeFeeKind.BurnNonFungible)
+							returns = Array.Empty<InfusedAsset>();
+						parts.Add(part);
+					}
+					return parts;
+				}
 			case TxTypes.Trade:
 			case TxTypes.Phantasma:
-				return ScriptPlan(options);
+				return new[] { ScriptPlan(options) };
 			default:
 				throw new ArgumentException($"Cannot plan fees for transaction type {msg.type}", nameof(msg));
 		}
 	}
 
-	private static (NativeFeeKind, NativeFeeParams) DescribeCall(TxMsgCall call, FeePlanOptions options, Func<NativeFeeParams> stateFacts)
+	private static IReadOnlyList<NativeFeePart> One(NativeFeeKind kind, NativeFeeParams p) =>
+		new[] { new NativeFeePart(kind, p) };
+
+	// What the NFTs hold is chain state with no costlier bound, so it is demanded, not assumed: a
+	// burn planned as if the addresses were empty is short by every returned asset and aborts,
+	// billed, on every retry.
+	private static IReadOnlyList<InfusedAsset> RequireInfusions(IReadOnlyList<InfusedAsset>? infusions)
 	{
+		if (infusions == null)
+			throw new ArgumentException("A burn returns whatever the NFT holds: pass Infusions (empty when it holds nothing) or plan through PhantasmaAPI.Fees, which reads them from the chain", nameof(infusions));
+		return infusions;
+	}
+
+	private static NativeFeePart DescribeCall(TxMsgCall call, FeePlanOptions options, Func<NativeFeeParams> stateFacts, IReadOnlyList<InfusedAsset>? infusions)
+	{
+		// A call whose arguments are assembled at execution out of earlier calls' results carries none
+		// of them yet. There is nothing to read a price from, so it is budgeted like any unmodelled call.
+		if (call.sections.HasSections)
+			return ScriptPlan(options);
 		if (call.moduleId == (uint)ModuleId.Token)
 		{
 			switch ((TokenContract_Methods)call.methodId)
 			{
+				// The five token movements below cost exactly what they cost as native transaction
+				// types: both paths enter the same contract method, and a batched wallet operation is
+				// the reason they arrive as module calls at all. Token.MintNonFungible is deliberately
+				// absent - the chain refuses it under mainnet SR 50 whichever way it arrives, so there
+				// is nothing to price.
+				case TokenContract_Methods.TransferFungible:
+					{
+						var args = CarbonBlob.New<TransferFungibleArgs>(call.args);
+						var p = stateFacts();
+						p.TokenId = args.tokenId;
+						p.ToIsNftAddress = TokenHelper.IsNftAddress(args.to);
+						return new NativeFeePart(NativeFeeKind.TransferFungible, p);
+					}
+				case TokenContract_Methods.TransferNonFungible:
+					{
+						var args = CarbonBlob.New<TransferNonFungibleArgs>(call.args);
+						var p = stateFacts();
+						p.TokenId = args.tokenId;
+						p.Count = (uint)args.instanceIds.Length;
+						p.ToIsNftAddress = TokenHelper.IsNftAddress(args.to);
+						return new NativeFeePart(NativeFeeKind.TransferNonFungible, p);
+					}
+				case TokenContract_Methods.MintFungible:
+					{
+						var args = CarbonBlob.New<MintFungibleArgs>(call.args);
+						var p = stateFacts();
+						p.TokenId = args.tokenId;
+						p.ToIsNftAddress = TokenHelper.IsNftAddress(args.to);
+						return new NativeFeePart(NativeFeeKind.MintFungible, p);
+					}
+				case TokenContract_Methods.BurnFungible:
+					{
+						var p = stateFacts();
+						p.TokenId = CarbonBlob.New<BurnFungibleArgs>(call.args).tokenId;
+						return new NativeFeePart(NativeFeeKind.BurnFungible, p);
+					}
+				case TokenContract_Methods.BurnNonFungible:
+					{
+						var args = CarbonBlob.New<BurnNonFungibleArgs>(call.args);
+						var p = stateFacts();
+						p.TokenId = args.tokenId;
+						p.Count = (uint)args.instanceIds.Length;
+						p.Infusions = RequireInfusions(infusions);
+						return new NativeFeePart(NativeFeeKind.BurnNonFungible, p);
+					}
 				case TokenContract_Methods.CreateToken:
 					{
 						var info = CarbonBlob.New<TokenInfo>(call.args);
@@ -278,7 +400,7 @@ public static class FeePlanner
 						// TokenInfo it was given, metadata included, and measured bills confirm the row equals
 						// the arguments. Which extra rows the creation writes, and which lookups validating it
 						// costs, is decided by the metadata, which is a named struct the plan can read.
-						return (NativeFeeKind.CreateToken, new NativeFeeParams
+						return new NativeFeePart(NativeFeeKind.CreateToken, new NativeFeeParams
 						{
 							SymbolLength = info.symbol.data?.Length ?? 0,
 							TokenInfoBytes = (uint)call.args.Length,
@@ -291,7 +413,7 @@ public static class FeePlanner
 					}
 				case TokenContract_Methods.CreateTokenSeries:
 					// The arguments are the u64 token id followed by the SeriesInfo, which becomes the row.
-					return (NativeFeeKind.CreateTokenSeries, new NativeFeeParams
+					return new NativeFeePart(NativeFeeKind.CreateTokenSeries, new NativeFeeParams
 					{
 						SeriesInfoBytes = (uint)Math.Max(call.args.Length - 8, 0),
 						SeriesHasMetaId = options.SeriesHasMetaId
@@ -319,7 +441,7 @@ public static class FeePlanner
 						p.DuplicatedSeries = options.DuplicatedSeries;
 						p.DistinctSeriesCount = (uint)seriesIds.Count;
 						p.ToIsNftAddress = TokenHelper.IsNftAddress(args.address);
-						return (NativeFeeKind.MintPhantasmaNonFungible, p);
+						return new NativeFeePart(NativeFeeKind.MintPhantasmaNonFungible, p);
 					}
 				default:
 					return ScriptPlan(options);
@@ -332,17 +454,17 @@ public static class FeePlanner
 			using var reader = new BinaryReader(stream);
 			reader.Read32(out Bytes32 _);
 			reader.Read(out SmallString name);
-			return (NativeFeeKind.RegisterName, new NativeFeeParams { NameLength = name.data?.Length ?? 0 });
+			return new NativeFeePart(NativeFeeKind.RegisterName, new NativeFeeParams { NameLength = name.data?.Length ?? 0 });
 		}
 		return ScriptPlan(options);
 	}
 
-	private static (NativeFeeKind, NativeFeeParams) ScriptPlan(FeePlanOptions options)
+	private static NativeFeePart ScriptPlan(FeePlanOptions options)
 	{
 		var p = new NativeFeeParams();
 		if (options.ScriptUnitsAllowance.HasValue) p.ScriptUnitsAllowance = options.ScriptUnitsAllowance.Value;
 		if (options.ScriptEventBytes.HasValue) p.ScriptEventBytes = options.ScriptEventBytes.Value;
 		if (options.ScriptStorageQuanta.HasValue) p.ScriptStorageQuanta = options.ScriptStorageQuanta.Value;
-		return (NativeFeeKind.Script, p);
+		return new NativeFeePart(NativeFeeKind.Script, p);
 	}
 }

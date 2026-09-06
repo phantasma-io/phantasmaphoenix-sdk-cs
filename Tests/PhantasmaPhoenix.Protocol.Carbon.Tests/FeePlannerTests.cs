@@ -109,7 +109,7 @@ public class FeePlannerTests
 		var msg = Transfer(Config.gasTokenId);
 		var plan = FeePlanner.Plan(msg, Config);
 
-		plan.Kind.ShouldBe(NativeFeeKind.TransferFungible);
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.TransferFungible });
 		plan.EnvelopeBytes.ShouldBe(170);
 		plan.ExpectedGasBill.ShouldBe(42_600_000UL);
 		plan.MaxGas.ShouldBe(42_600_000UL);
@@ -159,7 +159,7 @@ public class FeePlannerTests
 		var args = CarbonBlob.Serialize(info);
 		var plan = FeePlanner.Plan(TokenCall(TokenContract_Methods.CreateToken, args), Config, OneWitness);
 
-		plan.Kind.ShouldBe(NativeFeeKind.CreateToken);
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.CreateToken });
 		// Symbol lookup + token info (one quantum at this size) + the supply row.
 		plan.NewStorageQuanta.ShouldBe(3u);
 		plan.MaxData.ShouldBe(600_000UL);
@@ -232,7 +232,7 @@ public class FeePlannerTests
 		var args = CarbonBlob.Serialize(new CreateTokenSeriesArgs { tokenId = 9, info = seriesInfo });
 		var plan = FeePlanner.Plan(TokenCall(TokenContract_Methods.CreateTokenSeries, args), Config, OneWitness);
 
-		plan.Kind.ShouldBe(NativeFeeKind.CreateTokenSeries);
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.CreateTokenSeries });
 		// Series info + series supply + the meta-id lookup the SDK-built metadata always carries.
 		plan.NewStorageQuanta.ShouldBe(3u);
 		plan.ExpectedGasBill.ShouldBe(Bill(0, plan.EnvelopeBytes + 3 + 4, 25_000_000_000_000));
@@ -247,7 +247,7 @@ public class FeePlannerTests
 	{
 		var msg = PhantasmaMintCall(new[] { PhantasmaMint(7, 182) });
 		var plan = FeePlanner.Plan(msg, Config, new FeePlanOptions { WitnessCount = 1, DuplicatedSeries = false, SupplyRowExists = true });
-		plan.Kind.ShouldBe(NativeFeeKind.MintPhantasmaNonFungible);
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.MintPhantasmaNonFungible });
 		plan.NewStorageQuanta.ShouldBe(5u);
 		plan.ExpectedGasBill.ShouldBe(Bill(30, plan.EnvelopeBytes + 5 + 44));
 		plan.MaxData.ShouldBe(1_000_000UL);
@@ -318,7 +318,7 @@ public class FeePlannerTests
 		Should.Throw<ArgumentException>(() => FeePlanner.Plan(burn, Config)).Message.ShouldContain("Infusions");
 
 		var empty = FeePlanner.Plan(burn, Config, new FeePlanOptions { Infusions = Array.Empty<InfusedAsset>(), TokenBurnedBefore = true, SupplyRowExists = true });
-		empty.Kind.ShouldBe(NativeFeeKind.BurnNonFungible);
+		empty.Kinds.ShouldBe(new[] { NativeFeeKind.BurnNonFungible });
 		empty.ExpectedGasBill.ShouldBe(Bill(30, empty.EnvelopeBytes));
 
 		var returned = FeePlanner.Plan(burn, Config, new FeePlanOptions
@@ -364,7 +364,7 @@ public class FeePlannerTests
 	{
 		var msg = Msg(TxTypes.TransferNonFungible_Multi, new TxMsgTransferNonFungible_Multi { to = OwnerPub, tokenId = 97, instanceIds = new ulong[] { 11, 12 } });
 		var plan = FeePlanner.Plan(msg, Config);
-		plan.Kind.ShouldBe(NativeFeeKind.TransferNonFungible);
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.TransferNonFungible });
 		plan.NewStorageQuanta.ShouldBe(3u);
 		plan.DeletedStorageQuanta.ShouldBe(2u);
 		plan.ExpectedGasBill.ShouldBe(Bill(20, plan.EnvelopeBytes + 1));
@@ -378,7 +378,7 @@ public class FeePlannerTests
 	{
 		var msg = Msg(TxTypes.MintNonFungible, new TxMsgMintNonFungible { tokenId = 9, seriesId = 1, to = OwnerPub, rom = new byte[100], ram = Array.Empty<byte>() });
 		var plan = FeePlanner.Plan(msg, Config, new FeePlanOptions { SupplyRowExists = true });
-		plan.Kind.ShouldBe(NativeFeeKind.MintNonFungible);
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.MintNonFungible });
 		plan.NewStorageQuanta.ShouldBe(5u);
 		FeePlanner.Plan(msg, Config, new FeePlanOptions { SupplyRowExists = true, RomHasMetaId = false }).NewStorageQuanta.ShouldBe(4u);
 		plan.ExpectedGasBill.ShouldBe(Bill(10, plan.EnvelopeBytes + 5 + 12));
@@ -394,7 +394,7 @@ public class FeePlannerTests
 		var msg = Msg(TxTypes.Call, new TxMsgCall { moduleId = (uint)ModuleId.Governance, methodId = (uint)GovernanceContract_Methods.RegisterName, args = stream.ToArray() });
 
 		var plan = FeePlanner.Plan(msg, Config, OneWitness);
-		plan.Kind.ShouldBe(NativeFeeKind.RegisterName);
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.RegisterName });
 		plan.ExpectedGasBill.ShouldBe(Bill(0, plan.EnvelopeBytes, 100_000_000_000_000_000UL >> 4));
 		plan.MaxData.ShouldBe(0UL);
 	}
@@ -404,14 +404,14 @@ public class FeePlannerTests
 	{
 		var script = Msg(TxTypes.Phantasma, new TxMsgPhantasma { nexus = new SmallString("simnet"), chain = new SmallString("main"), script = new byte[10] });
 		var plan = FeePlanner.Plan(script, Config, OneWitness);
-		plan.Kind.ShouldBe(NativeFeeKind.Script);
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.Script });
 		plan.ExpectedGasBill.ShouldBe(Bill(5000, plan.EnvelopeBytes + 4 + 512));
 		var tighter = FeePlanner.Plan(script, Config, new FeePlanOptions { WitnessCount = 1, ScriptUnitsAllowance = 1000, ScriptEventBytes = 0, ScriptStorageQuanta = 0 });
 		tighter.ExpectedGasBill.ShouldBe(Bill(1000, plan.EnvelopeBytes));
 
 		// A token call the planner has no formula for is budgeted the same way rather than refused.
 		var unmodelled = TokenCall(TokenContract_Methods.UpdateTokenMetadata, new byte[20]);
-		FeePlanner.Plan(unmodelled, Config, OneWitness).Kind.ShouldBe(NativeFeeKind.Script);
+		FeePlanner.Plan(unmodelled, Config, OneWitness).Kinds.ShouldBe(new[] { NativeFeeKind.Script });
 	}
 
 	[Fact]
@@ -423,5 +423,189 @@ public class FeePlannerTests
 		(two.EnvelopeBytes - one.EnvelopeBytes).ShouldBe(96);
 		(two.ExpectedGasBill - one.ExpectedGasBill).ShouldBe(96UL * 25 * 10_000);
 		TxMsgSigner.SignAndSerializeWithKeys(two.Apply(msg), Payer, Owner).Length.ShouldBe(two.EnvelopeBytes);
+	}
+
+	// A wallet that performs several token operations at once sends them as module calls: one
+	// Token.* call, or a Call_Multi of them. The chain runs those through the very same contract
+	// methods the native transaction types run, in a plain loop, with no per-call surcharge - so the
+	// planner has to price them like the native operations they are instead of budgeting them as if
+	// they were VM scripts.
+	private static TxMsgCall BurnNftCall(ulong tokenId, ulong[] instanceIds) => new()
+	{
+		moduleId = (uint)ModuleId.Token,
+		methodId = (uint)TokenContract_Methods.BurnNonFungible,
+		args = CarbonBlob.Serialize(new BurnNonFungibleArgs { tokenId = tokenId, from = PayerPub, instanceIds = instanceIds })
+	};
+
+	private static TxMsg BurnBatch(int count) =>
+		Msg(TxTypes.Call_Multi, new TxMsgCall_Multi
+		{
+			calls = Enumerable.Range(0, count).Select(i => BurnNftCall(9, new[] { (ulong)(11 + i) })).ToArray()
+		});
+
+	private static FeePlanOptions BurnFacts() => new()
+	{
+		WitnessCount = 1,
+		Infusions = Array.Empty<InfusedAsset>(),
+		TokenBurnedBefore = true,
+		SupplyRowExists = true
+	};
+
+	[Fact]
+	public void Prices_a_fungible_transfer_call_exactly_as_the_native_transfer()
+	{
+		var call = TokenCall(TokenContract_Methods.TransferFungible,
+			CarbonBlob.Serialize(new TransferFungibleArgs { to = OwnerPub, from = PayerPub, tokenId = 97, amount = new IntX(5) }));
+		var plan = FeePlanner.Plan(call, Config, OneWitness);
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.TransferFungible });
+		// One transfer fee, and the fresh recipient row that the costlier default assumes.
+		plan.ExpectedGasBill.ShouldBe(Bill(10, plan.EnvelopeBytes + 1));
+		plan.MaxData.ShouldBe(Config.dataEscrowPerRow);
+
+		// The recipient's address form decides one query fee here exactly as it does natively.
+		var infused = TokenCall(TokenContract_Methods.TransferFungible,
+			CarbonBlob.Serialize(new TransferFungibleArgs { to = TokenHelper.GetNftAddress(9, 5), from = PayerPub, tokenId = 97, amount = new IntX(5) }));
+		FeePlanner.Plan(infused, Config, OneWitness).ExpectedGasBill.ShouldBe(Bill(20, plan.EnvelopeBytes + 1));
+	}
+
+	[Fact]
+	public void Counts_the_instances_of_an_NFT_transfer_call()
+	{
+		var call = TokenCall(TokenContract_Methods.TransferNonFungible,
+			CarbonBlob.Serialize(new TransferNonFungibleArgs { to = OwnerPub, from = PayerPub, tokenId = 97, instanceIds = new ulong[] { 11, 12, 13 } }));
+		var plan = FeePlanner.Plan(call, Config, OneWitness);
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.TransferNonFungible });
+		// Three transfer fees; three lookup rows created against three deleted, plus the fresh
+		// recipient balance row - so one net quantum of block data and four rows of ceiling.
+		plan.ExpectedGasBill.ShouldBe(Bill(30, plan.EnvelopeBytes + 1));
+		plan.NewStorageQuanta.ShouldBe(4u);
+		plan.DeletedStorageQuanta.ShouldBe(3u);
+	}
+
+	[Fact]
+	public void Prices_fungible_mint_and_burn_calls_with_their_variable_length_result()
+	{
+		var mint = TokenCall(TokenContract_Methods.MintFungible,
+			CarbonBlob.Serialize(new MintFungibleArgs { tokenId = 97, to = OwnerPub, amount = new IntX(1000) }));
+		var mintPlan = FeePlanner.Plan(mint, Config, new FeePlanOptions { WitnessCount = 1, BigFungible = false });
+		mintPlan.Kinds.ShouldBe(new[] { NativeFeeKind.MintFungible });
+		// Transfer fee; the recipient's row and the supply row; a 9-byte int64 balance answer.
+		mintPlan.ExpectedGasBill.ShouldBe(Bill(10, mintPlan.EnvelopeBytes + 2 + 9));
+
+		var burn = TokenCall(TokenContract_Methods.BurnFungible,
+			CarbonBlob.Serialize(new BurnFungibleArgs { tokenId = 97, from = PayerPub, amount = new IntX(1) }));
+		var burnPlan = FeePlanner.Plan(burn, Config, new FeePlanOptions { WitnessCount = 1, BigFungible = false, TokenBurnedBefore = true, SupplyRowExists = true });
+		burnPlan.Kinds.ShouldBe(new[] { NativeFeeKind.BurnFungible });
+		burnPlan.ExpectedGasBill.ShouldBe(Bill(10, burnPlan.EnvelopeBytes + 9));
+	}
+
+	[Fact]
+	public void Prices_an_NFT_burn_call_for_every_instance_it_names_and_demands_what_they_hold()
+	{
+		var call = Msg(TxTypes.Call, BurnNftCall(9, new ulong[] { 11, 12 }));
+		Should.Throw<ArgumentException>(() => FeePlanner.Plan(call, Config, OneWitness));
+
+		var plan = FeePlanner.Plan(call, Config, BurnFacts());
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.BurnNonFungible });
+		// Two instances at a transfer fee plus two queries each; four rows deleted per instance.
+		plan.ExpectedGasBill.ShouldBe(Bill(60, plan.EnvelopeBytes));
+		plan.DeletedStorageQuanta.ShouldBe(8u);
+	}
+
+	// Explicit NFT mints are refused chain-wide by mainnet SR 50 whichever way they arrive, so the
+	// SDK removed its native builder and does not price the call either: there is no transaction to
+	// price. It must stay budgeted rather than quietly grow a model.
+	[Fact]
+	public void Leaves_an_explicit_NFT_mint_call_at_the_script_budget()
+	{
+		var mint = TokenCall(TokenContract_Methods.MintNonFungible,
+			CarbonBlob.Serialize(new MintNonFungibleArgs { tokenId = 97, address = OwnerPub, tokens = Array.Empty<NftMintInfo>() }));
+		FeePlanner.Plan(mint, Config, OneWitness).Kinds.ShouldBe(new[] { NativeFeeKind.Script });
+	}
+
+	// A call may name argument SECTIONS instead of arguments: the chain assembles them at execution
+	// out of earlier calls' results. Nothing to read a price from, and reading the empty argument
+	// buffer as if it held the fields would be worse than budgeting.
+	[Fact]
+	public void Budgets_a_call_whose_arguments_are_assembled_at_execution()
+	{
+		var call = BurnNftCall(9, new ulong[] { 11 });
+		call.args = Array.Empty<byte>();
+		call.sections = new MsgCallArgSections
+		{
+			argSections = new[] { new MsgCallArgs { registerOffset = -1, args = Array.Empty<byte>() } }
+		};
+		FeePlanner.Plan(Msg(TxTypes.Call, call), Config, OneWitness).Kinds.ShouldBe(new[] { NativeFeeKind.Script });
+	}
+
+	// The reference point is a measured one: two NFT burns batched this way settled at 73,100,000
+	// kcal-base against a 290-byte envelope on the localnet (evidence cs-live-v6, 2026-09-02), which
+	// is exactly what summing the two burn models and counting the envelope once produces.
+	[Theory]
+	[InlineData(1)]
+	[InlineData(2)]
+	[InlineData(3)]
+	[InlineData(11)]
+	[InlineData(20)]
+	public void Prices_a_batch_as_the_sum_of_its_calls_with_the_envelope_counted_once(int count)
+	{
+		var plan = FeePlanner.Plan(BurnBatch(count), Config, BurnFacts());
+		plan.Kinds.ShouldBe(Enumerable.Repeat(NativeFeeKind.BurnNonFungible, count).ToArray());
+		// Per burn: a transfer fee and two queries. Every burn deletes more rows than it creates, so
+		// the batch adds no block data beyond its envelope.
+		plan.ExpectedGasBill.ShouldBe(Bill(30UL * (ulong)count, plan.EnvelopeBytes));
+		plan.DeletedStorageQuanta.ShouldBe((uint)(4 * count));
+	}
+
+	// The defect these batch cases exist for: a Call_Multi used to take the flat script budget
+	// whatever it contained, so its price did not follow the work it does. It must now.
+	[Fact]
+	public void Follows_the_work_of_the_batch_instead_of_a_flat_budget()
+	{
+		var two = FeePlanner.Plan(BurnBatch(2), Config, BurnFacts());
+		var twenty = FeePlanner.Plan(BurnBatch(20), Config, BurnFacts());
+		var perBurn = (twenty.ExpectedGasBill - two.ExpectedGasBill) / 18;
+		var envelopePerBurn = (twenty.EnvelopeBytes - two.EnvelopeBytes) / 18;
+		perBurn.ShouldBe(Bill(30, envelopePerBurn));
+	}
+
+	[Fact]
+	public void Prices_what_the_batch_gives_back_once_not_once_per_burn()
+	{
+		var empty = FeePlanner.Plan(BurnBatch(2), Config, BurnFacts());
+		var facts = BurnFacts();
+		facts.Infusions = new[] { new InfusedAsset { TokenId = 1 }, new InfusedAsset { TokenId = 97 } };
+		var returned = FeePlanner.Plan(BurnBatch(2), Config, facts);
+		// One transfer plus one owner-lookup query per returned token, counted for the batch and not
+		// for each of its burns; the custom token's balance row is recreated for the burner.
+		(returned.ExpectedGasBill - empty.ExpectedGasBill).ShouldBe(40UL * 10_000);
+		(returned.MaxData - empty.MaxData).ShouldBe(Config.dataEscrowPerRow);
+	}
+
+	[Fact]
+	public void Prices_the_calls_it_models_and_budgets_only_the_ones_it_does_not()
+	{
+		var unknown = new TxMsgCall { moduleId = (uint)ModuleId.Token, methodId = (uint)TokenContract_Methods.UpdateTokenMetadata, args = new byte[8] };
+		var msg = Msg(TxTypes.Call_Multi, new TxMsgCall_Multi { calls = new[] { BurnNftCall(9, new ulong[] { 11 }), unknown } });
+
+		var facts = BurnFacts();
+		facts.ScriptUnitsAllowance = 100;
+		var plan = FeePlanner.Plan(msg, Config, facts);
+		plan.Kinds.ShouldBe(new[] { NativeFeeKind.BurnNonFungible, NativeFeeKind.Script });
+		// Both work terms, and the budget's event bytes. Its four storage quanta are NOT block data
+		// here: the chain bills the net growth of the whole transaction, and the burn deletes four
+		// rows against them - which is the reason a batch is settled once instead of call by call.
+		plan.ExpectedGasBill.ShouldBe(Bill(130, plan.EnvelopeBytes + 512));
+		plan.NewStorageQuanta.ShouldBe(4u);
+		plan.DeletedStorageQuanta.ShouldBe(4u);
+	}
+
+	[Fact]
+	public void Names_every_instance_a_message_burns_whichever_shape_it_burns_them_in()
+	{
+		var native = Msg(TxTypes.BurnNonFungible, new TxMsgBurnNonFungible { tokenId = 9, instanceId = 5 });
+		FeePlanner.BurnedInstances(native).ShouldBe(new[] { (9UL, 5UL) });
+		FeePlanner.BurnedInstances(BurnBatch(2)).ShouldBe(new[] { (9UL, 11UL), (9UL, 12UL) });
+		FeePlanner.BurnedInstances(Transfer(97)).ShouldBeEmpty();
 	}
 }

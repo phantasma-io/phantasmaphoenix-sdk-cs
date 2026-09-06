@@ -13,13 +13,18 @@ public enum NativeFeeKind
 	MintFungible,
 	/// <summary>
 	/// NFT mint of <c>Count</c> instances with caller-supplied ROM (TxTypes.MintNonFungible). The ROM
-	/// is stored exactly as submitted, unlike a deterministic Phantasma mint.
+	/// is stored exactly as submitted. A deterministic Phantasma mint stores a canonical ROM.
+	/// <para>
+	/// The chain refuses this operation where governance has not allowed caller-supplied ROM ids, and
+	/// that is the state of the public chains today. The SDK carries no builder for it. The model is
+	/// kept because the calculator prices the operation correctly wherever it is allowed.
+	/// </para>
 	/// </summary>
 	MintNonFungible,
 	/// <summary>
 	/// Deterministic Phantasma NFT mint of <c>Count</c> instances (TokenContract.MintPhantasmaNonFungible).
-	/// The chain stores a canonical ROM: the public ROM plus the derived Phantasma NFT id plus a copy
-	/// of the public ROM, so storage grows at twice the ROM size.
+	/// The chain stores a canonical ROM. It holds the public ROM, the derived Phantasma NFT id and a
+	/// second copy of the public ROM, so storage grows at twice the ROM size.
 	/// </summary>
 	MintPhantasmaNonFungible,
 	/// <summary>Fungible burn (TxTypes.BurnFungible and its _GasPayer variant).</summary>
@@ -34,37 +39,40 @@ public enum NativeFeeKind
 	RegisterName,
 	/// <summary>
 	/// Generic Phantasma VM script transaction (AllowGas/SpendGas pattern: stake, marketplace, custom
-	/// contract calls). Script opcode costs depend on chain state and are not closed-form; the
+	/// contract calls). Script opcode costs depend on chain state, and no formula gives them. The
 	/// estimate budgets <c>ScriptUnitsAllowance</c> VM work units and <c>ScriptEventBytes</c> of events
-	/// on top of the byte fee. For an exact script bill use the node-side estimator (estimateTransaction).
+	/// on top of the byte fee. For an exact script bill use the node-side estimator
+	/// (estimateTransaction).
 	/// </summary>
 	Script
 }
 
 /// <summary>
-/// Inputs of <see cref="NativeFeeEstimator.EstimateNativeFee"/>. Under gas model v2 every byte the
-/// transaction puts in the block is billed and every new storage row is escrowed, so the inputs are
-/// the sizes the chain will see: the signed envelope, the serialized structures the operation stores,
-/// and the facts about existing state that decide whether a row is new.
+/// Inputs of <see cref="NativeFeeEstimator.EstimateNativeFee"/>. Under gas model v2 the chain bills
+/// every byte the transaction puts in the block and escrows every new storage row. The inputs are
+/// therefore the sizes the chain will see: the signed envelope, the serialized structures the
+/// operation stores, and the facts about existing state that decide whether a row is new.
 /// <para>
-/// The inputs are of two kinds, and they are defaulted differently:
+/// The inputs are of two kinds, and they are defaulted differently.
 /// </para>
 /// <list type="bullet">
-/// <item>Facts the CALLER CANNOT KNOW without reading chain state - whether the recipient already
-/// holds the token, whether a ROM carries an <c>_i</c> id, which mode a series mints in. Each defaults
-/// to the case that costs MORE, so an estimate built from defaults is an upper bound the settlement
-/// can only undercut, never a short offer.</item>
-/// <item>Facts carried by the MESSAGE ITSELF - the instance count, the serialized sizes, whether the
-/// token being created is non-fungible or carries <c>pre_burn</c>. These have no safe default because
-/// they are not guesses: pass them. <c>FeePlanner.Plan</c> reads every one of them out of the message.</item>
+/// <item>Facts the CALLER CANNOT KNOW without reading chain state. Examples: whether the recipient
+/// already holds the token, whether a ROM carries an <c>_i</c> id, which mode a series mints in. Each
+/// defaults to the case that costs MORE. An estimate built from defaults is then an upper bound, and
+/// the settlement can only come out below it.</item>
+/// <item>Facts carried by the MESSAGE ITSELF. Examples: the instance count, the serialized sizes,
+/// whether the token being created is non-fungible or carries <c>pre_burn</c>. These are not guesses,
+/// so they have no safe default. Pass them. <c>FeePlanner.Plan</c> reads every one of them out of the
+/// message.</item>
 /// </list>
 /// </summary>
 public sealed class NativeFeeParams
 {
 	/// <summary>
-	/// Full signed transaction size in bytes - the envelope carried in the block. Required under gas
-	/// model v2 (see <see cref="NativeFeeEstimator.EnvelopeBytesFor"/> and
-	/// <see cref="SignedTxMsg.EnvelopeBytes"/>); ignored under v1, which billed only the payload note.
+	/// Full signed transaction size in bytes. This is the envelope the block carries. Required under
+	/// gas model v2 (see <see cref="NativeFeeEstimator.EnvelopeBytesFor"/> and
+	/// <see cref="SignedTxMsg.EnvelopeBytes"/>). Ignored under v1, which billed the payload note
+	/// alone.
 	/// </summary>
 	public uint? EnvelopeBytes { get; set; }
 
@@ -81,20 +89,26 @@ public sealed class NativeFeeParams
 	public bool RecipientHoldsToken { get; set; }
 
 	/// <summary>
-	/// The recipient is an NFT-derived address (an infusion): the chain reads that NFT's owner - one
-	/// extra query fee. Transfers and every mint kind pay it; a burn has no recipient. This is a fact
-	/// of the recipient's address form, not of chain state - <c>FeePlanner.Plan</c> derives it from the
-	/// message's own recipient (<c>TokenHelper.IsNftAddress</c>) - so only direct callers of this
-	/// calculator pass it.
+	/// The recipient is an NFT-derived address, which means an infusion. The chain reads that NFT's
+	/// owner, and that costs one extra query fee. Transfers and every mint kind pay it. A burn has no
+	/// recipient.
+	/// <para>
+	/// This is a fact of the recipient's address form. It says nothing about chain state.
+	/// <c>FeePlanner.Plan</c> derives it from the message's own recipient with
+	/// <c>TokenHelper.IsNftAddress</c>, so only direct callers of this calculator pass it.
+	/// </para>
 	/// </summary>
 	public bool ToIsNftAddress { get; set; }
 
 	/// <summary>
-	/// The token's balances can exceed int64 (a big-fungible token). A fungible mint or burn answers
-	/// with the RESULTING balance as a variable-length integer - 9 bytes while it fits int64, up to
-	/// 33 for an int256 balance - and the resulting balance is chain state, so the default (null)
-	/// prices the 33-byte maximum: a covering bound, refunded down. Pass <c>false</c> for an ordinary
-	/// int64 token and the estimate is exact.
+	/// The token's balances can exceed int64. Such a token is called big-fungible.
+	/// <para>
+	/// A fungible mint or burn answers with the RESULTING balance as a variable-length integer. That
+	/// is 9 bytes while the balance fits int64, and up to 33 bytes for an int256 balance. The
+	/// resulting balance is chain state, so the default (null) prices the 33-byte maximum. The offer
+	/// then covers the bill and the difference is refunded. Pass <c>false</c> for an ordinary int64
+	/// token and the estimate is exact.
+	/// </para>
 	/// </summary>
 	public bool? BigFungible { get; set; }
 
@@ -103,55 +117,71 @@ public sealed class NativeFeeParams
 
 	/// <summary>
 	/// The token's supply-tracking row exists. The chain drops that row when its balance reaches
-	/// exactly zero, so this is chain state with two absent-row edges: a limited-supply token whose
-	/// entire supply is in circulation (the next burn recreates the row) and an unlimited token with
-	/// nothing outstanding (the next mint recreates it). Unstated, every mint and burn prices the
-	/// recreation - one more storage quantum in the bill and the escrow ceiling - so the default
-	/// covers both edges; pass <c>true</c> for the exact quote whenever the token is not at one of
-	/// them. Rows of the chain's gas and data tokens are free either way.
+	/// exactly zero, so the row can be absent in two cases. A limited-supply token has its entire
+	/// supply in circulation, and the next burn recreates the row. An unlimited token has nothing
+	/// outstanding, and the next mint recreates it.
+	/// <para>
+	/// When this fact is unstated, every mint and burn prices the recreation. That is one more storage
+	/// quantum in the bill and in the escrow ceiling, and it covers both cases. Pass <c>true</c> for
+	/// the exact quote whenever the token is in neither of them. Rows of the chain's gas and data
+	/// tokens are free either way.
+	/// </para>
 	/// </summary>
 	public bool SupplyRowExists { get; set; }
 
 	/// <summary>
-	/// What the burned NFTs hold at their own addresses (BurnNonFungible), one entry per asset per
-	/// burned instance. The burn returns every one of them to the burner, and the chain charges for
-	/// each: a transfer fee plus the owner-lookup query of the NFT-address source per fungible token,
-	/// an instance query plus a transfer per instance plus that lookup per NFT token, and the
-	/// burner's balance row of a returned token the burner does not hold. This is chain state the
-	/// message does not carry, and it has no costlier bound - an NFT can hold any number of assets -
-	/// so nothing is assumed: null prices an empty address (direct callers of this calculator state
-	/// what they know), while <c>FeePlanner.Plan</c> demands the list and <c>PhantasmaAPI.Fees</c>
-	/// reads it from the chain.
+	/// What the burned NFTs hold at their own addresses (BurnNonFungible). There is one entry per
+	/// asset per burned instance.
+	/// <para>
+	/// The burn returns every one of them to the burner, and the chain charges for each. A fungible
+	/// token costs a transfer fee plus the owner-lookup query of the NFT-address source. An NFT token
+	/// costs an instance query, a transfer per instance, and that same lookup. A returned token the
+	/// burner does not hold also costs the burner's new balance row.
+	/// </para>
+	/// <para>
+	/// This is chain state that the message does not carry, and an NFT can hold any number of assets,
+	/// so there is no costlier bound to assume. Null prices an empty address, because a direct caller
+	/// of this calculator states what it knows. <c>FeePlanner.Plan</c> demands the list, and
+	/// <c>PhantasmaAPI.Fees</c> reads it from the chain.
+	/// </para>
 	/// </summary>
 	public IReadOnlyList<InfusedAsset>? Infusions { get; set; }
 
 	/// <summary>Token symbol length in characters (CreateToken). 0 = no symbol.</summary>
 	public int SymbolLength { get; set; }
 
-	/// <summary>Serialized <c>TokenInfo</c> length (CreateToken) - the Call arguments; it becomes the token-info row.</summary>
+	/// <summary>Serialized <c>TokenInfo</c> length (CreateToken). These are the Call arguments, and
+	/// they become the token-info row.</summary>
 	public uint TokenInfoBytes { get; set; }
 
-	/// <summary>The token being created is non-fungible (CreateToken): one more row, the series counter.</summary>
+	/// <summary>The token being created is non-fungible (CreateToken). It costs one more row, the
+	/// series counter.</summary>
 	public bool NonFungible { get; set; }
 
-	/// <summary>The token metadata carries <c>pre_burn</c> (CreateToken): the burnt counter row is created at once.</summary>
+	/// <summary>The token metadata carries <c>pre_burn</c> (CreateToken). The burnt counter row is then
+	/// created at once.</summary>
 	public bool HasPreBurn { get; set; }
 
-	/// <summary>The token metadata carries an inflation schedule (CreateToken): the next-inflation row is created.</summary>
+	/// <summary>The token metadata carries an inflation schedule (CreateToken). The next-inflation row
+	/// is then created.</summary>
 	public bool HasInflationSchedule { get; set; }
 
-	/// <summary>The token metadata names a staking organisation (CreateToken): the creation looks the organisation up, one query fee.</summary>
+	/// <summary>The token metadata names a staking organisation (CreateToken). The creation looks that
+	/// organisation up, which costs one query fee.</summary>
 	public bool HasStakingOrganisation { get; set; }
 
-	/// <summary>The token metadata names a staking reward token (CreateToken): the creation reads that token's info, one query fee.</summary>
+	/// <summary>The token metadata names a staking reward token (CreateToken). The creation reads that
+	/// token's info, which costs one query fee.</summary>
 	public bool HasStakingRewardToken { get; set; }
 
-	/// <summary>Serialized <c>SeriesInfo</c> length (CreateTokenSeries) - the Call arguments after the token id.</summary>
+	/// <summary>Serialized <c>SeriesInfo</c> length (CreateTokenSeries). These are the Call arguments
+	/// after the token id.</summary>
 	public uint SeriesInfoBytes { get; set; }
 
 	/// <summary>
-	/// The series metadata carries a <c>_i</c> id (CreateTokenSeries): the meta-id lookup row is
-	/// created. Schema-encoded like the ROM, so the default (null) is true - the row that may be billed.
+	/// The series metadata carries a <c>_i</c> id (CreateTokenSeries). The meta-id lookup row is then
+	/// created. The metadata is schema-encoded like the ROM, so a caller holding only the bytes cannot
+	/// tell. The default (null) is true, which is the reading that pays for the row.
 	/// </summary>
 	public bool? SeriesHasMetaId { get; set; }
 
@@ -176,11 +206,11 @@ public sealed class NativeFeeParams
 
 	/// <summary>
 	/// The raw ROM carries a <c>_i</c> id, which the chain indexes in one more row (MintNonFungible /
-	/// BurnNonFungible). The ROM is schema-encoded, so a caller holding only the bytes cannot tell, and
-	/// the default (null) is true - on a mint that is the reading which escrows for the row, and on a
-	/// burn it is the reading that mirrors what the mint created. The burn does not PRICE on it either
-	/// way (see <see cref="NativeFeeEstimate.DeletedStorageQuanta"/>); a Phantasma mint always has one
-	/// and ignores this input.
+	/// BurnNonFungible). The ROM is schema-encoded, so a caller holding only the bytes cannot tell.
+	/// The default (null) is true. On a mint that is the reading which escrows for the row. On a burn
+	/// it is the reading that mirrors what the mint created. A burn never prices on this fact either
+	/// way (see <see cref="NativeFeeEstimate.DeletedStorageQuanta"/>). A Phantasma mint always has
+	/// such an id and ignores this input.
 	/// </summary>
 	public bool? RomHasMetaId { get; set; }
 
@@ -193,7 +223,7 @@ public sealed class NativeFeeParams
 	/// Default (null) is true. A series' mode is chain state the message does not carry, so the
 	/// costlier reading is the only safe one: a duplicated mint priced as unique is short by exactly
 	/// those query fees, and the planner offers the bill with no headroom, so it aborts. Pass
-	/// <c>false</c> only when the series is known to be unique - the saving is a few query fees.
+	/// <c>false</c> only when the series is known to be unique. The saving is a few query fees.
 	/// </para>
 	/// </summary>
 	public bool? DuplicatedSeries { get; set; }
@@ -201,8 +231,9 @@ public sealed class NativeFeeParams
 	/// <summary>
 	/// How many distinct series a duplicated Phantasma mint writes into (MintPhantasmaNonFungible with
 	/// <see cref="DuplicatedSeries"/>). The chain reads each series' supply once per transaction, not
-	/// once per instance, so this is the count of distinct series ids in the call - never more than
-	/// <see cref="Count"/>. Default 1. Ignored for a unique series, which does not read the supply at all.
+	/// once per instance, so this is the count of distinct series ids in the call. It is never more
+	/// than <see cref="Count"/>. Default 1. Ignored for a unique series, which does not read the
+	/// supply at all.
 	/// </summary>
 	public uint DistinctSeriesCount { get; set; } = 1;
 
@@ -212,69 +243,113 @@ public sealed class NativeFeeParams
 	/// <summary>
 	/// VM work-unit allowance for the Script kind. The default (5000) exceeds every script seen in
 	/// mainnet history (max 3392 units) with margin.
+	/// <para>
+	/// In a <c>Call_Multi</c> the allowance counts once per unmodelled call, because each of them can
+	/// do that much work. A batch of calls the model does not price therefore offers several times
+	/// what it will spend. The localnet measured 4.2x for one such call and 10.1x for ten. The
+	/// difference is refunded, and a caller who knows the calls can bring the offer down with this
+	/// field.
+	/// </para>
 	/// </summary>
 	public ulong ScriptUnitsAllowance { get; set; } = 5000;
 
-	/// <summary>Event bytes allowance for the Script kind (Notify payloads count as block data). Default 512.</summary>
+	/// <summary>
+	/// Event bytes allowance for the Script kind (Notify payloads count as block data). Default 512,
+	/// per unmodelled call like <see cref="ScriptUnitsAllowance"/>.
+	/// </summary>
 	public uint ScriptEventBytes { get; set; } = 512;
 
-	/// <summary>New storage quanta allowance for the Script kind. Default 4.</summary>
+	/// <summary>
+	/// New storage quanta allowance for the Script kind. Default 4, per unmodelled call like
+	/// <see cref="ScriptUnitsAllowance"/>.
+	/// </summary>
 	public uint ScriptStorageQuanta { get; set; } = 4;
 }
 
 /// <summary>
-/// An asset held at a burned NFT's own address, which the burn returns to the burner. See
+/// One operation of a batched message. It carries the kind the operation is priced as and the inputs
+/// it is priced from. See <see cref="NativeFeeEstimator.EstimateNativeFeeBatch"/>.
+/// </summary>
+public sealed class NativeFeePart
+{
+	public NativeFeeKind Kind { get; }
+	public NativeFeeParams Params { get; }
+
+	public NativeFeePart(NativeFeeKind kind, NativeFeeParams? p = null)
+	{
+		Kind = kind;
+		Params = p ?? new NativeFeeParams();
+	}
+}
+
+/// <summary>
+/// The estimate inputs that belong to the transaction itself. No operation inside it owns them,
+/// because the block carries one envelope however many operations the message performs.
+/// </summary>
+public sealed class NativeFeeTransaction
+{
+	/// <inheritdoc cref="NativeFeeParams.EnvelopeBytes"/>
+	public uint? EnvelopeBytes { get; set; }
+	/// <inheritdoc cref="NativeFeeParams.PayloadBytes"/>
+	public uint PayloadBytes { get; set; }
+}
+
+/// <summary>
+/// An asset held at a burned NFT's own address. The burn returns it to the burner. See
 /// <see cref="NativeFeeParams.Infusions"/>.
 /// </summary>
 public sealed class InfusedAsset
 {
 	/// <summary>
-	/// The token's id. Rows of the chain's gas and data tokens are free, which only the id can
-	/// tell; null prices the rows as paid, which can only over-cover the escrow ceiling.
+	/// The token's id. Rows of the chain's gas and data tokens are free, and only the id tells which
+	/// token this is. Null prices the rows as paid, so the escrow ceiling can only come out too high.
 	/// </summary>
 	public ulong? TokenId { get; set; }
 
-	/// <summary>An NFT token: the burn returns every instance the address holds (<see cref="InstanceCount"/>).</summary>
+	/// <summary>True for an NFT token. The burn returns every instance the address holds, see
+	/// <see cref="InstanceCount"/>.</summary>
 	public bool NonFungible { get; set; }
 
-	/// <summary>Instances of an NFT token the address holds; each is a transfer and a moved lookup row. Default 1.</summary>
+	/// <summary>How many instances of an NFT token the address holds. Each one costs a transfer and
+	/// moves a lookup row. Default 1.</summary>
 	public uint InstanceCount { get; set; } = 1;
 
 	/// <summary>
-	/// The burner already holds this token, so no balance row is created when it comes back.
-	/// Default false - the costlier reading, which moves the escrow ceiling and never the bill: a
+	/// The burner already holds this token, so no balance row is created when it comes back. Default
+	/// false, which is the costlier reading. It moves the escrow ceiling and never the bill, because a
 	/// burn refunds more rows than the return creates.
 	/// </summary>
 	public bool BurnerHoldsToken { get; set; }
 }
 
 /// <summary>
-/// A fee quote for one transaction, from the Tier-1 calculator or from the node's own estimator.
-/// Gas values are kcal-base (1 KCAL = 1e10 kcal-base); escrow is in data-token atoms
-/// (1 SOUL = 1e8 atoms).
+/// A fee quote for one transaction. It comes from the Tier-1 calculator or from the node's own
+/// estimator. Gas values are in kcal-base, where 1 KCAL is 1e10 kcal-base. Escrow is in data-token
+/// atoms, where 1 SOUL is 1e8 atoms.
 /// </summary>
 public readonly struct FeeQuote
 {
 	/// <summary>
-	/// The gas offer that covers the bill (<c>TxMsg.maxGas</c>). From the Tier-1 calculator it is the
-	/// bill itself, floored at the chain's minimum offer; unused gas is refunded, so callers wanting
-	/// headroom add it on top.
+	/// The gas offer that covers the bill (<c>TxMsg.maxGas</c>). The Tier-1 calculator returns the
+	/// bill itself, floored at the chain's minimum offer. Unused gas is refunded, so a caller who
+	/// wants headroom adds it on top.
 	/// </summary>
 	public ulong MaxGas { get; }
 
-	/// <summary>The storage-escrow ceiling (<c>TxMsg.maxData</c>): every new row priced at the current row price.</summary>
+	/// <summary>The storage-escrow ceiling (<c>TxMsg.maxData</c>). It prices every new row at the
+	/// current row price.</summary>
 	public ulong MaxData { get; }
 
 	/// <summary>
-	/// The bill the chain formula yields for exactly the provided inputs - exact for every native
-	/// operation when the inputs describe the transaction and the state facts are right. For the
-	/// Script kind it is the budgeted allowance, not a prediction.
+	/// The bill the chain formula yields for exactly the provided inputs. It is exact for every
+	/// native operation when the inputs describe the transaction and the state facts are right. For
+	/// the Script kind it is the budgeted allowance, and the chain settles below it.
 	/// <para>
-	/// One caveat on "exact": the chain scales each charge as it is made and adds the results, while
-	/// this calculator scales their sum. The two agree while <c>feeShift</c> is zero, which is the case
-	/// on every network running the v2 model today; under a non-zero shift the rounding differs, always
-	/// in the direction of this calculator quoting a few units MORE than the chain settles, so the
-	/// offer stays covering.
+	/// One caveat on the word exact. The chain scales each charge as it is made and adds the results.
+	/// This calculator scales their sum. The two agree when <c>feeShift</c> is zero, and that is the
+	/// case on every network running the v2 model today. Under a non-zero shift the rounding differs.
+	/// The difference always goes one way: this calculator quotes a few units MORE than the chain
+	/// settles, so the offer still covers the bill.
 	/// </para>
 	/// </summary>
 	public ulong ExpectedGasBill { get; }
@@ -287,7 +362,8 @@ public readonly struct FeeQuote
 	}
 }
 
-/// <summary>Result of a Tier-1 fee estimate: the quote plus the storage rows it was computed from.</summary>
+/// <summary>Result of a Tier-1 fee estimate. It holds the quote and the storage rows it was computed
+/// from.</summary>
 public readonly struct NativeFeeEstimate
 {
 	/// <inheritdoc cref="FeeQuote.MaxGas"/>
@@ -297,16 +373,20 @@ public readonly struct NativeFeeEstimate
 	/// <inheritdoc cref="FeeQuote.ExpectedGasBill"/>
 	public ulong ExpectedGasBill { get; }
 
-	/// <summary>Storage quanta the operation creates (1024-byte units per new paid row).</summary>
+	/// <summary>Storage quanta the operation creates. One quantum is 1024 bytes of a new paid
+	/// row.</summary>
 	public uint NewStorageQuanta { get; }
 
 	/// <summary>
-	/// Storage quanta the operation deletes; their escrow is refunded at each row's own price.
+	/// Storage quanta the operation deletes. Their escrow is refunded at each row's own price.
 	/// <para>
-	/// Informational. It does not enter the bill: <see cref="MaxData"/> covers the rows an operation
-	/// CREATES, and the block-data term uses the net growth, which an operation that deletes more than
-	/// it creates floors at zero either way. A burn's figure is therefore a lower bound - the stored
-	/// ROM is chain state the message does not carry - and nothing depends on tightening it.
+	/// The property is informational and does not enter the bill. <see cref="MaxData"/> covers the rows
+	/// an operation CREATES. The block-data term uses the net growth, and an operation that deletes
+	/// more than it creates floors that growth at zero anyway.
+	/// </para>
+	/// <para>
+	/// A burn's figure is a lower bound, because the stored ROM is chain state that the message does
+	/// not carry. Nothing depends on tightening it.
 	/// </para>
 	/// </summary>
 	public uint DeletedStorageQuanta { get; }
@@ -325,48 +405,58 @@ public readonly struct NativeFeeEstimate
 }
 
 /// <summary>
-/// Tier-1 fee calculator: the exact gas bill and storage escrow of a native operation under both gas
-/// models (selected by <c>GasConfig.version</c>), reproducing the chain's own settlement arithmetic
-/// and the gas each contract path charges. Any change to those formulas ships as a new gas-model
-/// version, never silently, which is what makes an offline calculation safe.
+/// The Tier-1 fee calculator. It returns the exact gas bill and storage escrow of a native operation
+/// under both gas models, selected by <c>GasConfig.version</c>. It reproduces the chain's own
+/// settlement arithmetic together with the gas each contract path charges.
+/// <para>
+/// An offline calculation is safe here because any change to those formulas ships as a new gas-model
+/// version. It never changes silently.
+/// </para>
 /// </summary>
 public static class NativeFeeEstimator
 {
 	/// <summary>
-	/// Gas model v2 price of block-carried bytes, in gas units per byte. A versioned consensus constant
-	/// of the v2 gas model, deliberately not part of the on-chain config: it changes only with a new gas
-	/// model version, so a client can hold it as a constant rather than read it per block.
+	/// Gas model v2 price of block-carried bytes, in gas units per byte.
+	/// <para>
+	/// This is a versioned consensus constant of the v2 gas model, and it is kept out of the on-chain
+	/// config on purpose. It changes only with a new gas model version, so a client can hold it as a
+	/// constant and never read it per block.
+	/// </para>
 	/// </summary>
 	public const ulong GasModelV2UnitsPerBlockDataByte = 25;
 
 	/// <summary>Storage is escrowed per 1024-byte quantum of a row's key plus its value.</summary>
 	public const uint StorageQuantumBytes = 1024;
 
-	/// <summary>Serialized size of one witness-array entry (32-byte address + 64-byte signature).</summary>
+	/// <summary>Serialized size of one witness-array entry, which is a 32-byte address plus a 64-byte
+	/// signature.</summary>
 	public const uint WitnessArrayEntryBytes = 96;
 
-	/// <summary>Serialized size of one bare signature (native TxTypes carry no witness array).</summary>
+	/// <summary>Serialized size of one bare signature. The native TxTypes carry no witness
+	/// array.</summary>
 	public const uint NativeSignatureBytes = 64;
 
 	// Sizes of the token-module rows a native operation writes, in bytes of key plus value. A row costs
-	// ceil((key + value) / 1024) quanta; the small fixed rows never leave the first quantum, while the
+	// ceil((key + value) / 1024) quanta. The small fixed rows never leave the first quantum. The
 	// ROM-bearing rows are computed from the ROM the caller submits.
 	private const uint NftInstanceRowOverhead = 17 + 32 + 8 + 1 + 4; // key + originator + created + flags + ROM length prefix
 	private const uint NftRamRowOverhead = 17; // key; the RAM is stored bare
 	private const uint TokenInfoKeyBytes = 9;
 	private const uint SeriesInfoKeyBytes = 13;
-	// The canonical ROM of a deterministic Phantasma mint: the public ROM fields, plus `_i` (int256,
-	// 32 bytes), plus a `rom` field holding the public ROM again with a 4-byte length prefix.
+	// The canonical ROM of a deterministic Phantasma mint holds three things: the public ROM fields,
+	// the `_i` id (int256, 32 bytes), and a `rom` field with the public ROM again behind a 4-byte
+	// length prefix.
 	private const uint PhantasmaCanonicalRomOverhead = 32 + 4;
-	// Fungible mint / burn calls return the resulting balance as an IntX: 1 header + 8 bytes for
-	// int64 balances, up to 1 + 32 for int256 (big-fungible) balances.
+	// Fungible mint and burn calls return the resulting balance as an IntX. That is 1 header byte plus
+	// 8 bytes for an int64 balance, and up to 1 plus 32 for an int256 balance on a big-fungible
+	// token.
 	private const uint IntXSmallResultBytes = 9;
 	private const uint IntXBigResultBytes = 33;
 
 	/// <summary>
 	/// Longest name or symbol this calculator will price. The chain's length-halved policy fee is
-	/// defined up to here; past it no offline price exists, so the calculator refuses rather than
-	/// quote a number the chain may not agree with.
+	/// defined up to this length. Past it no offline price exists, so the calculator refuses. A quoted
+	/// number could differ from what the chain charges.
 	/// </summary>
 	private const int MaxPriceableLength = 64;
 
@@ -374,7 +464,7 @@ public static class NativeFeeEstimator
 	{
 		public readonly ulong WorkUnits;
 		public readonly ulong PolicyFee;
-		/// <summary>Bytes the Call returns; they are block data like the envelope.</summary>
+		/// <summary>Bytes the Call returns. They are block data, like the envelope.</summary>
 		public readonly uint ResultBytes;
 		public readonly uint NewQuanta;
 		public readonly uint DeletedQuanta;
@@ -398,61 +488,111 @@ public static class NativeFeeEstimator
 	public static NativeFeeEstimate EstimateNativeFee(NativeFeeKind kind, in GasConfig config, NativeFeeParams? p = null)
 	{
 		p ??= new NativeFeeParams();
-		if (p.Count < 1)
-			throw new ArgumentOutOfRangeException(nameof(p), "Count must be a positive integer");
-		var v2 = UsesGasModelV2(config);
-		var model = OperationModelFor(kind, config, p);
-		// Only the net growth of paid storage is block data; deleted rows are refunded, not billed.
-		var netQuanta = model.NewQuanta > model.DeletedQuanta ? model.NewQuanta - model.DeletedQuanta : 0u;
+		return EstimateNativeFeeBatch(
+			new[] { new NativeFeePart(kind, p) },
+			config,
+			new NativeFeeTransaction { EnvelopeBytes = p.EnvelopeBytes, PayloadBytes = p.PayloadBytes });
+	}
+
+	/// <summary>
+	/// Returns the fee of a message that performs SEVERAL operations in one transaction. That message
+	/// is a <c>TxTypes.Call_Multi</c>. The chain runs its calls in a plain loop, with no per-call
+	/// surcharge and no batch dispatch cost. It accumulates one gas bill, one result buffer and one
+	/// change set over the whole transaction, and it bills the envelope once. A batch therefore costs
+	/// the sum of its parts over work, policy fee, result bytes and rows, settled once.
+	/// <para>
+	/// Rows are counted per part. Two parts that create the SAME row count it twice. Two burns of one
+	/// token both count its burnt counter, and two transfers into one fresh address both count its
+	/// balance row.
+	/// </para>
+	/// <para>
+	/// Carrying "an earlier part already created it" forward is unsound in the direction that matters.
+	/// A burn that empties a supply to exactly zero deletes the supply row again, so a later mint
+	/// would be priced short, abort and be billed. Counting twice raises the escrow ceiling alone, and
+	/// that is refunded.
+	/// </para>
+	/// </summary>
+	/// <param name="parts">The operations the message performs, in call order.</param>
+	/// <param name="config">Current chain gas config (see the getGasConfig RPC method).</param>
+	/// <param name="transaction">The sizes that belong to the transaction itself, not to one operation
+	/// inside it.</param>
+	public static NativeFeeEstimate EstimateNativeFeeBatch(IReadOnlyList<NativeFeePart> parts, in GasConfig config, NativeFeeTransaction? transaction = null)
+	{
+		transaction ??= new NativeFeeTransaction();
+		// Work, policy fees, result bytes and rows add up. The envelope is counted once. The fee
+		// scaling and the minimum-bill floor apply to the total. The chain does the same with the
+		// counters it accumulates while the transaction runs.
+		ulong workUnits = 0, policyFee = 0;
+		uint resultBytes = 0, newQuanta = 0, deletedQuanta = 0;
+		foreach (var part in parts)
+		{
+			var p = part.Params;
+			if (p.Count < 1)
+				throw new ArgumentOutOfRangeException(nameof(parts), "Count must be a positive integer");
+			var model = OperationModelFor(part.Kind, config, p);
+			workUnits = SaturatingAdd(workUnits, model.WorkUnits);
+			policyFee = SaturatingAdd(policyFee, model.PolicyFee);
+			// Every counter saturates rather than wrapping. A message cannot carry enough calls to
+			// overflow the 32-bit ones, but a silent wrap here would quote a fee far below the bill.
+			resultBytes = SaturatingAdd(resultBytes, model.ResultBytes);
+			newQuanta = SaturatingAdd(newQuanta, model.NewQuanta);
+			deletedQuanta = SaturatingAdd(deletedQuanta, model.DeletedQuanta);
+		}
+		// Only the net growth of paid storage is block data. Deleted rows are refunded.
+		var netQuanta = newQuanta > deletedQuanta ? newQuanta - deletedQuanta : 0u;
 
 		ulong expected, maxGas;
-		if (v2)
+		if (UsesGasModelV2(config))
 		{
-			if (!p.EnvelopeBytes.HasValue)
-				throw new ArgumentException("EnvelopeBytes is required under gas model v2", nameof(p));
+			if (!transaction.EnvelopeBytes.HasValue)
+				throw new ArgumentException("EnvelopeBytes is required under gas model v2", nameof(transaction));
 			// v2: bill = mulShiftSat(work + blockData * 25, mult, shift) + policyFee, floored at
 			// minimumGasBill, where blockData = envelope + net storage quanta + Call result bytes.
-			var blockData = (ulong)p.EnvelopeBytes.Value + netQuanta + model.ResultBytes;
+			var blockData = (ulong)transaction.EnvelopeBytes.Value + netQuanta + resultBytes;
 			var byteUnits = SaturatingMul(blockData, GasModelV2UnitsPerBlockDataByte);
-			var bill = MulShift(SaturatingAdd(model.WorkUnits, byteUnits), config.feeMultiplier, config.feeShift);
-			bill = SaturatingAdd(bill, model.PolicyFee);
+			var bill = MulShift(SaturatingAdd(workUnits, byteUnits), config.feeMultiplier, config.feeShift);
+			bill = SaturatingAdd(bill, policyFee);
 			expected = bill < config.minimumGasBill ? config.minimumGasBill : bill;
 			maxGas = expected < config.minimumGasOffer ? config.minimumGasOffer : expected;
 		}
 		else
 		{
 			// v1: bill = (work * mult >> shift) + blockData * gasFeePerByte, where blockData = payload +
-			// Call result bytes + net storage quanta; no envelope term, no floor. The v1 product prices
-			// ride the work term (see OperationModelFor).
-			var work = MulShift(model.WorkUnits, config.feeMultiplier, config.feeShift);
-			var blockData = (ulong)p.PayloadBytes + model.ResultBytes + netQuanta;
+			// Call result bytes + net storage quanta. There is no envelope term and no floor. The v1
+			// product prices ride the work term, see OperationModelFor.
+			var work = MulShift(workUnits, config.feeMultiplier, config.feeShift);
+			var blockData = (ulong)transaction.PayloadBytes + resultBytes + netQuanta;
 			expected = SaturatingAdd(work, SaturatingMul(blockData, config.gasFeePerByte));
-			// Offer shape mirrors the validator's own test-agent stdFee: a 2x minimum-offer pad plus a
-			// flat 1 KiB block-data allowance on top of the work term.
+			// The offer has the same shape as the validator's own test-agent stdFee. It is a 2x
+			// minimum-offer pad plus a flat 1 KiB block-data allowance on top of the work term.
 			var byteAllowance = blockData > 1024 ? blockData : 1024;
 			maxGas = SaturatingAdd(SaturatingAdd(SaturatingMul(config.minimumGasOffer, 2), work), SaturatingMul(byteAllowance, config.gasFeePerByte));
 		}
 
 		return new NativeFeeEstimate(
 			maxGas,
-			SaturatingMul(model.NewQuanta, config.dataEscrowPerRow),
+			SaturatingMul(newQuanta, config.dataEscrowPerRow),
 			expected,
-			model.NewQuanta,
-			model.DeletedQuanta);
+			newQuanta,
+			deletedQuanta);
 	}
 
 	/// <summary>
-	/// Envelope size (signed tx bytes as carried in the block) from an already serialized unsigned
-	/// message length and the number of signers, for callers that hold bytes rather than a message.
-	/// With the message in hand prefer <see cref="SignedTxMsg.EnvelopeBytes"/>, which reads the
-	/// witness count out of the message instead of taking it on trust. Witness layout: the native
-	/// transaction types append bare 64-byte signatures, while the call, trade and script types append
-	/// a length-prefixed array of 32-byte address plus 64-byte signature entries.
+	/// Returns the envelope size, which is the signed transaction as the block carries it. It is
+	/// computed from the length of an already serialized unsigned message and the number of signers.
+	/// Use it when you hold bytes and no message. With the message in hand use
+	/// <see cref="SignedTxMsg.EnvelopeBytes"/>, which reads the witness count out of the message and
+	/// takes nothing on trust.
 	/// <para>
-	/// <paramref name="witnessCount"/> has no default on purpose. A fee kind does not distinguish a
-	/// <c>_GasPayer</c> message, which carries two signatures, from the plain form that carries one -
-	/// both are the same kind - so a default of one would silently size a two-signature envelope as a
-	/// one-signature envelope and under-offer the transaction by 64 bytes.
+	/// The witness layout differs by type. The native transaction types append bare 64-byte signatures.
+	/// The call, trade and script types append a length-prefixed array of entries, each a 32-byte
+	/// address plus a 64-byte signature.
+	/// </para>
+	/// <para>
+	/// <paramref name="witnessCount"/> has no default on purpose. A fee kind does not tell a
+	/// <c>_GasPayer</c> message, which carries two signatures, from the plain form that carries one.
+	/// Both are the same kind. A default of one would size a two-signature envelope as a one-signature
+	/// envelope and under-offer the transaction by 64 bytes.
 	/// </para>
 	/// </summary>
 	public static uint EnvelopeBytesFor(NativeFeeKind kind, int serializedMessageLength, int witnessCount)
@@ -471,25 +611,26 @@ public static class NativeFeeEstimator
 			case NativeFeeKind.BurnNonFungible:
 				return (uint)serializedMessageLength + NativeSignatureBytes * (uint)witnessCount;
 			default:
-				// CreateToken / CreateTokenSeries / MintPhantasmaNonFungible / RegisterName ride
-				// TxTypes.Call; Script rides TxTypes.Phantasma - both carry the witness array form.
+				// CreateToken, CreateTokenSeries, MintPhantasmaNonFungible and RegisterName ride
+				// TxTypes.Call. Script rides TxTypes.Phantasma. Both carry the witness array form.
 				return (uint)serializedMessageLength + 4 + WitnessArrayEntryBytes * (uint)witnessCount;
 		}
 	}
 
-	/// <summary>Storage quanta of one row: ceil((key + value) / 1024).</summary>
+	/// <summary>Returns the storage quanta of one row, which is ceil((key + value) / 1024).</summary>
 	public static uint StorageQuantaFor(uint rowBytes) => (rowBytes + StorageQuantumBytes - 1) / StorageQuantumBytes;
 
 	/// <summary>
-	/// Bytes of the NFT ROM the chain stores for a deterministic Phantasma mint, from the public ROM the
-	/// caller submits: the chain builds a canonical ROM out of the public fields, the derived Phantasma
-	/// NFT id and a second copy of the public ROM, so storage grows at roughly twice the submitted size.
+	/// Returns the bytes of the NFT ROM the chain stores for a deterministic Phantasma mint, computed
+	/// from the public ROM the caller submits. The chain builds a canonical ROM out of the public
+	/// fields, the derived Phantasma NFT id and a second copy of the public ROM. Storage therefore
+	/// grows at roughly twice the submitted size.
 	/// </summary>
 	public static uint PhantasmaCanonicalRomBytes(uint publicRomBytes) => publicRomBytes * 2 + PhantasmaCanonicalRomOverhead;
 
-	// Work units, policy fee, result bytes and row changes of each operation. Query fees (gasFeeQuery)
-	// are charged by the state lookups a contract path makes internally, so they are part of the bill
-	// even though nothing in the message mentions them.
+	// Work units, policy fee, result bytes and row changes of each operation. A contract path makes
+	// state lookups internally, and each one is charged as a query fee (gasFeeQuery). Those fees are
+	// part of the bill even though nothing in the message mentions them.
 	private static OperationModel OperationModelFor(NativeFeeKind kind, in GasConfig config, NativeFeeParams p)
 	{
 		var v2 = UsesGasModelV2(config);
@@ -497,8 +638,8 @@ public static class NativeFeeEstimator
 		var freeBalanceRows = p.TokenId.HasValue && (p.TokenId.Value == config.gasTokenId || p.TokenId.Value == config.dataTokenId);
 		var recipientRow = p.RecipientHoldsToken || freeBalanceRows ? 0u : 1u;
 		var burntRow = p.TokenBurnedBefore || freeBalanceRows ? 0u : 1u;
-		// The supply-tracking row a mint or burn may have to recreate (see NativeFeeParams). Transfers
-		// never touch it, and a creation writes it unconditionally, so only mints and burns price it.
+		// The supply-tracking row a mint or burn may have to recreate, see NativeFeeParams. Transfers
+		// never touch it, and a creation always writes it, so only mints and burns price it.
 		var supplyRow = p.SupplyRowExists || freeBalanceRows ? 0u : 1u;
 		var balanceResultBytes = (p.BigFungible ?? true) ? IntXBigResultBytes : IntXSmallResultBytes;
 		var infusionQuery = p.ToIsNftAddress ? config.gasFeeQuery : 0;
@@ -508,7 +649,7 @@ public static class NativeFeeEstimator
 			case NativeFeeKind.TransferFungible:
 				return new OperationModel(SaturatingAdd(config.gasFeeTransfer, infusionQuery), 0, 0, recipientRow, 0);
 			case NativeFeeKind.TransferNonFungible:
-				// Per instance the owner's lookup row is deleted and the recipient's created; the
+				// Per instance, the owner's lookup row is deleted and the recipient's one is created. The
 				// recipient's balance row may be new as well.
 				return new OperationModel(
 					SaturatingAdd(SaturatingMul(config.gasFeeTransfer, count), infusionQuery), 0, 0, count + recipientRow, count);
@@ -521,9 +662,10 @@ public static class NativeFeeEstimator
 				{
 					var roms = PerInstance(p.RomBytes, p.RomBytesPerInstance, count, nameof(p.RomBytesPerInstance));
 					var rams = PerInstance(p.RamBytes, p.RamBytesPerInstance, count, nameof(p.RamBytesPerInstance));
-					// Per instance: the instance row (ROM), the owner row, the lookup row, the RAM row when
-					// RAM is given, the meta-id row when the ROM carries `_i`; plus the recipient's balance row
-					// and the supply row when it must be recreated.
+					// Per instance the mint writes the instance row with the ROM, the owner row and the lookup
+					// row. It writes the RAM row when RAM is given, and the meta-id row when the ROM carries
+					// `_i`. On top of that come the recipient's balance row and the supply row when it must be
+					// recreated.
 					var romHasMetaId = p.RomHasMetaId ?? true;
 					var quanta = recipientRow + supplyRow;
 					for (var i = 0; i < count; i++)
@@ -543,7 +685,8 @@ public static class NativeFeeEstimator
 				{
 					var roms = PerInstance(p.RomBytes, p.RomBytesPerInstance, count, nameof(p.RomBytesPerInstance));
 					var rams = PerInstance(p.RamBytes, p.RamBytesPerInstance, count, nameof(p.RamBytesPerInstance));
-					// As MintNonFungible, with the canonical ROM stored and the meta-id row always present.
+					// The same rows as MintNonFungible. The stored ROM is the canonical one and the meta-id row
+					// is always present.
 					var quanta = recipientRow + supplyRow;
 					for (var i = 0; i < count; i++)
 					{
@@ -552,8 +695,8 @@ public static class NativeFeeEstimator
 					}
 					// Per instance: the mint itself, the series lookup by meta id, and the token-info read the
 					// series-mode check performs. A duplicated series reads the token info a SECOND time per
-					// instance, to pick up the series' shared ROM, and reads that series' supply once per
-					// distinct series in the call - the chain remembers the supply it already read, so the
+					// instance, to pick up the series' shared ROM. It also reads that series' supply once per
+					// distinct series in the call. The chain remembers a supply it has already read, so the
 					// supply fee does not scale with the instance count the way the other three do.
 					var duplicatedSeries = p.DuplicatedSeries ?? true;
 					var queriesPerInstance = duplicatedSeries ? 3UL : 2UL;
@@ -573,13 +716,17 @@ public static class NativeFeeEstimator
 				{
 					var roms = PerInstance(p.RomBytes, p.RomBytesPerInstance, count, nameof(p.RomBytesPerInstance));
 					var rams = PerInstance(p.RamBytes, p.RamBytesPerInstance, count, nameof(p.RamBytesPerInstance));
-					// The instance, owner, lookup (and RAM, meta-id) rows are deleted and refunded; the burnt
-					// counter row is created on the token's first burn, and the supply row when it must be
-					// recreated. Each instance's infusion sweep reads the NFT address balances twice, and
-					// whatever the sweep finds is returned to the burner and charged as the transfers it
-					// takes (see ReturnedAssets). The deleted rows mirror what the mint created, which is
-					// why the meta-id row is counted the same way here - but see DeletedStorageQuanta: on a
-					// burn this total is reported, never billed.
+					// The instance, owner and lookup rows are deleted and refunded, and so are the RAM and
+					// meta-id rows when they exist. The burnt counter row is created on the token's first
+					// burn, and the supply row when it must be recreated.
+					//
+					// Each instance's infusion sweep reads the NFT address balances twice. Whatever the
+					// sweep finds is returned to the burner and charged as the transfers it takes, see
+					// ReturnedAssets.
+					//
+					// The deleted rows mirror what the mint created, and that is why the meta-id row is
+					// counted the same way here. On a burn this total is reported and never billed, see
+					// DeletedStorageQuanta.
 					var romHasMetaId = p.RomHasMetaId ?? true;
 					var deleted = 0u;
 					for (var i = 0; i < count; i++)
@@ -600,8 +747,9 @@ public static class NativeFeeEstimator
 				{
 					var shift = SymbolShift(p.SymbolLength, config.maxTokenSymbolLength, nameof(p.SymbolLength));
 					var hasSymbol = p.SymbolLength > 0;
-					// Rows: the symbol lookup, the token info, the null-address supply row, the series counter
-					// for NFT tokens, the burnt counter with pre_burn, the next-inflation row with a schedule.
+					// The creation writes the symbol lookup row, the token info row and the null-address
+					// supply row. An NFT token adds the series counter. pre_burn adds the burnt counter. An
+					// inflation schedule adds the next-inflation row.
 					var quanta =
 						(hasSymbol ? 1u : 0u) +
 						StorageQuantaFor(TokenInfoKeyBytes + p.TokenInfoBytes) +
@@ -613,7 +761,7 @@ public static class NativeFeeEstimator
 					var symbolPrice = hasSymbol ? (v2 ? config.policyFeeCreateTokenSymbol : config.gasFeeCreateTokenSymbol) >> shift : 0;
 					var price = SaturatingAdd(basePrice, symbolPrice);
 					// Validating the metadata looks up a staking organisation it names and reads a reward
-					// token it names: one query fee each, on top of the policy fee.
+					// token it names. Each costs one query fee, on top of the policy fee.
 					var metadataQueries = SaturatingMul(config.gasFeeQuery, (p.HasStakingOrganisation ? 1UL : 0UL) + (p.HasStakingRewardToken ? 1UL : 0UL));
 					return new OperationModel(
 						SaturatingAdd(v2 ? 0 : price, metadataQueries),
@@ -624,7 +772,8 @@ public static class NativeFeeEstimator
 				}
 			case NativeFeeKind.CreateTokenSeries:
 				{
-					// Rows: the series info, the series supply, the meta-id lookup when the metadata has `_i`.
+					// The call writes the series info row and the series supply row. The metadata adds the
+					// meta-id lookup row when it has `_i`.
 					var seriesHasMetaId = p.SeriesHasMetaId ?? true;
 					var quanta = StorageQuantaFor(SeriesInfoKeyBytes + p.SeriesInfoBytes) + 1u + (seriesHasMetaId ? 1u : 0u);
 					return new OperationModel(
@@ -639,7 +788,7 @@ public static class NativeFeeEstimator
 					if (p.NameLength <= 0)
 						throw new ArgumentException("NameLength is required for RegisterName", nameof(p));
 					var shift = SymbolShift(p.NameLength, config.maxNameLength, nameof(p.NameLength));
-					// Governance-module rows are free data: the two name rows escrow nothing.
+					// Governance-module rows are free data, so the two name rows escrow nothing.
 					return new OperationModel(
 						v2 ? 0 : config.gasFeeRegisterName >> shift,
 						v2 ? config.policyFeeRegisterName >> shift : 0,
@@ -654,13 +803,17 @@ public static class NativeFeeEstimator
 		}
 	}
 
-	// What burning the NFTs gives back to the burner, priced as the transfers the chain performs: per
-	// fungible token one transfer plus the owner lookup of the NFT-address source; per NFT token one
-	// instance query, one transfer per instance and that same lookup. Rows: a balance row of a token
-	// the burner does not hold is created (paid unless the token is the gas or data token, which only
-	// the id can tell - an unknown id is priced as paid), every returned instance moves its lookup
-	// row, and the NFT address's own rows are deleted. The deletions always match or exceed the
-	// creations, so the returns never add block data; they add work, and rows to the escrow ceiling.
+	// What burning the NFTs gives back to the burner, priced as the transfers the chain performs. A
+	// fungible token costs one transfer plus the owner lookup of the NFT-address source. An NFT token
+	// costs one instance query, one transfer per instance, and that same lookup.
+	//
+	// Rows: a returned token the burner does not hold creates a balance row. That row is paid unless
+	// the token is the gas or data token, and only the id tells which token it is, so an unknown id is
+	// priced as paid. Every returned instance moves its lookup row, and the NFT address's own rows are
+	// deleted.
+	//
+	// The deletions always match or exceed the creations, so the returns never add block data. They
+	// add work, and they add rows to the escrow ceiling.
 	private static OperationModel ReturnedAssets(NativeFeeParams p, in GasConfig config)
 	{
 		ulong work = 0;
@@ -691,9 +844,10 @@ public static class NativeFeeEstimator
 		return new OperationModel(work, 0, 0, created, deleted);
 	}
 
-	// Distinct series a duplicated mint touches, defaulting to one. More series than instances is
-	// impossible - every series in the call is written into by at least one instance - and catching it
-	// here turns a caller's bookkeeping slip into an error instead of an over-offer nobody notices.
+	// Returns how many distinct series a duplicated mint touches. The default is one. More series than
+	// instances is impossible, because at least one instance writes into every series in the call. The
+	// check turns a caller's bookkeeping slip into an error. Without it the slip becomes an over-offer
+	// that nobody notices.
 	private static ulong DistinctSeries(NativeFeeParams p)
 	{
 		if (p.DistinctSeriesCount < 1 || p.DistinctSeriesCount > p.Count)
@@ -714,9 +868,9 @@ public static class NativeFeeEstimator
 		return perInstance;
 	}
 
-	// Chain fee scaling: (value * feeMultiplier) >> feeShift, saturating to ulong. Saturation is what the
-	// chain does under gas model v2, so a hostile config cannot wrap a bill; under v1 the live values
-	// never approach 64 bits, so the same expression is bit-identical to the v1 arithmetic.
+	// Chain fee scaling: (value * feeMultiplier) >> feeShift, saturating to ulong. The chain saturates
+	// the same way under gas model v2, so a hostile config cannot wrap a bill. Under v1 the live values
+	// never approach 64 bits, so this expression is bit-identical to the v1 arithmetic.
 	private static ulong MulShift(ulong value, ulong multiplier, byte shift)
 	{
 		if (shift >= 64)
@@ -732,22 +886,25 @@ public static class NativeFeeEstimator
 		if (length == 0)
 			return 0;
 		var shift = length - 1;
-		// The chain asserts shift < maxNameLength / maxTokenSymbolLength; a longer input could never
-		// be admitted, so reject it here instead of quoting a fee for an impossible tx.
+		// The chain asserts that the shift stays below maxNameLength and maxTokenSymbolLength. A longer
+		// input could never be admitted, so it is rejected here. Quoting a fee for an impossible
+		// transaction would be worse.
 		if (maxLength != 0 && shift >= maxLength)
 			throw new ArgumentOutOfRangeException(paramName, $"length {length} exceeds the chain maximum {maxLength}");
-		// Refusing beats guessing: see MaxPriceableLength. The transaction may well be admitted - this
-		// says only that no honest price can be quoted for it offline.
+		// The calculator refuses instead of guessing, see MaxPriceableLength. The transaction may well
+		// be admitted. This says only that no honest price can be quoted for it offline.
 		if (length > MaxPriceableLength)
 			throw new ArgumentOutOfRangeException(paramName, $"length {length} is longer than {MaxPriceableLength} and cannot be priced offline");
 		return shift;
 	}
 
-	// Which gas model a config selects: the plain version field, the one fact every copy of a config
-	// carries whatever container it travelled in.
+	// Returns which gas model a config selects. It reads the plain version field, which is the one
+	// fact every copy of a config carries whatever container it travelled in.
 	private static bool UsesGasModelV2(in GasConfig config) => config.version >= 1;
 
 	private static ulong SaturatingAdd(ulong a, ulong b) => a > ulong.MaxValue - b ? ulong.MaxValue : a + b;
+
+	private static uint SaturatingAdd(uint a, uint b) => a > uint.MaxValue - b ? uint.MaxValue : a + b;
 
 	private static ulong SaturatingMul(ulong a, ulong b)
 	{

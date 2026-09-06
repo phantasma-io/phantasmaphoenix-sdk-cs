@@ -6,7 +6,7 @@ using PhantasmaPhoenix.RPC;
 
 // Demonstrates the Carbon fee flow under gas model v2: build a native KCAL transfer, plan its fee
 // from the message against the chain's own prices, and show the plan in KCAL and SOUL. Nothing is
-// signed or sent - the one-step send is `api.SendTransactionAsync(transfer, keys)`.
+// signed or sent. The one-step send is `api.SendTransactionAsync(transfer, keys)`.
 public static class Example12_CarbonTransferFeePlan
 {
 	/// <summary>
@@ -23,7 +23,8 @@ public static class Example12_CarbonTransferFeePlan
 			throw new ArgumentException("Destination must be a 32-byte public key in hex");
 		}
 
-		// 1. Build: the message only. Builders carry no prices; maxGas stays 0 until the fee is planned.
+		// 1. Build the message and nothing else. Builders carry no prices, so maxGas stays 0 until the
+		//    fee is planned.
 		var transfer = NativeTxHelper.TransferFungible(new TransferFungibleParams
 		{
 			From = new Bytes32(keys.PublicKey),
@@ -34,11 +35,12 @@ public static class Example12_CarbonTransferFeePlan
 		Console.WriteLine($"Built a {transfer.type} message; maxGas before planning: {transfer.maxGas}");
 
 		// 2. Plan: the gas bill and storage deposit for this message, from the chain's own prices. A
-		//    KCAL transfer escrows nothing - the gas token's balance rows are free - so the storage
+		//    KCAL transfer escrows nothing, because the gas token's balance rows are free, so the
+		//    storage
 		//    ceiling comes out as 0.
 		var plan = await api.Fees.PlanAsync(transfer);
 		var summary = FeePlanSummary.Summarize(plan);
-		Console.WriteLine($"Kind: {plan.Kind}, signed size: {plan.EnvelopeBytes} bytes");
+		Console.WriteLine($"Kinds: {string.Join(", ", plan.Kinds)}, signed size: {plan.EnvelopeBytes} bytes");
 		Console.WriteLine($"Gas bill: {summary.GasBill} KCAL, offer: {summary.GasOffer} KCAL, storage ceiling: {summary.StorageCeiling} SOUL");
 
 		// 3-4. Sign and send would be `await api.SendTransactionAsync(transfer, keys)`, which also plans

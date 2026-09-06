@@ -4,20 +4,22 @@ using PhantasmaPhoenix.RPC.Models;
 
 namespace PhantasmaPhoenix.RPC;
 
-/// <summary>Where a planner reads the chain's gas config from - a <see cref="PhantasmaAPI"/>, or anything shaped like one.</summary>
+/// <summary>Where a planner reads the chain's gas config from. A <see cref="PhantasmaAPI"/> serves as
+/// one, and so does anything with the same shape.</summary>
 public interface IGasConfigSource
 {
 	Task<GasConfigResult?> GetGasConfigAsync();
 }
 
 /// <summary>
-/// Where a planner reads what a burned NFT holds - a <see cref="PhantasmaAPI"/>, or anything shaped
-/// like one. A source without it can still plan every message but a burn, for which the caller must
-/// then state <see cref="FeePlanOptions.Infusions"/>.
+/// Where a planner reads what a burned NFT holds. A <see cref="PhantasmaAPI"/> serves as one, and so
+/// does anything with the same shape. A source without it can still plan every message except a burn,
+/// and for a burn the caller must then state <see cref="FeePlanOptions.Infusions"/>.
 /// </summary>
 public interface IInfusionSource
 {
-	/// <summary>The assets held at the address of NFT <paramref name="instanceId"/> of token <paramref name="tokenId"/>, in the form the fee model prices.</summary>
+	/// <summary>Returns the assets held at the address of NFT <paramref name="instanceId"/> of token
+	/// <paramref name="tokenId"/>, in the form the fee model prices.</summary>
 	Task<IReadOnlyList<InfusedAsset>> InfusedAssetsAsync(ulong tokenId, ulong instanceId);
 }
 
@@ -25,8 +27,8 @@ public sealed class ChainFeePlannerOptions
 {
 	/// <summary>
 	/// How long a fetched gas config is reused before it is read again. Prices change only by
-	/// governance resolution, but a stale price under-offers every transaction until it is noticed,
-	/// so the default is short: 60 seconds.
+	/// governance resolution. A stale price under-offers every transaction until someone notices, so
+	/// the default is short, 60 seconds.
 	/// </summary>
 	public int ConfigTtlMs { get; set; } = 60_000;
 }
@@ -38,22 +40,23 @@ public class PlanRequestOptions : FeePlanOptions
 }
 
 /// <summary>
-/// Chain parameters the fee flow needs that are not part of the on-chain <see cref="GasConfig"/>: they
-/// describe the node's admission rules rather than its prices, and arrive in the same getGasConfig answer.
+/// Chain parameters the fee flow needs that are not part of the on-chain <see cref="GasConfig"/>. They
+/// describe the node's admission rules, and they arrive in the same getGasConfig answer as the prices.
 /// </summary>
 public readonly struct ChainFeeParams
 {
 	/// <summary>
-	/// The longest lifetime the chain admits for a transaction, in milliseconds - it refuses an expiry
-	/// at or beyond <c>now + expiryWindow</c>. Feed it to <see cref="TxLimits.ExpiryWithin"/> when a
-	/// person sits between building a transaction and signing it.
+	/// The longest lifetime the chain admits for a transaction, in milliseconds. The chain refuses an
+	/// expiry at or beyond <c>now + expiryWindow</c>. Pass this value to
+	/// <see cref="TxLimits.ExpiryWithin"/> when a person sits between building a transaction and
+	/// signing it.
 	/// </summary>
 	public uint ExpiryWindow { get; }
 
 	/// <summary>Target time between blocks, in milliseconds.</summary>
 	public uint BlockRateTarget { get; }
 
-	/// <summary>Gas model the node runs: 1 = the original fee model, 2 = gas model v2.</summary>
+	/// <summary>Gas model the node runs. 1 is the original fee model and 2 is gas model v2.</summary>
 	public uint GasModelVersion { get; }
 
 	public ChainFeeParams(uint expiryWindow, uint blockRateTarget, uint gasModelVersion)
@@ -65,10 +68,10 @@ public readonly struct ChainFeeParams
 }
 
 /// <summary>
-/// Plans transaction fees against one chain: reads that chain's gas config from its RPC client, keeps
-/// it for a short while, and prices messages with it. A <see cref="PhantasmaAPI"/> owns one as
-/// <see cref="PhantasmaAPI.Fees"/>, so a process talking to several chains has one planner per chain
-/// and no shared state.
+/// Plans transaction fees against one chain. It reads that chain's gas config from its RPC client,
+/// keeps the config for a short while, and prices messages with it. A <see cref="PhantasmaAPI"/> owns
+/// one as <see cref="PhantasmaAPI.Fees"/>. A process talking to several chains therefore has one
+/// planner per chain and shares no state between them.
 /// </summary>
 public sealed class ChainFeePlanner
 {
@@ -108,41 +111,32 @@ public sealed class ChainFeePlanner
 	}
 
 	// A burn returns whatever the NFT's own address holds, and the chain charges for each returned
-	// asset. That set is chain state the message does not carry and has no costlier bound, so the
-	// pure planner demands it; here, with a chain to ask, it is read unless the caller stated it (an
-	// empty list states that the NFT holds nothing).
+	// asset. That set is chain state the message does not carry, and it has no costlier bound, so the
+	// pure planner demands it. Here there is a chain to ask, so it is read unless the caller stated
+	// it. An empty list states that the NFTs hold nothing.
+	//
+	// A message may burn several instances. A wallet burning a selection sends a Call_Multi of burns.
+	// Each instance is read at its own address, because the fee follows every returned asset
+	// separately.
 	private async Task<PlanRequestOptions?> WithInfusionsAsync(TxMsg msg, PlanRequestOptions? options)
 	{
 		if (options?.Infusions != null)
 			return options;
-		ulong tokenId, instanceId;
-		switch (msg.type)
-		{
-			case TxTypes.BurnNonFungible:
-				{
-					var burn = (TxMsgBurnNonFungible)msg.msg;
-					tokenId = burn.tokenId;
-					instanceId = burn.instanceId;
-					break;
-				}
-			case TxTypes.BurnNonFungible_GasPayer:
-				{
-					var burn = (TxMsgBurnNonFungible_GasPayer)msg.msg;
-					tokenId = burn.tokenId;
-					instanceId = burn.instanceId;
-					break;
-				}
-			default:
-				return options;
-		}
+		var burned = FeePlanner.BurnedInstances(msg);
+		if (burned.Count == 0)
+			return options;
 		if (_source is not IInfusionSource infusions)
 			throw new InvalidOperationException("This planner's source cannot read what a burned NFT holds: pass Infusions (empty when it holds nothing) or plan through a PhantasmaAPI");
+		var returned = new List<InfusedAsset>();
+		foreach (var instance in burned)
+			returned.AddRange(await infusions.InfusedAssetsAsync(instance.TokenId, instance.InstanceId).ConfigureAwait(false));
 		var filled = (PlanRequestOptions)(options ?? new PlanRequestOptions()).Clone();
-		filled.Infusions = await infusions.InfusedAssetsAsync(tokenId, instanceId).ConfigureAwait(false);
+		filled.Infusions = returned;
 		return filled;
 	}
 
-	/// <summary>Plans a message against a config the caller already holds - no network, no cache.</summary>
+	/// <summary>Plans a message against a config the caller already holds. It touches no network and
+	/// no cache.</summary>
 	public FeePlan PlanWith(in GasConfig config, TxMsg msg, FeePlanOptions? options = null) => FeePlanner.Plan(msg, config, options);
 
 	private async Task<Cached> ReadAsync(bool refresh)
