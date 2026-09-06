@@ -608,4 +608,77 @@ public class FeePlannerTests
 		FeePlanner.BurnedInstances(BurnBatch(2)).ShouldBe(new[] { (9UL, 11UL), (9UL, 12UL) });
 		FeePlanner.BurnedInstances(Transfer(97)).ShouldBeEmpty();
 	}
+
+	// The coverage gate this file owes the model: every message type the SDK carries is named here
+	// with what the planner makes of it, and the table is asserted to be exhaustive over TxTypes. A
+	// new message type therefore cannot be added and quietly fall into the script budget - this test
+	// fails until someone states what its fee is. A Script entry below is a decision, not an omission.
+	private static byte[] BurnFungibleArgsBytes() =>
+		CarbonBlob.Serialize(new BurnFungibleArgs { tokenId = 97, from = PayerPub, amount = new IntX(1) });
+
+	public static TheoryData<TxTypes, TxMsg, NativeFeeKind[]?> PlannedTypes()
+	{
+		var burnCall = new TxMsgCall { moduleId = (uint)ModuleId.Token, methodId = (uint)TokenContract_Methods.BurnFungible, args = BurnFungibleArgsBytes() };
+		var data = new TheoryData<TxTypes, TxMsg, NativeFeeKind[]?>
+		{
+			{ TxTypes.Call, Msg(TxTypes.Call, burnCall), new[] { NativeFeeKind.BurnFungible } },
+			{ TxTypes.Call_Multi, Msg(TxTypes.Call_Multi, new TxMsgCall_Multi { calls = new[] { burnCall, burnCall } }), new[] { NativeFeeKind.BurnFungible, NativeFeeKind.BurnFungible } },
+			// A Trade packs its operations into named arrays rather than calls; nothing reads them
+			// yet, so it is budgeted. Modelling it is worth doing only when something builds one.
+			// The arrays are given explicitly: TxMsgTrade.Write dereferences them, so a default-
+			// constructed one cannot be serialized and therefore cannot be sized either.
+			{ TxTypes.Trade, Msg(TxTypes.Trade, new TxMsgTrade
+				{
+					transferF = Array.Empty<TxMsgTransferFungible_GasPayer>(),
+					transferN = Array.Empty<TxMsgTransferNonFungible_Single_GasPayer>(),
+					mintF = Array.Empty<TxMsgMintFungible>(),
+					burnF = Array.Empty<TxMsgBurnFungible_GasPayer>(),
+					mintN = Array.Empty<TxMsgMintNonFungible>(),
+					burnN = Array.Empty<TxMsgBurnNonFungible_GasPayer>()
+				}), new[] { NativeFeeKind.Script } },
+			{ TxTypes.TransferFungible, Transfer(97), new[] { NativeFeeKind.TransferFungible } },
+			{ TxTypes.TransferFungible_GasPayer, Msg(TxTypes.TransferFungible_GasPayer, new TxMsgTransferFungible_GasPayer { to = OwnerPub, from = PayerPub, tokenId = 97, amount = 1 }), new[] { NativeFeeKind.TransferFungible } },
+			{ TxTypes.TransferNonFungible_Single, Msg(TxTypes.TransferNonFungible_Single, new TxMsgTransferNonFungible_Single { to = OwnerPub, tokenId = 9, instanceId = 5 }), new[] { NativeFeeKind.TransferNonFungible } },
+			{ TxTypes.TransferNonFungible_Single_GasPayer, Msg(TxTypes.TransferNonFungible_Single_GasPayer, new TxMsgTransferNonFungible_Single_GasPayer { to = OwnerPub, from = PayerPub, tokenId = 9, instanceId = 5 }), new[] { NativeFeeKind.TransferNonFungible } },
+			{ TxTypes.TransferNonFungible_Multi, Msg(TxTypes.TransferNonFungible_Multi, new TxMsgTransferNonFungible_Multi { to = OwnerPub, tokenId = 9, instanceIds = new ulong[] { 5, 6 } }), new[] { NativeFeeKind.TransferNonFungible } },
+			{ TxTypes.TransferNonFungible_Multi_GasPayer, Msg(TxTypes.TransferNonFungible_Multi_GasPayer, new TxMsgTransferNonFungible_Multi_GasPayer { to = OwnerPub, from = PayerPub, tokenId = 9, instanceIds = new ulong[] { 5, 6 } }), new[] { NativeFeeKind.TransferNonFungible } },
+			{ TxTypes.MintFungible, Msg(TxTypes.MintFungible, new TxMsgMintFungible { tokenId = 97, to = OwnerPub, amount = new IntX(1) }), new[] { NativeFeeKind.MintFungible } },
+			{ TxTypes.BurnFungible, Msg(TxTypes.BurnFungible, new TxMsgBurnFungible { tokenId = 97, amount = new IntX(1) }), new[] { NativeFeeKind.BurnFungible } },
+			{ TxTypes.BurnFungible_GasPayer, Msg(TxTypes.BurnFungible_GasPayer, new TxMsgBurnFungible_GasPayer { tokenId = 97, from = PayerPub, amount = new IntX(1) }), new[] { NativeFeeKind.BurnFungible } },
+			{ TxTypes.MintNonFungible, Msg(TxTypes.MintNonFungible, new TxMsgMintNonFungible { tokenId = 9, to = OwnerPub, seriesId = 1, rom = new byte[8], ram = Array.Empty<byte>() }), new[] { NativeFeeKind.MintNonFungible } },
+			{ TxTypes.BurnNonFungible, Msg(TxTypes.BurnNonFungible, new TxMsgBurnNonFungible { tokenId = 9, instanceId = 5 }), new[] { NativeFeeKind.BurnNonFungible } },
+			{ TxTypes.BurnNonFungible_GasPayer, Msg(TxTypes.BurnNonFungible_GasPayer, new TxMsgBurnNonFungible_GasPayer { tokenId = 9, from = PayerPub, instanceId = 5 }), new[] { NativeFeeKind.BurnNonFungible } },
+			{ TxTypes.Phantasma, Msg(TxTypes.Phantasma, new TxMsgPhantasma { nexus = new SmallString("simnet"), chain = new SmallString("main"), script = new byte[8] }), new[] { NativeFeeKind.Script } },
+			// A raw Gen2 envelope carries its own fee fields and its own signatures; this planner
+			// prices Carbon messages, so it refuses rather than quoting a number it cannot size.
+			{ TxTypes.Phantasma_Raw, Msg(TxTypes.Phantasma_Raw, new TxMsgPhantasma_Raw { transaction = new byte[8] }), null }
+		};
+		return data;
+	}
+
+	[Fact]
+	public void Names_every_transaction_type_the_SDK_carries()
+	{
+		var named = PlannedTypes().Select(row => (TxTypes)row[0]).OrderBy(t => t).ToArray();
+		var all = Enum.GetValues(typeof(TxTypes)).Cast<TxTypes>().OrderBy(t => t).ToArray();
+		named.ShouldBe(all);
+	}
+
+	[Theory]
+	[MemberData(nameof(PlannedTypes))]
+	public void Plans_every_transaction_type_as_declared(TxTypes type, TxMsg msg, NativeFeeKind[]? expected)
+	{
+		// Only the witness-array types take a count; the rest fix their own witness set and refuse one.
+		var options = new FeePlanOptions { Infusions = Array.Empty<InfusedAsset>() };
+		if (SignedTxMsg.RequiredWitnesses(msg) == null)
+			options.WitnessCount = 1;
+		if (expected == null)
+		{
+			Should.Throw<ArgumentException>(() => FeePlanner.Plan(msg, Config, options))
+				.Message.ShouldContain("Cannot plan fees");
+			return;
+		}
+		FeePlanner.Plan(msg, Config, options).Kinds.ShouldBe(expected);
+		type.ShouldBe(msg.type);
+	}
 }
