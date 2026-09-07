@@ -5,19 +5,26 @@ using PhantasmaPhoenix.Protocol.Carbon.Blockchain.Vm;
 namespace PhantasmaPhoenix.Protocol.Carbon.Blockchain.TxHelpers;
 
 /// <summary>
-/// Facts about chain state and signing that a message does not carry but the fee depends on. Every
-/// state fact left null takes the calculator's default, which is the case that costs more, so an
-/// unspecified plan is an upper bound the settlement can only undercut; the defaults themselves
-/// belong to <see cref="NativeFeeParams"/>, which documents each one. The one fact without a
-/// costlier reading is <see cref="Infusions"/>: a burned NFT can hold any number of assets, so the
-/// planner demands it instead of assuming, and <c>PhantasmaAPI.Fees</c> reads it from the chain.
+/// Facts about chain state and signing that a message does not carry. The fee depends on them.
 /// <para>
-/// The facts the message itself carries - counts, sizes, token ids, the NFT-address recipient,
-/// <c>nonFungible</c>, <c>pre_burn</c> - are deliberately absent: <see cref="FeePlanner.Plan"/> reads
-/// those out of the message, and a caller-supplied value could only contradict it. Every field is
-/// optional and most callers set none. Roughly in order of how likely a caller is to know the answer:
-/// an ordinary wallet may well know the first four; the next three need the token's schema or the
-/// series' metadata; the last three size the allowance for a VM script, whose cost no formula predicts.
+/// A state fact left null takes the calculator's default, which is the reading that costs more. A
+/// plan that states nothing is therefore an upper bound, and the settlement can only come out below
+/// it. Each default is documented on <see cref="NativeFeeParams"/>.
+/// </para>
+/// <para>
+/// <see cref="Infusions"/> has no costlier reading, because a burned NFT can hold any number of
+/// assets. The planner demands the list, and <c>PhantasmaAPI.Fees</c> reads it from the chain.
+/// </para>
+/// <para>
+/// The facts the message itself carries are absent here: counts, sizes, token ids, the NFT-address
+/// recipient, <c>nonFungible</c>, <c>pre_burn</c>. <see cref="FeePlanner.Plan"/> reads those out of
+/// the message, and a value from the caller could only contradict it.
+/// </para>
+/// <para>
+/// Every field is optional and most callers set none. They are listed roughly in order of how likely
+/// a caller is to know the answer. An ordinary wallet may well know the first four. The next three
+/// need the token's schema or the series' metadata. The last three size the allowance for a VM
+/// script, and no formula predicts what a script costs.
 /// </para>
 /// </summary>
 public class FeePlanOptions
@@ -37,10 +44,12 @@ public class FeePlanOptions
 	/// <inheritdoc cref="NativeFeeParams.SeriesHasMetaId"/>
 	public bool? SeriesHasMetaId { get; set; }
 	/// <summary>
-	/// What the burned NFT holds at its own address (BurnNonFungible), which the burn returns to
-	/// the burner at a price - see <see cref="NativeFeeParams.Infusions"/>. Required to plan a burn
-	/// through <see cref="FeePlanner.Plan"/>: an empty list says the NFT holds nothing.
-	/// <c>PhantasmaAPI.Fees.PlanAsync</c> reads it from the chain when it is not given.
+	/// What the burned NFT holds at its own address (BurnNonFungible). The burn returns it to the
+	/// burner and the chain charges for it, see <see cref="NativeFeeParams.Infusions"/>.
+	/// <para>
+	/// Required to plan a burn through <see cref="FeePlanner.Plan"/>. An empty list says the NFT holds
+	/// nothing. <c>PhantasmaAPI.Fees.PlanAsync</c> reads it from the chain when it is not given.
+	/// </para>
 	/// </summary>
 	public IReadOnlyList<InfusedAsset>? Infusions { get; set; }
 	/// <inheritdoc cref="NativeFeeParams.ScriptUnitsAllowance"/>
@@ -59,7 +68,8 @@ public class FeePlanOptions
 	/// </summary>
 	public int? WitnessCount { get; set; }
 
-	/// <summary>A shallow copy, of the same runtime type, for callers that fill in a field without touching the caller's options.</summary>
+	/// <summary>Returns a shallow copy of the same runtime type. A caller fills in a field on the copy
+	/// and leaves the original untouched.</summary>
 	public FeePlanOptions Clone() => (FeePlanOptions)MemberwiseClone();
 }
 
@@ -67,22 +77,44 @@ public class FeePlanOptions
 public sealed class FeePlan
 {
 	/// <summary>
-	/// The operations the message was recognised as, in call order, which is also what the bill was
-	/// computed from: one entry for an ordinary message, one per inner call for a <c>Call_Multi</c>.
+	/// The operations the message was recognised as, in call order. The bill was computed from them. An
+	/// ordinary message has one entry. A <c>Call_Multi</c> has one entry per inner call.
 	/// <para>
-	/// Every kind but <see cref="NativeFeeKind.Script"/> is priced with the chain's own formula for that
-	/// operation; <c>Script</c> covers VM scripts and unmodelled calls, whose work depends on execution
-	/// and can only be budgeted (see <see cref="FeePlanOptions.ScriptUnitsAllowance"/> and its neighbours).
-	/// So a plan is a prediction when no entry is <c>Script</c>, and a budget in the part that is.
+	/// Every kind except <see cref="NativeFeeKind.Script"/> is priced with the chain's own formula for
+	/// that operation. <c>Script</c> covers VM scripts and unmodelled calls. Their work depends on
+	/// execution, so they can only be budgeted (see
+	/// <see cref="FeePlanOptions.ScriptUnitsAllowance"/> and its neighbours).
 	/// </para>
 	/// <para>
-	/// A formula-priced bill is exact for the facts it was given and an upper bound for the ones it
-	/// had to assume: a state fact left unspecified is filled with its costlier default.
+	/// This property says what was priced. How firm the number is, <see cref="Exact"/> answers. That
+	/// property accounts for both causes: a budgeted part, and a state fact the plan had to assume.
 	/// </para>
 	/// </summary>
 	public IReadOnlyList<NativeFeeKind> Kinds { get; }
 
-	/// <summary>The signed size the plan was computed for - the bytes the block will carry.</summary>
+	/// <summary>
+	/// True when this bill is a prediction of the settlement. False when it is an upper bound on it. A
+	/// wallet showing a fee reads this one property to choose between "0.0073 KCAL" and "up to 0.0073
+	/// KCAL".
+	/// <para>
+	/// The property is false in two cases. A chain-state fact was left unstated and its assumed reading
+	/// decided part of the price. Or some part of the message had to be budgeted.
+	/// </para>
+	/// <para>
+	/// The property says nothing about facts the caller stated. A stated fact that is wrong produces a
+	/// wrong bill, and the transaction then aborts if the mistake was on the cheap side. <c>true</c>
+	/// means only that the plan did not have to guess.
+	/// </para>
+	/// <para>
+	/// <c>BigFungible = true</c> is the one exception. It claims nothing about chain state. It asks the
+	/// model to price the widest answer a variable-length balance can have. A plan that rests on it
+	/// reports <c>false</c> however it was arrived at.
+	/// </para>
+	/// </summary>
+	public bool Exact { get; }
+
+	/// <summary>The signed size the plan was computed for. These are the bytes the block will
+	/// carry.</summary>
 	public int EnvelopeBytes { get; }
 
 	/// <inheritdoc cref="FeeQuote.MaxGas"/>
@@ -99,9 +131,10 @@ public sealed class FeePlan
 	/// <summary>The underlying Tier-1 estimate.</summary>
 	public NativeFeeEstimate Estimate { get; }
 
-	public FeePlan(IReadOnlyList<NativeFeeKind> kinds, int envelopeBytes, NativeFeeEstimate estimate)
+	public FeePlan(IReadOnlyList<NativeFeeKind> kinds, bool exact, int envelopeBytes, NativeFeeEstimate estimate)
 	{
 		Kinds = kinds;
+		Exact = exact;
 		EnvelopeBytes = envelopeBytes;
 		Estimate = estimate;
 	}
@@ -116,10 +149,13 @@ public sealed class FeePlan
 }
 
 /// <summary>
-/// Plans the gas offer and storage ceiling of a message from the message itself: its type and
-/// contents decide the operation model, its signed size is computed with placeholder witnesses, and
-/// the chain config supplies the prices. Pure - fetch the config with <c>PhantasmaAPI.Fees</c> or
-/// getGasConfig and pass it in.
+/// Plans the gas offer and the storage ceiling of a message from the message itself. Its type and
+/// contents decide the operation model. Its signed size is computed with placeholder witnesses. The
+/// chain config supplies the prices.
+/// <para>
+/// The method touches no network. Fetch the config with <c>PhantasmaAPI.Fees</c> or getGasConfig and
+/// pass it in.
+/// </para>
 /// </summary>
 public static class FeePlanner
 {
@@ -127,24 +163,76 @@ public static class FeePlanner
 	{
 		options ??= new FeePlanOptions();
 		// A witness-array message does not say how many signatures it will carry, and each one is 96
-		// billed bytes. Assuming a single witness would under-offer every multi-party transaction by 96
-		// bytes each and get it rejected, so the count is demanded rather than guessed - the same stance
-		// the calculator takes on a missing envelope size.
+		// billed bytes. An assumed single witness would under-offer every multi-party transaction by 96
+		// bytes per extra signature, and the chain would reject it. So the count is demanded here. The
+		// calculator takes the same stance on a missing envelope size.
 		if (SignedTxMsg.RequiredWitnesses(msg) == null && !options.WitnessCount.HasValue)
 			throw new ArgumentException($"{msg.type} transactions choose their own witnesses: pass WitnessCount to plan one", nameof(options));
 		var parts = Describe(msg, options);
 		var envelopeBytes = SignedTxMsg.EnvelopeBytes(msg, options.WitnessCount);
 		var estimate = NativeFeeEstimator.EstimateNativeFeeBatch(
 			parts, config, new NativeFeeTransaction { EnvelopeBytes = (uint)envelopeBytes });
-		return new FeePlan(parts.Select(part => part.Kind).ToArray(), envelopeBytes, estimate);
+		var budgeted = parts.Any(part => part.Kind == NativeFeeKind.Script);
+		var exact = !budgeted && !AssumptionsMattered(msg, config, options, envelopeBytes, estimate);
+		return new FeePlan(parts.Select(part => part.Kind).ToArray(), exact, envelopeBytes, estimate);
 	}
 
 	/// <summary>
-	/// The NFT instances a message burns: the native burn types, a <c>Token.BurnNonFungible</c> call,
-	/// and every such call inside a <c>Call_Multi</c>. A burn returns whatever the instance's own
-	/// address holds and pays for each returned asset, so a planner with a chain to ask reads them
-	/// per instance and hands the union to <see cref="FeePlanOptions.Infusions"/>. It lives beside
-	/// the decomposition that decides which calls are burns so the two cannot come to disagree.
+	/// Returns true if a fact the caller left unstated changed this quote.
+	/// <para>
+	/// The message is priced a second time, with every unstated state fact at its CHEAPER reading. The
+	/// two quotes are then compared. If they agree, the costlier defaults decided nothing and the bill
+	/// is a prediction.
+	/// </para>
+	/// <para>
+	/// The question is asked this way to keep ONE definition of which facts an operation reads: the
+	/// operation models themselves. A list written here would drift from them as the models change.
+	/// </para>
+	/// <para>
+	/// The answer is also per message, not per kind. That matters. A gas-token transfer does not depend
+	/// on <c>RecipientHoldsToken</c> at all, because the chain's own rows are free. A plan that
+	/// reported the fact as assumed would send every ordinary transfer to the "up to" branch.
+	/// </para>
+	/// <para>
+	/// <c>Infusions</c> is not flipped. It has no cheaper reading, and the planner demands it.
+	/// </para>
+	/// <para>
+	/// <c>BigFungible</c> is flipped even when the caller stated it. The other facts claim something
+	/// about chain state, and a true claim yields an exact price. This one asks the model to price the
+	/// WIDEST answer a variable-length balance can have: 33 bytes, against a measured 10 at a 2^70
+	/// balance. A plan resting on that is a bound for whoever asked for it. The live matrix caught this
+	/// as two rows that called themselves predictions and settled below their own number.
+	/// </para>
+	/// </summary>
+	private static bool AssumptionsMattered(in TxMsg msg, in GasConfig config, FeePlanOptions options, int envelopeBytes, NativeFeeEstimate quoted)
+	{
+		var cheapest = options.Clone();
+		cheapest.RecipientHoldsToken = options.RecipientHoldsToken ?? true;
+		cheapest.TokenBurnedBefore = options.TokenBurnedBefore ?? true;
+		cheapest.SupplyRowExists = options.SupplyRowExists ?? true;
+		cheapest.BigFungible = false;
+		cheapest.RomHasMetaId = options.RomHasMetaId ?? false;
+		cheapest.SeriesHasMetaId = options.SeriesHasMetaId ?? false;
+		cheapest.DuplicatedSeries = options.DuplicatedSeries ?? false;
+		var cheaper = NativeFeeEstimator.EstimateNativeFeeBatch(
+			Describe(msg, cheapest), config, new NativeFeeTransaction { EnvelopeBytes = (uint)envelopeBytes });
+		return cheaper.ExpectedGasBill != quoted.ExpectedGasBill
+			|| cheaper.MaxGas != quoted.MaxGas
+			|| cheaper.MaxData != quoted.MaxData;
+	}
+
+	/// <summary>
+	/// Returns the NFT instances a message burns. It covers the native burn types, a
+	/// <c>Token.BurnNonFungible</c> call, and every such call inside a <c>Call_Multi</c>.
+	/// <para>
+	/// A burn returns whatever the instance's own address holds, and the chain charges for each
+	/// returned asset. A planner with a chain to ask reads those assets per instance and hands the
+	/// union to <see cref="FeePlanOptions.Infusions"/>.
+	/// </para>
+	/// <para>
+	/// This method sits beside the decomposition that decides which calls are burns, so the two cannot
+	/// come to disagree.
+	/// </para>
 	/// </summary>
 	public static IReadOnlyList<(UInt64 TokenId, UInt64 InstanceId)> BurnedInstances(in TxMsg msg)
 	{
@@ -180,13 +268,13 @@ public static class FeePlanner
 		return args.instanceIds.Select(id => (args.tokenId, id)).ToArray();
 	}
 
-	// What a message does, as the calculator's operations. One entry for an ordinary message; a
-	// Call_Multi yields one per inner call, which is what lets a batch be priced instead of budgeted.
+	// What a message does, written as the calculator's operations. An ordinary message gives one entry.
+	// A Call_Multi gives one entry per inner call. That is what lets a batch be priced.
 	private static IReadOnlyList<NativeFeePart> Describe(in TxMsg msg, FeePlanOptions options)
 	{
-		// Passed through unset and all: the calculator owns every default, so no default is decided
-		// in two places. Whether the recipient is an NFT-derived address is NOT here: the address form
-		// decides it, and the message carries the address, so each branch below reads it out.
+		// Passed through even when unset. The calculator owns every default, so no default is decided
+		// in two places. Whether the recipient is an NFT-derived address is NOT here. The address form
+		// decides that, and the message carries the address, so each branch below reads it out.
 		NativeFeeParams StateFacts() => new()
 		{
 			RecipientHoldsToken = options.RecipientHoldsToken ?? false,
@@ -283,9 +371,9 @@ public static class FeePlanner
 			case TxTypes.BurnNonFungible:
 			case TxTypes.BurnNonFungible_GasPayer:
 				{
-					// The stored ROM is chain state the message does not carry, so the deleted quanta are
-					// a lower bound. That does not touch the offer: a burn deletes more than it creates,
-					// and only the rows it creates are escrowed.
+					// The stored ROM is chain state that the message does not carry, so the deleted quanta
+					// are a lower bound. The offer is unaffected. A burn deletes more rows than it
+					// creates, and only the rows it creates are escrowed.
 					var p = StateFacts();
 					p.TokenId = msg.type == TxTypes.BurnNonFungible
 						? ((TxMsgBurnNonFungible)msg.msg).tokenId
@@ -299,7 +387,7 @@ public static class FeePlanner
 			case TxTypes.Call_Multi:
 				{
 					// The chain runs the calls in a loop and bills their sum, so the plan is the sum of
-					// their models. Infusions cover every burn in the batch and the returns cost the same
+					// their models. Infusions cover every burn in the batch. The returns cost the same
 					// wherever they are counted, so the first burn takes the whole list and the burns
 					// after it take none.
 					var calls = ((TxMsgCall_Multi)msg.msg).calls ?? Array.Empty<TxMsgCall>();
@@ -325,9 +413,9 @@ public static class FeePlanner
 	private static IReadOnlyList<NativeFeePart> One(NativeFeeKind kind, NativeFeeParams p) =>
 		new[] { new NativeFeePart(kind, p) };
 
-	// What the NFTs hold is chain state with no costlier bound, so it is demanded, not assumed: a
-	// burn planned as if the addresses were empty is short by every returned asset and aborts,
-	// billed, on every retry.
+	// What the NFTs hold is chain state, and it has no costlier bound, so the planner demands it. A
+	// burn planned as if the addresses were empty is short by every returned asset. It then aborts and
+	// is billed, on every retry.
 	private static IReadOnlyList<InfusedAsset> RequireInfusions(IReadOnlyList<InfusedAsset>? infusions)
 	{
 		if (infusions == null)
@@ -337,8 +425,9 @@ public static class FeePlanner
 
 	private static NativeFeePart DescribeCall(TxMsgCall call, FeePlanOptions options, Func<NativeFeeParams> stateFacts, IReadOnlyList<InfusedAsset>? infusions)
 	{
-		// A call whose arguments are assembled at execution out of earlier calls' results carries none
-		// of them yet. There is nothing to read a price from, so it is budgeted like any unmodelled call.
+		// A call can build its arguments at execution time from the results of earlier calls. Such a
+		// call carries none of them yet. There is nothing to read a price from, so it takes the script
+		// budget.
 		if (call.sections.HasSections)
 			return ScriptPlan(options);
 		if (call.moduleId == (uint)ModuleId.Token)
@@ -346,10 +435,10 @@ public static class FeePlanner
 			switch ((TokenContract_Methods)call.methodId)
 			{
 				// The five token movements below cost exactly what they cost as native transaction
-				// types: both paths enter the same contract method, and a batched wallet operation is
-				// the reason they arrive as module calls at all. Token.MintNonFungible is deliberately
-				// absent - the chain refuses it under mainnet SR 50 whichever way it arrives, so there
-				// is nothing to price.
+				// types. Both paths enter the same contract method. They arrive as module calls
+				// because a wallet batched them. Token.MintNonFungible is absent on purpose: the chain
+				// refuses it under mainnet SR 50 whichever way it arrives, so there is nothing to
+				// price.
 				case TokenContract_Methods.TransferFungible:
 					{
 						var args = CarbonBlob.New<TransferFungibleArgs>(call.args);
@@ -396,10 +485,11 @@ public static class FeePlanner
 						var metadata = info.metadata != null && info.metadata.Length > 0
 							? CarbonBlob.New<VmDynamicStruct>(info.metadata)
 							: (VmDynamicStruct?)null;
-						// The token-info row is the Call arguments as submitted: the chain stores the
-						// TokenInfo it was given, metadata included, and measured bills confirm the row equals
-						// the arguments. Which extra rows the creation writes, and which lookups validating it
-						// costs, is decided by the metadata, which is a named struct the plan can read.
+						// The token-info row is the Call arguments as submitted. The chain stores the
+						// TokenInfo it was given, metadata included, and measured bills confirm that the row
+						// equals the arguments. The metadata decides which extra rows the creation writes and
+						// which lookups its validation costs. The plan can read the metadata, because it is a
+						// named struct.
 						return new NativeFeePart(NativeFeeKind.CreateToken, new NativeFeeParams
 						{
 							SymbolLength = info.symbol.data?.Length ?? 0,
@@ -421,9 +511,9 @@ public static class FeePlanner
 				case TokenContract_Methods.MintPhantasmaNonFungible:
 					{
 						var args = CarbonBlob.New<MintPhantasmaNonFungibleArgs>(call.args);
-						// Each instance names the series it is minted into, so the number of distinct series a
-						// duplicated mint touches - which is what the chain's per-series supply read costs
-						// follow - is readable from the call and never has to be supplied by the caller.
+						// Each instance names the series it is minted into. The number of distinct series a
+						// duplicated mint touches is therefore readable from the call, and the caller never has
+						// to supply it. The chain's per-series supply reads are charged per distinct series.
 						var seriesIds = new HashSet<BigInteger>();
 						var roms = new uint[args.tokens.Length];
 						var rams = new uint[args.tokens.Length];

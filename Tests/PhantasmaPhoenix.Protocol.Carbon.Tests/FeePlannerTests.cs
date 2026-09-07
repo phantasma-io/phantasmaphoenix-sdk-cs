@@ -681,4 +681,107 @@ public class FeePlannerTests
 		FeePlanner.Plan(msg, Config, options).Kinds.ShouldBe(expected);
 		type.ShouldBe(msg.type);
 	}
+
+	// A wallet has to choose between showing "0.0073 KCAL" and "up to 0.0073 KCAL", and it reads that
+	// from one field. Exact is true only when nothing the plan had to assume could have moved the
+	// number - which is a different question from whether any fact was left unstated, because most
+	// facts do not enter most operations.
+	[Fact]
+	public void Is_exact_for_a_gas_token_transfer_whatever_the_caller_states()
+	{
+		// The chain's own token rows are free, so the recipient's row costs nothing and the fact the
+		// caller did not state could not have changed the price. A wallet's commonest operation must
+		// not be pushed into the "up to" branch by a fact that does not apply to it.
+		FeePlanner.Plan(Transfer(Config.gasTokenId), Config).Exact.ShouldBeTrue();
+		FeePlanner.Plan(Transfer(Config.dataTokenId), Config).Exact.ShouldBeTrue();
+	}
+
+	[Fact]
+	public void Is_not_exact_when_an_unstated_fact_decided_part_of_the_price()
+	{
+		// A custom token's recipient row is paid, so RecipientHoldsToken decides one storage quantum.
+		var custom = Transfer(97);
+		FeePlanner.Plan(custom, Config).Exact.ShouldBeFalse();
+		FeePlanner.Plan(custom, Config, new FeePlanOptions { RecipientHoldsToken = true }).Exact.ShouldBeTrue();
+		FeePlanner.Plan(custom, Config, new FeePlanOptions { RecipientHoldsToken = false }).Exact.ShouldBeTrue();
+	}
+
+	// BigFungible = true does not say what the balance IS, it says the answer may be as wide as an
+	// int256 - so the model prices 33 bytes and the chain writes fewer. Stating it does not make the
+	// number a prediction, and the live matrix proved it: two rows that stated it settled below their
+	// own plan.
+	[Fact]
+	public void Is_not_exact_when_the_plan_rests_on_the_widest_fungible_result()
+	{
+		var mint = Msg(TxTypes.MintFungible, new TxMsgMintFungible { tokenId = 97, to = OwnerPub, amount = new IntX(1) });
+		FeePlanner.Plan(mint, Config, new FeePlanOptions { RecipientHoldsToken = true, SupplyRowExists = true, BigFungible = true })
+			.Exact.ShouldBeFalse();
+		FeePlanner.Plan(mint, Config, new FeePlanOptions { RecipientHoldsToken = true, SupplyRowExists = true, BigFungible = false })
+			.Exact.ShouldBeTrue();
+	}
+
+	[Fact]
+	public void Is_never_exact_when_part_of_the_message_had_to_be_budgeted()
+	{
+		var script = Msg(TxTypes.Phantasma, new TxMsgPhantasma { nexus = new SmallString("simnet"), chain = new SmallString("main"), script = new byte[40] });
+		FeePlanner.Plan(script, Config, OneWitness).Exact.ShouldBeFalse();
+	}
+
+	[Fact]
+	public void Is_exact_for_a_burn_that_states_the_two_facts_a_burn_reads()
+	{
+		var burn = Msg(TxTypes.BurnNonFungible, new TxMsgBurnNonFungible { tokenId = 9, instanceId = 5 });
+		var empty = Array.Empty<InfusedAsset>();
+		FeePlanner.Plan(burn, Config, new FeePlanOptions { Infusions = empty }).Exact.ShouldBeFalse();
+		FeePlanner.Plan(burn, Config, new FeePlanOptions { Infusions = empty, TokenBurnedBefore = true, SupplyRowExists = true })
+			.Exact.ShouldBeTrue();
+		// The ROM's meta-id row is deleted by a burn, never created, and a burn deletes more rows than
+		// it creates - so that fact cannot move a burn's bill and leaving it unstated does not make
+		// the number an upper bound.
+		FeePlanner.Plan(burn, Config, new FeePlanOptions { Infusions = empty, TokenBurnedBefore = true, SupplyRowExists = true, RomHasMetaId = false })
+			.Exact.ShouldBeTrue();
+	}
+
+	// The flag is computed by pricing the message a second time with every unstated fact at its
+	// cheaper reading. That only answers honestly if the "costlier default" claim on each fact is
+	// true, so it is checked here: stating the other value must never raise the quote.
+	[Fact]
+	public void Prices_every_default_at_or_above_the_alternative_reading()
+	{
+		var mint = Msg(TxTypes.MintFungible, new TxMsgMintFungible { tokenId = 97, to = OwnerPub, amount = new IntX(1) });
+		var burn = Msg(TxTypes.BurnFungible, new TxMsgBurnFungible { tokenId = 97, amount = new IntX(1) });
+		var phantasma = PhantasmaMintCall(new[] { PhantasmaMint(1, 40), PhantasmaMint(2, 40) });
+		var cases = new (TxMsg Msg, bool OpenWitness, FeePlanOptions[] Stated)[]
+		{
+			(Transfer(97), false, new[] { new FeePlanOptions { RecipientHoldsToken = true } }),
+			(mint, false, new[]
+			{
+				new FeePlanOptions { RecipientHoldsToken = true },
+				new FeePlanOptions { SupplyRowExists = true },
+				new FeePlanOptions { BigFungible = false }
+			}),
+			(burn, false, new[]
+			{
+				new FeePlanOptions { TokenBurnedBefore = true },
+				new FeePlanOptions { SupplyRowExists = true },
+				new FeePlanOptions { BigFungible = false }
+			}),
+			(phantasma, true, new[]
+			{
+				new FeePlanOptions { WitnessCount = 1, RecipientHoldsToken = true },
+				new FeePlanOptions { WitnessCount = 1, SupplyRowExists = true },
+				new FeePlanOptions { WitnessCount = 1, DuplicatedSeries = false }
+			})
+		};
+		foreach (var (msg, openWitness, stated) in cases)
+		{
+			var assumed = FeePlanner.Plan(msg, Config, openWitness ? OneWitness : null);
+			foreach (var options in stated)
+			{
+				var told = FeePlanner.Plan(msg, Config, options);
+				told.ExpectedGasBill.ShouldBeLessThanOrEqualTo(assumed.ExpectedGasBill);
+				told.MaxData.ShouldBeLessThanOrEqualTo(assumed.MaxData);
+			}
+		}
+	}
 }

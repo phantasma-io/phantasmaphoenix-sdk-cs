@@ -7,7 +7,7 @@ namespace PhantasmaPhoenix.Protocol.Carbon.Tests;
 public class FeePlanSummaryTests
 {
 	private static FeePlan Plan(ulong maxGas, ulong maxData, ulong bill) =>
-		new(new[] { NativeFeeKind.TransferFungible }, 170, new NativeFeeEstimate(maxGas, maxData, bill, 1, 0));
+		new(new[] { NativeFeeKind.TransferFungible }, true, 170, new NativeFeeEstimate(maxGas, maxData, bill, 1, 0));
 
 	// 42,600,000 kcal-base is 0.00426 KCAL and 200,000 SOUL atoms is 0.002 SOUL: the atoms a wallet
 	// would otherwise show a user, rendered in the units the user thinks in, without trailing zeros.
