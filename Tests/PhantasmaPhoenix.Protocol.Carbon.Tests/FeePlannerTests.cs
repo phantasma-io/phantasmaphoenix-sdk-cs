@@ -12,7 +12,7 @@ namespace PhantasmaPhoenix.Protocol.Carbon.Tests;
 
 // The planner reads the operation and every message-carried fact out of the message, sizes the
 // envelope without a key, and hands the calculator the state facts the caller stated. The calls are
-// assembled directly rather than through the builders, so a failure here names the planner.
+// assembled directly and not through the builders, so a failure here names the planner.
 public class FeePlannerTests
 {
 	// The mainnet gas-model-v2 configuration (special resolution #79).
@@ -69,8 +69,11 @@ public class FeePlannerTests
 	private static TxMsg Transfer(ulong tokenId, Bytes32? to = null) =>
 		Msg(TxTypes.TransferFungible, new TxMsgTransferFungible { to = to ?? OwnerPub, tokenId = tokenId, amount = 10_000_000 });
 
+	private static TxMsg ModuleCall(ModuleId moduleId, uint methodId, byte[] args) =>
+		Msg(TxTypes.Call, new TxMsgCall { moduleId = (uint)moduleId, methodId = methodId, args = args });
+
 	private static TxMsg TokenCall(TokenContract_Methods method, byte[] args) =>
-		Msg(TxTypes.Call, new TxMsgCall { moduleId = (uint)ModuleId.Token, methodId = (uint)method, args = args });
+		ModuleCall(ModuleId.Token, (uint)method, args);
 
 	private static TokenInfo TokenInfo(bool nonFungible, byte[]? metadata = null) =>
 		TokenInfoBuilder.Build(
@@ -144,7 +147,7 @@ public class FeePlannerTests
 	}
 
 	// Every call is a witness-array type, so each plan states how many signatures the envelope will
-	// carry; the planner refuses to assume a number that decides the size of the bill.
+	// carry. The planner refuses to assume a number that decides the size of the bill.
 	[Fact]
 	public void Refuses_to_guess_how_many_witnesses_a_call_will_carry()
 	{
@@ -254,7 +257,7 @@ public class FeePlannerTests
 	}
 
 	// A multi-instance mint prices every instance: the work and the two query fees each one costs,
-	// the 40 result bytes it returns, and its own storage rows - while the recipient's balance row is
+	// the 40 result bytes it returns, and its own storage rows. The recipient's balance row is
 	// paid for once. Reading the count out of the call is what makes that possible.
 	[Fact]
 	public void Prices_every_instance_of_a_multi_instance_Phantasma_mint()
@@ -294,10 +297,10 @@ public class FeePlannerTests
 		assumed.ExpectedGasBill.ShouldBeGreaterThan(unique.ExpectedGasBill);
 	}
 
-	// The supply row is chain state with two absent-row edges - a limited token fully in circulation
-	// before its first burn, an unlimited one with nothing outstanding before its next mint - and the
+	// The supply row can be absent in two cases. A limited token has its whole supply in circulation
+	// before its first burn. An unlimited token has nothing outstanding before its next mint. Then the
 	// transaction that hits an edge recreates the row. An unstated plan covers that quantum in the
-	// offer and the escrow ceiling; saying the row exists gives the exact quote.
+	// offer and the escrow ceiling. Saying the row exists gives the exact quote.
 	[Fact]
 	public void Plans_a_mint_or_burn_to_cover_the_supply_row_unless_it_is_said_to_exist()
 	{
@@ -308,8 +311,9 @@ public class FeePlannerTests
 		(assumed.MaxData - inPlace.MaxData).ShouldBe(Config.dataEscrowPerRow);
 	}
 
-	// What a burned NFT holds is chain state with no costlier reading - it can hold anything - so
-	// the planner demands the list instead of assuming an empty address; an empty list is the
+	// What a burned NFT holds is chain state, and it has no costlier reading, because an NFT can hold
+	// anything. The planner therefore demands the list and assumes no empty address. An empty list is
+	// the
 	// statement that nothing is infused. The RPC-side planner fills it in from the chain.
 	[Fact]
 	public void Demands_what_a_burned_NFT_holds_and_prices_its_return()
@@ -327,15 +331,16 @@ public class FeePlannerTests
 			TokenBurnedBefore = true,
 			SupplyRowExists = true
 		});
-		// KCAL and the custom token: a transfer and a query each; the NFT: a query, two transfers, a query.
+		// KCAL and the custom token cost a transfer and a query each. The NFT costs a query, two
+		// transfers and a query.
 		(returned.ExpectedGasBill - empty.ExpectedGasBill).ShouldBe(80UL * 10_000);
 		// The custom token's balance row, the NFT token's balance row and its two moved lookups.
 		(returned.MaxData - empty.MaxData).ShouldBe(4UL * Config.dataEscrowPerRow);
 	}
 
 	// Whether the recipient is an NFT-derived address decides one query fee, and the address is in
-	// the message, so the planner reads it there instead of asking. A user address adds nothing; the
-	// NFT form does; a zero instance id is not an NFT address, exactly as the chain reads it.
+	// the message, so the planner reads it there and asks nobody. A user address adds nothing. The NFT
+	// form adds the lookup. A zero instance id is not an NFT address, exactly as the chain reads it.
 	[Fact]
 	public void Reads_the_NFT_address_recipient_out_of_the_message_and_prices_its_owner_lookup()
 	{
@@ -344,7 +349,7 @@ public class FeePlannerTests
 		(ToAddress(TokenHelper.GetNftAddress(9, 1)) - plain).ShouldBe(100_000UL);
 		ToAddress(TokenHelper.GetNftAddress(9, 0)).ShouldBe(plain);
 
-		// Every mint kind pays the same owner lookup once per call; the Phantasma call carries its
+		// Every mint kind pays the same owner lookup once per call. The Phantasma call carries its
 		// recipient in the arguments and the planner reads it out of there just the same.
 		var options = new FeePlanOptions { WitnessCount = 1, DuplicatedSeries = false };
 		var infused = FeePlanner.Plan(PhantasmaMintCall(new[] { PhantasmaMint(7, 182) }, TokenHelper.GetNftAddress(9, 1)), Config, options);
@@ -409,7 +414,7 @@ public class FeePlannerTests
 		var tighter = FeePlanner.Plan(script, Config, new FeePlanOptions { WitnessCount = 1, ScriptUnitsAllowance = 1000, ScriptEventBytes = 0, ScriptStorageQuanta = 0 });
 		tighter.ExpectedGasBill.ShouldBe(Bill(1000, plan.EnvelopeBytes));
 
-		// A token call the planner has no formula for is budgeted the same way rather than refused.
+		// A token call the planner has no formula for takes the same budget. It is not refused.
 		var unmodelled = TokenCall(TokenContract_Methods.UpdateTokenMetadata, new byte[20]);
 		FeePlanner.Plan(unmodelled, Config, OneWitness).Kinds.ShouldBe(new[] { NativeFeeKind.Script });
 	}
@@ -427,9 +432,9 @@ public class FeePlannerTests
 
 	// A wallet that performs several token operations at once sends them as module calls: one
 	// Token.* call, or a Call_Multi of them. The chain runs those through the very same contract
-	// methods the native transaction types run, in a plain loop, with no per-call surcharge - so the
-	// planner has to price them like the native operations they are instead of budgeting them as if
-	// they were VM scripts.
+	// methods the native transaction types run, in a plain loop, with no per-call surcharge. The
+	// planner therefore prices them like the native operations they are. Budgeting them as if they
+	// were VM scripts would be wrong.
 	private static TxMsgCall BurnNftCall(ulong tokenId, ulong[] instanceIds) => new()
 	{
 		moduleId = (uint)ModuleId.Token,
@@ -475,8 +480,8 @@ public class FeePlannerTests
 			CarbonBlob.Serialize(new TransferNonFungibleArgs { to = OwnerPub, from = PayerPub, tokenId = 97, instanceIds = new ulong[] { 11, 12, 13 } }));
 		var plan = FeePlanner.Plan(call, Config, OneWitness);
 		plan.Kinds.ShouldBe(new[] { NativeFeeKind.TransferNonFungible });
-		// Three transfer fees; three lookup rows created against three deleted, plus the fresh
-		// recipient balance row - so one net quantum of block data and four rows of ceiling.
+		// Three transfer fees. Three lookup rows created against three deleted, plus the fresh recipient
+		// balance row. That is one net quantum of block data and four rows of ceiling.
 		plan.ExpectedGasBill.ShouldBe(Bill(30, plan.EnvelopeBytes + 1));
 		plan.NewStorageQuanta.ShouldBe(4u);
 		plan.DeletedStorageQuanta.ShouldBe(3u);
@@ -489,7 +494,7 @@ public class FeePlannerTests
 			CarbonBlob.Serialize(new MintFungibleArgs { tokenId = 97, to = OwnerPub, amount = new IntX(1000) }));
 		var mintPlan = FeePlanner.Plan(mint, Config, new FeePlanOptions { WitnessCount = 1, BigFungible = false });
 		mintPlan.Kinds.ShouldBe(new[] { NativeFeeKind.MintFungible });
-		// Transfer fee; the recipient's row and the supply row; a 9-byte int64 balance answer.
+		// A transfer fee, the recipient's row, the supply row, and a 9-byte int64 balance answer.
 		mintPlan.ExpectedGasBill.ShouldBe(Bill(10, mintPlan.EnvelopeBytes + 2 + 9));
 
 		var burn = TokenCall(TokenContract_Methods.BurnFungible,
@@ -507,14 +512,14 @@ public class FeePlannerTests
 
 		var plan = FeePlanner.Plan(call, Config, BurnFacts());
 		plan.Kinds.ShouldBe(new[] { NativeFeeKind.BurnNonFungible });
-		// Two instances at a transfer fee plus two queries each; four rows deleted per instance.
+		// Two instances at a transfer fee plus two queries each. Four rows are deleted per instance.
 		plan.ExpectedGasBill.ShouldBe(Bill(60, plan.EnvelopeBytes));
 		plan.DeletedStorageQuanta.ShouldBe(8u);
 	}
 
 	// Explicit NFT mints are refused chain-wide by mainnet SR 50 whichever way they arrive, so the
 	// SDK removed its native builder and does not price the call either: there is no transaction to
-	// price. It must stay budgeted rather than quietly grow a model.
+	// price. It must stay budgeted, and it must not quietly grow a model.
 	[Fact]
 	public void Leaves_an_explicit_NFT_mint_call_at_the_script_budget()
 	{
@@ -523,7 +528,7 @@ public class FeePlannerTests
 		FeePlanner.Plan(mint, Config, OneWitness).Kinds.ShouldBe(new[] { NativeFeeKind.Script });
 	}
 
-	// A call may name argument SECTIONS instead of arguments: the chain assembles them at execution
+	// A call may name argument SECTIONS in place of arguments. The chain assembles them at execution
 	// out of earlier calls' results. Nothing to read a price from, and reading the empty argument
 	// buffer as if it held the fields would be worse than budgeting.
 	[Fact]
@@ -577,7 +582,7 @@ public class FeePlannerTests
 		facts.Infusions = new[] { new InfusedAsset { TokenId = 1 }, new InfusedAsset { TokenId = 97 } };
 		var returned = FeePlanner.Plan(BurnBatch(2), Config, facts);
 		// One transfer plus one owner-lookup query per returned token, counted for the batch and not
-		// for each of its burns; the custom token's balance row is recreated for the burner.
+		// for each of its burns. The custom token's balance row is recreated for the burner.
 		(returned.ExpectedGasBill - empty.ExpectedGasBill).ShouldBe(40UL * 10_000);
 		(returned.MaxData - empty.MaxData).ShouldBe(Config.dataEscrowPerRow);
 	}
@@ -594,7 +599,7 @@ public class FeePlannerTests
 		plan.Kinds.ShouldBe(new[] { NativeFeeKind.BurnNonFungible, NativeFeeKind.Script });
 		// Both work terms, and the budget's event bytes. Its four storage quanta are NOT block data
 		// here: the chain bills the net growth of the whole transaction, and the burn deletes four
-		// rows against them - which is the reason a batch is settled once instead of call by call.
+		// rows against them. That is the reason a batch is settled once and not call by call.
 		plan.ExpectedGasBill.ShouldBe(Bill(130, plan.EnvelopeBytes + 512));
 		plan.NewStorageQuanta.ShouldBe(4u);
 		plan.DeletedStorageQuanta.ShouldBe(4u);
@@ -607,11 +612,13 @@ public class FeePlannerTests
 		FeePlanner.BurnedInstances(native).ShouldBe(new[] { (9UL, 5UL) });
 		FeePlanner.BurnedInstances(BurnBatch(2)).ShouldBe(new[] { (9UL, 11UL), (9UL, 12UL) });
 		FeePlanner.BurnedInstances(Transfer(97)).ShouldBeEmpty();
+		// A batch with no call array is planned as an empty batch, so it must answer the same here.
+		FeePlanner.BurnedInstances(Msg(TxTypes.Call_Multi, new TxMsgCall_Multi())).ShouldBeEmpty();
 	}
 
 	// The coverage gate this file owes the model: every message type the SDK carries is named here
 	// with what the planner makes of it, and the table is asserted to be exhaustive over TxTypes. A
-	// new message type therefore cannot be added and quietly fall into the script budget - this test
+	// new message type therefore cannot be added and quietly fall into the script budget. This test
 	// fails until someone states what its fee is. A Script entry below is a decision, not an omission.
 	private static byte[] BurnFungibleArgsBytes() =>
 		CarbonBlob.Serialize(new BurnFungibleArgs { tokenId = 97, from = PayerPub, amount = new IntX(1) });
@@ -623,7 +630,7 @@ public class FeePlannerTests
 		{
 			{ TxTypes.Call, Msg(TxTypes.Call, burnCall), new[] { NativeFeeKind.BurnFungible } },
 			{ TxTypes.Call_Multi, Msg(TxTypes.Call_Multi, new TxMsgCall_Multi { calls = new[] { burnCall, burnCall } }), new[] { NativeFeeKind.BurnFungible, NativeFeeKind.BurnFungible } },
-			// A Trade packs its operations into named arrays rather than calls; nothing reads them
+			// A Trade packs its operations into named arrays and not into calls. Nothing reads them
 			// yet, so it is budgeted. Modelling it is worth doing only when something builds one.
 			// The arrays are given explicitly: TxMsgTrade.Write dereferences them, so a default-
 			// constructed one cannot be serialized and therefore cannot be sized either.
@@ -649,8 +656,8 @@ public class FeePlannerTests
 			{ TxTypes.BurnNonFungible, Msg(TxTypes.BurnNonFungible, new TxMsgBurnNonFungible { tokenId = 9, instanceId = 5 }), new[] { NativeFeeKind.BurnNonFungible } },
 			{ TxTypes.BurnNonFungible_GasPayer, Msg(TxTypes.BurnNonFungible_GasPayer, new TxMsgBurnNonFungible_GasPayer { tokenId = 9, from = PayerPub, instanceId = 5 }), new[] { NativeFeeKind.BurnNonFungible } },
 			{ TxTypes.Phantasma, Msg(TxTypes.Phantasma, new TxMsgPhantasma { nexus = new SmallString("simnet"), chain = new SmallString("main"), script = new byte[8] }), new[] { NativeFeeKind.Script } },
-			// A raw Gen2 envelope carries its own fee fields and its own signatures; this planner
-			// prices Carbon messages, so it refuses rather than quoting a number it cannot size.
+			// A raw Gen2 envelope carries its own fee fields and its own signatures. This planner
+			// prices Carbon messages, so it refuses. A quoted number would be one it cannot size.
 			{ TxTypes.Phantasma_Raw, Msg(TxTypes.Phantasma_Raw, new TxMsgPhantasma_Raw { transaction = new byte[8] }), null }
 		};
 		return data;
@@ -668,7 +675,7 @@ public class FeePlannerTests
 	[MemberData(nameof(PlannedTypes))]
 	public void Plans_every_transaction_type_as_declared(TxTypes type, TxMsg msg, NativeFeeKind[]? expected)
 	{
-		// Only the witness-array types take a count; the rest fix their own witness set and refuse one.
+		// Only the witness-array types take a count. The rest fix their own witness set and refuse one.
 		var options = new FeePlanOptions { Infusions = Array.Empty<InfusedAsset>() };
 		if (SignedTxMsg.RequiredWitnesses(msg) == null)
 			options.WitnessCount = 1;
@@ -682,9 +689,135 @@ public class FeePlannerTests
 		type.ShouldBe(msg.type);
 	}
 
+	// The coverage gate these tests owe the CALL dispatch, which the table above cannot give them: a
+	// modelled call method is priced as the very kind its native transaction already covers, so
+	// Token.TransferFungible adds nothing to the kinds a run has seen and a new branch can appear
+	// without anything noticing. These tables name every method of the two modules the planner
+	// dispatches on, say what it makes of each, and are asserted to be exhaustive over their enums. A
+	// Script entry is a decision: the planner has no formula for that method. It is not an omission.
+	private static byte[] AnyArgs() => new byte[8];
+
+	public static TheoryData<TokenContract_Methods, TxMsg, NativeFeeKind> TokenMethods()
+	{
+		var data = new TheoryData<TokenContract_Methods, TxMsg, NativeFeeKind>
+		{
+			{ TokenContract_Methods.TransferFungible,
+				TokenCall(TokenContract_Methods.TransferFungible, CarbonBlob.Serialize(new TransferFungibleArgs { to = OwnerPub, from = PayerPub, tokenId = 97, amount = new IntX(1) })),
+				NativeFeeKind.TransferFungible },
+			{ TokenContract_Methods.TransferNonFungible,
+				TokenCall(TokenContract_Methods.TransferNonFungible, CarbonBlob.Serialize(new TransferNonFungibleArgs { to = OwnerPub, from = PayerPub, tokenId = 9, instanceIds = new ulong[] { 5 } })),
+				NativeFeeKind.TransferNonFungible },
+			{ TokenContract_Methods.MintFungible,
+				TokenCall(TokenContract_Methods.MintFungible, CarbonBlob.Serialize(new MintFungibleArgs { tokenId = 97, to = OwnerPub, amount = new IntX(1) })),
+				NativeFeeKind.MintFungible },
+			{ TokenContract_Methods.BurnFungible,
+				TokenCall(TokenContract_Methods.BurnFungible, BurnFungibleArgsBytes()),
+				NativeFeeKind.BurnFungible },
+			{ TokenContract_Methods.BurnNonFungible,
+				TokenCall(TokenContract_Methods.BurnNonFungible, CarbonBlob.Serialize(new BurnNonFungibleArgs { tokenId = 9, from = PayerPub, instanceIds = new ulong[] { 5 } })),
+				NativeFeeKind.BurnNonFungible },
+			{ TokenContract_Methods.CreateToken,
+				TokenCall(TokenContract_Methods.CreateToken, CarbonBlob.Serialize(TokenInfo(false))),
+				NativeFeeKind.CreateToken },
+			{ TokenContract_Methods.CreateTokenSeries,
+				TokenCall(TokenContract_Methods.CreateTokenSeries, CarbonBlob.Serialize(new CreateTokenSeriesArgs { tokenId = 9, info = SeriesInfoBuilder.Build(BigInteger.Parse("77"), 100, 100, PayerPub) })),
+				NativeFeeKind.CreateTokenSeries },
+			{ TokenContract_Methods.MintPhantasmaNonFungible,
+				PhantasmaMintCall(new[] { PhantasmaMint(1, 40) }),
+				NativeFeeKind.MintPhantasmaNonFungible }
+		};
+		// Everything the planner has no formula for. A method with no model reads none of its
+		// arguments, so any bytes reach the branch. MintNonFungible is here on purpose: mainnet SR 50
+		// refuses an explicit NFT mint whichever way it arrives, so there is nothing to price.
+		foreach (var method in new[]
+		{
+			TokenContract_Methods.GetBalance,
+			TokenContract_Methods.DeleteTokenSeries,
+			TokenContract_Methods.MintNonFungible,
+			TokenContract_Methods.GetInstances,
+			TokenContract_Methods.GetNonFungibleInfo,
+			TokenContract_Methods.GetNonFungibleInfoByRomId,
+			TokenContract_Methods.GetSeriesInfo,
+			TokenContract_Methods.GetSeriesInfoByMetaId,
+			TokenContract_Methods.GetTokenInfo,
+			TokenContract_Methods.GetTokenInfoBySymbol,
+			TokenContract_Methods.GetTokenSupply,
+			TokenContract_Methods.GetSeriesSupply,
+			TokenContract_Methods.GetTokenIdBySymbol,
+			TokenContract_Methods.GetBalances,
+			TokenContract_Methods.CreateMintedTokenSeries,
+			TokenContract_Methods.ApplyInflation,
+			TokenContract_Methods.UpdateTokenMetadata,
+			TokenContract_Methods.GetNextTokenInflation,
+			TokenContract_Methods.SetTokensConfig,
+			TokenContract_Methods.UpdateSeriesMetadata
+		})
+			data.Add(method, TokenCall(method, AnyArgs()), NativeFeeKind.Script);
+		return data;
+	}
+
+	public static TheoryData<GovernanceContract_Methods, TxMsg, NativeFeeKind> GovernanceMethods()
+	{
+		using var stream = new MemoryStream();
+		using var w = new BinaryWriter(stream);
+		w.Write32(PayerPub);
+		w.Write(new SmallString("alice"));
+		return new TheoryData<GovernanceContract_Methods, TxMsg, NativeFeeKind>
+		{
+			{ GovernanceContract_Methods.RegisterName,
+				ModuleCall(ModuleId.Governance, (uint)GovernanceContract_Methods.RegisterName, stream.ToArray()),
+				NativeFeeKind.RegisterName },
+			{ GovernanceContract_Methods.SetGasConfig,
+				ModuleCall(ModuleId.Governance, (uint)GovernanceContract_Methods.SetGasConfig, AnyArgs()),
+				NativeFeeKind.Script }
+		};
+	}
+
+	[Fact]
+	public void Names_every_token_contract_method()
+	{
+		var named = TokenMethods().Select(row => (TokenContract_Methods)row[0]).OrderBy(m => m).ToArray();
+		named.ShouldBe(Enum.GetValues(typeof(TokenContract_Methods)).Cast<TokenContract_Methods>().OrderBy(m => m).ToArray());
+	}
+
+	[Fact]
+	public void Names_every_governance_contract_method()
+	{
+		var named = GovernanceMethods().Select(row => (GovernanceContract_Methods)row[0]).OrderBy(m => m).ToArray();
+		named.ShouldBe(Enum.GetValues(typeof(GovernanceContract_Methods)).Cast<GovernanceContract_Methods>().OrderBy(m => m).ToArray());
+	}
+
+	[Theory]
+	[MemberData(nameof(TokenMethods))]
+	public void Prices_every_token_method_as_declared(TokenContract_Methods method, TxMsg msg, NativeFeeKind expected)
+	{
+		// The row's declared method is what the exhaustiveness check counts, so it has to be the
+		// method of the call actually planned here.
+		((TxMsgCall)msg.msg).methodId.ShouldBe((uint)method);
+		FeePlanner.Plan(msg, Config, PlanFacts()).Kinds.ShouldBe(new[] { expected });
+	}
+
+	[Theory]
+	[MemberData(nameof(GovernanceMethods))]
+	public void Prices_every_governance_method_as_declared(GovernanceContract_Methods method, TxMsg msg, NativeFeeKind expected)
+	{
+		((TxMsgCall)msg.msg).methodId.ShouldBe((uint)method);
+		FeePlanner.Plan(msg, Config, PlanFacts()).Kinds.ShouldBe(new[] { expected });
+	}
+
+	[Fact]
+	public void Budgets_a_call_to_a_module_it_does_not_dispatch_on()
+	{
+		var msg = ModuleCall(ModuleId.Organization, 0, AnyArgs());
+		FeePlanner.Plan(msg, Config, PlanFacts()).Kinds.ShouldBe(new[] { NativeFeeKind.Script });
+	}
+
+	private static FeePlanOptions PlanFacts() =>
+		new() { WitnessCount = 1, Infusions = Array.Empty<InfusedAsset>() };
+
 	// A wallet has to choose between showing "0.0073 KCAL" and "up to 0.0073 KCAL", and it reads that
 	// from one field. Exact is true only when nothing the plan had to assume could have moved the
-	// number - which is a different question from whether any fact was left unstated, because most
+	// number. That is a different question from whether any fact was left unstated, because most
 	// facts do not enter most operations.
 	[Fact]
 	public void Is_exact_for_a_gas_token_transfer_whatever_the_caller_states()
@@ -707,7 +840,8 @@ public class FeePlannerTests
 	}
 
 	// BigFungible = true does not say what the balance IS, it says the answer may be as wide as an
-	// int256 - so the model prices 33 bytes and the chain writes fewer. Stating it does not make the
+	// int256. The model therefore prices 33 bytes and the chain writes fewer. Stating it does not make
+	// the
 	// number a prediction, and the live matrix proved it: two rows that stated it settled below their
 	// own plan.
 	[Fact]
@@ -736,7 +870,7 @@ public class FeePlannerTests
 		FeePlanner.Plan(burn, Config, new FeePlanOptions { Infusions = empty, TokenBurnedBefore = true, SupplyRowExists = true })
 			.Exact.ShouldBeTrue();
 		// The ROM's meta-id row is deleted by a burn, never created, and a burn deletes more rows than
-		// it creates - so that fact cannot move a burn's bill and leaving it unstated does not make
+		// it creates. That fact cannot move a burn's bill, and leaving it unstated does not make
 		// the number an upper bound.
 		FeePlanner.Plan(burn, Config, new FeePlanOptions { Infusions = empty, TokenBurnedBefore = true, SupplyRowExists = true, RomHasMetaId = false })
 			.Exact.ShouldBeTrue();
