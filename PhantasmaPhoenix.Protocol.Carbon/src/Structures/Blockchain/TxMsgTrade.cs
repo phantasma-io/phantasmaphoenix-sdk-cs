@@ -11,12 +11,14 @@ public struct TxMsgTrade : ICarbonBlob
 
 	public void Write(BinaryWriter w)
 	{
-		w.WriteArray(transferF);
-		w.WriteArray(transferN);
-		w.WriteArray(mintF);
-		w.WriteArray(burnF);
-		w.WriteArray(mintN);
-		w.WriteArray(burnN);
+		// A default-constructed value leaves every array null. Each one is written as an empty array,
+		// the way the token call arguments treat theirs. Writing the fields bare would throw instead.
+		w.WriteArray(transferF ?? Array.Empty<TxMsgTransferFungible_GasPayer>());
+		w.WriteArray(transferN ?? Array.Empty<TxMsgTransferNonFungible_Single_GasPayer>());
+		w.WriteArray(mintF ?? Array.Empty<TxMsgMintFungible>());
+		w.WriteArray(burnF ?? Array.Empty<TxMsgBurnFungible_GasPayer>());
+		w.WriteArray(mintN ?? Array.Empty<TxMsgMintNonFungible>());
+		w.WriteArray(burnN ?? Array.Empty<TxMsgBurnNonFungible_GasPayer>());
 	}
 
 	public void Read(BinaryReader r)
