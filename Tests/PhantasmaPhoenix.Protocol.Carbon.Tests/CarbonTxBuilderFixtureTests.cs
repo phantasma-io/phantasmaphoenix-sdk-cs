@@ -39,6 +39,28 @@ public class CarbonTxBuilderFixtureTests
 		row.Notes.ShouldNotBeEmpty();
 	}
 
+	[Theory]
+	[MemberData(nameof(CarbonTxBuilderCases))]
+	public void Carbon_truncated_transaction_messages_are_refused(CarbonTxBuilderRow row)
+	{
+		// Every prefix of a valid message cuts a field the reader still needs. A reader that cannot
+		// report the end of the stream accepts the prefix and hands back fields it never read; the
+		// C++ SDK had that defect and this is the test that found it. A signed case carries a
+		// signature after the message, so a prefix of one can be a whole message and is not a
+		// truncation.
+		if (row.CaseId.StartsWith("signed_"))
+		{
+			return;
+		}
+
+		var data = Convert.FromHexString(row.ExpectedHex);
+		for (var length = 0; length < data.Length; length++)
+		{
+			var prefix = data.AsSpan(0, length).ToArray();
+			Should.Throw<Exception>(() => CarbonBlob.New<TxMsg>(prefix), $"{row.CaseId} accepted a prefix of {length} bytes");
+		}
+	}
+
 	private static byte[] BuildVector(string caseId)
 	{
 		var sender = PhantasmaKeys.FromWIF("KwPpBSByydVKqStGHAnZzQofCqhDmD2bfRgc9BmZqM3ZmsdWJw4d");
