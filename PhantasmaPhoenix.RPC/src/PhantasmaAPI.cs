@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using PhantasmaPhoenix.Core;
 using PhantasmaPhoenix.Cryptography;
 using PhantasmaPhoenix.Protocol.Carbon.Blockchain;
 using PhantasmaPhoenix.Protocol.Carbon.Blockchain.Modules;
@@ -978,14 +979,18 @@ public class PhantasmaAPI : IDisposable, IGasConfigSource, IPreflightSource, IIn
 	/// <param name="chain">Target chain name</param>
 	/// <param name="payload">UTF8 payload string</param>
 	/// <param name="customSignFunction">Optional custom signer that receives data, script and payload bytes</param>
+	/// <param name="expiration">Moment the transaction stops being admissible. Default
+	/// <see cref="TxLimits.DefaultExpiryMs"/> from now, the same lifetime a Carbon transaction gets. A flow
+	/// with a person in it should take the chain's own window instead, see
+	/// <see cref="TxLimits.ExpiryWithin"/></param>
 	/// <returns>Transaction hash text or null</returns>
 	/// <exception cref="Exception">Thrown when the hash returned by RPC does not match the locally computed hash</exception>
 	public async Task<string?> SignAndSendTransactionAsync(
 		IKeyPair keys, string nexus, byte[] script, string chain, string payload,
-		Func<byte[], byte[], byte[], byte[]>? customSignFunction = null)
+		Func<byte[], byte[], byte[], byte[]>? customSignFunction = null, Timestamp? expiration = null)
 	{
 		var bytes = string.IsNullOrEmpty(payload) ? Array.Empty<byte>() : Encoding.UTF8.GetBytes(payload);
-		return await SignAndSendTransactionAsync(keys, nexus, script, chain, bytes, customSignFunction);
+		return await SignAndSendTransactionAsync(keys, nexus, script, chain, bytes, customSignFunction, expiration);
 	}
 
 	/// <summary>
@@ -997,14 +1002,21 @@ public class PhantasmaAPI : IDisposable, IGasConfigSource, IPreflightSource, IIn
 	/// <param name="chain">Target chain name</param>
 	/// <param name="payload">Binary payload bytes</param>
 	/// <param name="customSignFunction">Optional custom signer that receives data, script and payload bytes</param>
+	/// <param name="expiration">Moment the transaction stops being admissible. Default
+	/// <see cref="TxLimits.DefaultExpiryMs"/> from now, the same lifetime a Carbon transaction gets. A flow
+	/// with a person in it should take the chain's own window instead, see
+	/// <see cref="TxLimits.ExpiryWithin"/></param>
 	/// <returns>Transaction hash text or null</returns>
 	/// <exception cref="Exception">Thrown when the hash returned by RPC does not match the locally computed hash</exception>
 	public async Task<string?> SignAndSendTransactionAsync(
 		IKeyPair keys, string nexus, byte[] script, string chain, byte[] payload,
-		Func<byte[], byte[], byte[], byte[]>? customSignFunction = null)
+		Func<byte[], byte[], byte[], byte[]>? customSignFunction = null, Timestamp? expiration = null)
 	{
+		// This transaction carries its expiration in seconds. TxLimits counts in the milliseconds the
+		// chain reads on the Carbon path, and both paths are admitted by the same check.
 		var tx = new Protocol.Transaction(
-			nexus, chain, script, DateTime.UtcNow + TimeSpan.FromMinutes(20), payload ?? Array.Empty<byte>());
+			nexus, chain, script, expiration ?? new Timestamp((uint)(TxLimits.DefaultExpiry() / 1000)),
+			payload ?? Array.Empty<byte>());
 
 		var txHash = tx.Sign(keys, customSignFunction);
 
