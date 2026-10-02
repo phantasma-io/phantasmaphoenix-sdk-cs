@@ -962,8 +962,8 @@ public class PhantasmaAPI : IDisposable, IGasConfigSource, IPreflightSource, IIn
 	/// exact fee bill with recommended maxGas/maxData ceilings (gas-model-v2 Tier-2 estimate).
 	/// Signatures inside the envelope may be zero-filled dummies of the correct length - the
 	/// simulation skips signature checks, and dummies preserve the exact envelope byte length the
-	/// bill depends on. Until the estimate service is launched this method returns a standard RPC
-	/// error; use the Tier-1 NativeFeeEstimator with getGasConfig as the fallback.
+	/// bill depends on. A node with the estimate service switched off answers with a standard RPC
+	/// error. <c>api.Fees.PlanAsync(msg)</c> plans a fee without that service.
 	/// </summary>
 	/// <param name="txData">Hex encoded serialized transaction envelope (signed or dummy-signed)</param>
 	/// <returns>Exact fee estimate or null</returns>
