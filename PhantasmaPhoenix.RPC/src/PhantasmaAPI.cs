@@ -1230,16 +1230,5 @@ public class PhantasmaAPI : IDisposable, IGasConfigSource, IPreflightSource, IIn
 				key.StartsWith("K", false, CultureInfo.InvariantCulture)) && key.Length == 52;
 	}
 
-	/// <summary>
-	/// Validates the format of a Phantasma address string
-	/// </summary>
-	/// <param name="address">Address text</param>
-	/// <returns>True if the address format looks valid</returns>
-	public static bool IsValidAddress(string address)
-	{
-		if (string.IsNullOrEmpty(address)) return false;
-		return address.StartsWith("P", false, CultureInfo.InvariantCulture) && address.Length == 45;
-	}
-
 	#endregion
 }
