@@ -124,6 +124,42 @@ public class TxMsgSignerTests
 	}
 
 	[Fact]
+	public async Task Refuses_a_native_transfer_amount_the_chain_cannot_accept()
+	{
+		// The chain reads a native transfer amount as a signed 64-bit value, so 2^63 fails on chain
+		// and the int64 maximum does not. Both transfer types and both signing paths are checked.
+		const ulong int64Max = long.MaxValue;
+		TxMsg Plain(ulong amount) => new()
+		{
+			type = TxTypes.TransferFungible,
+			expiry = 1_787_000_000_000,
+			maxGas = 42_600_000,
+			maxData = 0,
+			gasFrom = PayerPub,
+			payload = SmallString.Empty,
+			msg = new TxMsgTransferFungible { to = OwnerPub, tokenId = 1, amount = amount }
+		};
+		TxMsg WithGasPayer(ulong amount)
+		{
+			var msg = GasPayerTransfer();
+			var body = (TxMsgTransferFungible_GasPayer)msg.msg;
+			body.amount = amount;
+			msg.msg = body;
+			return msg;
+		}
+
+		Should.Throw<InvalidOperationException>(() => TxMsgSigner.Sign(Plain(int64Max + 1), Payer))
+			.Message.ShouldContain("int64 maximum");
+		Should.Throw<InvalidOperationException>(() => TxMsgSigner.SignWithKeys(WithGasPayer(int64Max + 1), Payer, Owner))
+			.Message.ShouldContain("int64 maximum");
+		(await Should.ThrowAsync<InvalidOperationException>(() => TxMsgSigner.SignWithAsync(Plain(int64Max + 1), new ITxSigner[] { new CountingSigner(Payer) })))
+			.Message.ShouldContain("int64 maximum");
+
+		TxMsgSigner.SignWithKeys(Plain(int64Max), Payer).witnesses.Length.ShouldBe(1);
+		TxMsgSigner.SignWithKeys(WithGasPayer(int64Max), Payer, Owner).witnesses.Length.ShouldBe(2);
+	}
+
+	[Fact]
 	public void Still_signs_a_single_witness_message_the_historical_way()
 	{
 		var msg = new TxMsg

@@ -7,6 +7,8 @@ namespace PhantasmaPhoenix.Protocol.Carbon.Blockchain;
 /// <para>
 /// The message must already carry its gas offer. A zero <c>maxGas</c> is never admitted, so it marks
 /// a message that was built and not planned. Signing such a message would only produce a rejection.
+/// A native fungible transfer of 2^63 atoms or more is refused too: the chain admits it, the transfer
+/// fails, and the failed transaction is billed.
 /// </para>
 /// </summary>
 public static class TxMsgSigner
@@ -22,7 +24,7 @@ public static class TxMsgSigner
 	/// </summary>
 	public static SignedTxMsg SignWithKeys(TxMsg msg, params IKeyPair[] keys)
 	{
-		AssertPlanned(msg);
+		AssertSignable(msg);
 		if (keys == null)
 			throw new ArgumentNullException(nameof(keys));
 		var message = CarbonBlob.Serialize(msg);
@@ -55,7 +57,7 @@ public static class TxMsgSigner
 	/// </summary>
 	public static async Task<SignedTxMsg> SignWithAsync(TxMsg msg, IReadOnlyList<ITxSigner> signers, CancellationToken cancellationToken = default)
 	{
-		AssertPlanned(msg);
+		AssertSignable(msg);
 		if (signers == null)
 			throw new ArgumentNullException(nameof(signers));
 		var message = CarbonBlob.Serialize(msg);
@@ -80,13 +82,25 @@ public static class TxMsgSigner
 	public static async Task<byte[]> SignAndSerializeWithAsync(TxMsg msg, IReadOnlyList<ITxSigner> signers, CancellationToken cancellationToken = default) =>
 		CarbonBlob.Serialize(await SignWithAsync(msg, signers, cancellationToken).ConfigureAwait(false));
 
-	// A zero gas offer is never admissible, so it marks a message that was built and not planned.
-	// Signing such a message would only produce a rejection. Plan it with PhantasmaAPI.Fees or
-	// FeePlanner, or set maxGas on purpose.
-	private static void AssertPlanned(in TxMsg msg)
+	// Refuses, before anything is signed, a message the chain is certain to refuse.
+	private static void AssertSignable(in TxMsg msg)
 	{
+		// A zero gas offer is never admissible, so it marks a message that was built and not planned.
+		// Plan it with PhantasmaAPI.Fees or FeePlanner, or set maxGas on purpose.
 		if (msg.maxGas == 0)
 			throw new InvalidOperationException("Transaction has no gas offer: plan its fees or set maxGas before signing");
+
+		// A native fungible transfer carries its amount as a u64, and the chain reads it as a signed
+		// 64-bit value. An amount of 2^63 or more fails on chain for every fungible token, big-fungible
+		// ones included, and the failed transaction is billed. A larger amount needs a
+		// Token.TransferFungible module call or a script transfer.
+		ulong amount = 0;
+		if (msg.type == TxTypes.TransferFungible && msg.msg is TxMsgTransferFungible plain)
+			amount = plain.amount;
+		else if (msg.type == TxTypes.TransferFungible_GasPayer && msg.msg is TxMsgTransferFungible_GasPayer withGasPayer)
+			amount = withGasPayer.amount;
+		if (amount > long.MaxValue)
+			throw new InvalidOperationException($"Transfer amount {amount} is above the int64 maximum the chain accepts in a native transfer");
 	}
 
 	private readonly struct WitnessSlot
