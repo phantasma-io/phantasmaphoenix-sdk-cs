@@ -194,6 +194,21 @@ public class WalletLinkV5Tests
 	}
 
 	[Fact]
+	public void Capabilities_advertise_the_size_limit_of_every_transport()
+	{
+		// Spec sections 5 and 11: one size per transport. The wallet side serves loopback,
+		// the relay and deeplinks; loopback and the relay carry the 32 MiB chain maximum, a
+		// deeplink a 3 KiB transaction, the largest that fits the 8192-character URL budget.
+		var link = new WalletLinkV5(new FakeV5Ops());
+		Connect(link, out var response);
+
+		var sizes = (JObject)response["result"]!["capabilities"]!["maxPayloadBytes"]!;
+		((int)sizes["loopback"]!).ShouldBe(32 * 1024 * 1024);
+		((int)sizes["relay"]!).ShouldBe(32 * 1024 * 1024);
+		((int)sizes["deeplink"]!).ShouldBe(3072);
+	}
+
+	[Fact]
 	public void SignMessage_routes_to_ops_and_returns_signature_and_random()
 	{
 		var ops = new FakeV5Ops();

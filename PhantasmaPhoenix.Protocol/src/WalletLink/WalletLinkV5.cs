@@ -44,6 +44,12 @@ public class WalletLinkV5
 	internal const int MaxTxBytes = 32 * 1024 * 1024;
 	internal const long MaxTxBase64Chars = ((long)MaxTxBytes + 2) / 3 * 4;
 
+	/// <summary>The largest transaction this side accepts over a deeplink, in bytes (spec sections
+	/// 6.3 and 11). On that path the transaction is encoded three times (base64 in the envelope,
+	/// base64 in the sealed frame, base64url in the URL), and 3 KiB is what still fits the
+	/// 8192-character URL budget. A larger request goes through the relay.</summary>
+	private const int DeeplinkMaxPayloadBytes = 3072;
+
 	private readonly IWalletLinkV5Ops _ops;
 	// Authorized sessions (spec §7): persistent when the host provides a durable store, so a
 	// returning dApp resumes without a new prompt. Plaintext loopback uses the session id as the
@@ -520,7 +526,14 @@ public class WalletLinkV5
 			["chains"] = new JArray { "phantasma:" + nexus },
 			["txFormats"] = new JArray { "script", "carbon" },
 			["signatureKinds"] = new JArray { "Ed25519", "ECDSA" },
-			["maxPayloadBytes"] = new JObject { ["loopback"] = 32 * 1024 * 1024 },
+			// One size per transport this side serves (spec sections 5 and 11). The relay
+			// chunking carries the chain maximum, like loopback.
+			["maxPayloadBytes"] = new JObject
+			{
+				["loopback"] = MaxTxBytes,
+				["relay"] = MaxTxBytes,
+				["deeplink"] = DeeplinkMaxPayloadBytes,
+			},
 		};
 	}
 
