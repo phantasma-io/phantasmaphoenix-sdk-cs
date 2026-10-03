@@ -41,8 +41,8 @@ public class WalletLinkV5
 	/// <summary>Per-transaction byte ceiling = the chain's max transaction size; the guard
 	/// rejects oversized base64 BEFORE decoding or parsing (fast structured 5001 instead of
 	/// an expensive parse failure).</summary>
-	private const int MaxTxBytes = 32 * 1024 * 1024;
-	private const long MaxTxBase64Chars = ((long)MaxTxBytes + 2) / 3 * 4;
+	internal const int MaxTxBytes = 32 * 1024 * 1024;
+	internal const long MaxTxBase64Chars = ((long)MaxTxBytes + 2) / 3 * 4;
 
 	private readonly IWalletLinkV5Ops _ops;
 	// Authorized sessions (spec §7): persistent when the host provides a durable store, so a

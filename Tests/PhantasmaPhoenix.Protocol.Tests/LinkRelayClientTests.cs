@@ -183,6 +183,69 @@ public class LinkRelayClientTests
 	}
 
 	[Fact]
+	public void A_request_of_67_chunks_reassembles_and_one_of_68_is_dropped()
+	{
+		// Spec section 16: a receiver accepts up to 67 chunks, the sealed frame of a 32 MiB
+		// transaction. A message that claims more is dropped and gets no answer.
+		var (endpoint, _, _, _, sockets) = Build();
+		var key = new byte[32];
+		key[3] = 3;
+		var channel = new LinkChannel(key);
+		endpoint.TryHandle(RelayPairingUri(key, "top-67", "ws://localhost:7299/relay", "dapp-67"), _ => { }).ShouldBeTrue();
+		var socket = sockets.Sockets[0];
+		socket.Open();
+		var sessionId = (string)OpenSealedPayload(channel, socket.SentFrames()[1]["payload"]!)["data"]!["session"]!["id"]!;
+
+		void DeliverInChunks(string id, int total)
+		{
+			var sealedRequest = channel.SealEnvelope($"{{\"plv\":5,\"id\":\"{id}\",\"session\":\"{sessionId}\",\"method\":\"pha_getChains\"}}");
+			for (var seq = 0; seq < total; seq++)
+			{
+				// An even split, so every chunk holds at least one character.
+				var start = seq * sealedRequest.Length / total;
+				var end = (seq + 1) * sealedRequest.Length / total;
+				socket.Deliver(new JObject
+				{
+					["op"] = "deliver",
+					["topic"] = "top-67",
+					["payload"] = new JObject { ["msgId"] = id, ["seq"] = seq, ["total"] = total, ["chunk"] = sealedRequest.Substring(start, end - start) },
+				}.ToString());
+			}
+		}
+
+		DeliverInChunks("r67", 67);
+		var answers = socket.SentFrames().Skip(2).ToArray();
+		answers.Length.ShouldBe(1);
+		((string)OpenSealedPayload(channel, answers[0]["payload"]!)["id"]!).ShouldBe("r67");
+
+		DeliverInChunks("r68", 68);
+		socket.SentFrames().Skip(2).Count().ShouldBe(1);
+	}
+
+	[Fact]
+	public void A_response_for_a_32_MiB_transaction_leaves_in_67_chunks()
+	{
+		// The answer to a signing request for a 32 MiB transaction carries the signed
+		// transaction as base64. Its sealed frame is 67 chunks, and every one goes out.
+		var (endpoint, _, pairings, relay, sockets) = Build();
+		var key = new byte[32];
+		var channel = new LinkChannel(key);
+		endpoint.TryHandle(RelayPairingUri(key, "top-max", "ws://localhost:7299/relay", "dapp-max"), _ => { }).ShouldBeTrue();
+		var socket = sockets.Sockets[0];
+		socket.Open();
+
+		var signedTx = new string('A', 44_739_244); // the base64 length of 32 MiB
+		relay.PublishSealed(pairings.Get("top-max")!, $"{{\"plv\":5,\"id\":\"big\",\"result\":{{\"signedTx\":\"{signedTx}\"}}}}");
+
+		var chunks = socket.SentFrames().Skip(2).Select(frame => (JObject)frame["payload"]!).ToArray();
+		chunks.Length.ShouldBe(67);
+		chunks.ShouldAllBe(chunk => (int)chunk["total"]! == 67);
+		var assembled = string.Concat(chunks.OrderBy(chunk => (int)chunk["seq"]!).Select(chunk => (string)chunk["chunk"]!));
+		var response = OpenSealedPayload(channel, assembled);
+		((string)response["result"]!["signedTx"]!).Length.ShouldBe(44_739_244);
+	}
+
+	[Fact]
 	public void Reconnects_resubscribes_and_flushes_frames_queued_while_offline()
 	{
 		var (endpoint, _, pairings, relay, sockets) = Build(new[] { 50 });

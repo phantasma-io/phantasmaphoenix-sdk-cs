@@ -39,7 +39,21 @@ public sealed class LinkRelayClient : IDisposable
 	// Mirrors the TS transport: stay under the relay's 1 MiB frame cap with room for the
 	// publish envelope; bound reassembly so a peer cannot balloon wallet memory.
 	private const int ChunkChars = 900_000;
-	private const int MaxChunksPerMessage = 64;
+
+	/// <summary>Room for the envelope around the transaction: the method, the ids, the other
+	/// params, and the signatures that a signed transaction adds.</summary>
+	private const int EnvelopeAllowanceBytes = 64 * 1024;
+
+	// The longest sealed frame (spec section 16), for a transaction at the chain maximum. It
+	// holds two base64 layers: the transaction is base64 inside the envelope JSON, and the
+	// sealed envelope (plus the 16-byte authenticator) is base64 again in the frame object,
+	// which adds the nonce and the field names (128 characters cover them). Counting one
+	// layer only gives about 30.9 MiB instead of 32 MiB.
+	private const int MaxSealedFrameChars =
+		((int)WalletLinkV5.MaxTxBase64Chars + EnvelopeAllowanceBytes + 16 + 2) / 3 * 4 + 128;
+
+	// The chunk count is the same both ways: 67.
+	private const int MaxChunksPerMessage = (MaxSealedFrameChars + ChunkChars - 1) / ChunkChars;
 	private const int MaxAssembledChars = 64 * 1024 * 1024;
 	private const int MaxConcurrentPartials = 8;
 	private static readonly TimeSpan PartialStale = TimeSpan.FromSeconds(120);
