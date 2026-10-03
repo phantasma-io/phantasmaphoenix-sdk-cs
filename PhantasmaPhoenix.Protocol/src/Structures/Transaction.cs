@@ -390,6 +390,9 @@ public sealed class Transaction : ITransaction, ISerializable
 		}*/
 
 		// check if we have some signatures attached
+		// An unsigned transaction ends here: ToByteArray(false) writes no signature section, and
+		// wallets read such bytes from dApps. That is a valid input, so nothing is reported. The same
+		// catch also turns a signature section that cannot be read into no signatures at all.
 		try
 		{
 			var signatureCount = (int)reader.ReadVarInt();
@@ -399,9 +402,8 @@ public sealed class Transaction : ITransaction, ISerializable
 				Signatures[i] = reader.ReadSignature();
 			}
 		}
-		catch (Exception e)
+		catch (Exception)
 		{
-			Console.WriteLine($"Error:{e.Message} || {e.StackTrace}");
 			this.Signatures = new Signature[0];
 		}
 
