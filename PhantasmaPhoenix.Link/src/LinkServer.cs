@@ -57,7 +57,10 @@ public class LinkServer
 		listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
 		listener.Blocking = true;
 
-		var localEndPoint = new IPEndPoint(IPAddress.Any, port);
+		// The loopback address only (spec section 6.2). The dApp and the wallet run on the same
+		// machine, and every client connects to localhost. Listening on every address let any
+		// device on the same network open consent prompts in the wallet.
+		var localEndPoint = new IPEndPoint(IPAddress.Loopback, port);
 
 		try
 		{
