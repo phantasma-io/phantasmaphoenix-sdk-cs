@@ -164,15 +164,11 @@ public class LinkServer
 	{
 		// Log.Write("Stopping websocket server");
 
-		if (listener != null)
-		{
-			listener.BeginDisconnect(false, new System.AsyncCallback(OnEndHostComplete), listener);
-		}
-	}
-
-	void OnEndHostComplete(System.IAsyncResult result)
-	{
+		// Closing the listener completes the pending accept, and OnClientConnect returns because the
+		// field is null. BeginDisconnect is for a connected socket and does not close a listener.
+		var current = listener;
 		listener = null;
+		current?.Close();
 	}
 
 	public void Tick()
@@ -197,15 +193,18 @@ public class LinkServer
 	{
 		// Log.Write("Incoming client connecting");
 
-		if (listener == null)
+		// Stop() clears the field and closes the listener, which completes the pending accept with
+		// nothing to accept. Throwing here would end the process from a thread-pool thread.
+		var current = listener;
+		if (current == null)
 		{
-			throw new InvalidOperationException("listener is null");
+			return;
 		}
 
 		Socket client;
 		try
 		{
-			client = listener.EndAccept(result);
+			client = current.EndAccept(result);
 		}
 		catch (Exception e)
 		{
@@ -215,7 +214,7 @@ public class LinkServer
 
 		try
 		{
-			listener.BeginAccept(new System.AsyncCallback(OnClientConnect), listener);
+			current.BeginAccept(new System.AsyncCallback(OnClientConnect), current);
 		}
 		catch (Exception e)
 		{
