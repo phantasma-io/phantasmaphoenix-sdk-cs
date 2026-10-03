@@ -613,5 +613,14 @@ public class WalletLinkV5
 	{
 		return BuildEvent(SessionDeletedEvent, sessionId, new JObject());
 	}
+
+	/// <summary>Builds the (unsealed) error envelope that answers request <paramref name="id"/>
+	/// with 5001: the response does not fit the transport. <c>data.maxPayloadBytes</c> carries
+	/// the largest transaction the transport takes (spec section 10).</summary>
+	internal string BuildPayloadTooLargeEnvelope(JToken id, int maxPayloadBytes)
+	{
+		return BuildError(id, ErrPayloadTooLarge, "Response exceeds the transport size limit",
+			new JObject { ["maxPayloadBytes"] = maxPayloadBytes });
+	}
 	#endregion
 }

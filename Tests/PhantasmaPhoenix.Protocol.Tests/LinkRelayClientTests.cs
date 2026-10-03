@@ -246,6 +246,30 @@ public class LinkRelayClientTests
 	}
 
 	[Fact]
+	public void A_response_above_the_budget_is_answered_with_5001()
+	{
+		// Spec section 11: a payload above the budget gets a clear 5001. The wallet sends a
+		// small error with the request id in place of a response the relay cannot carry, so
+		// the dApp does not wait for its timeout.
+		var (endpoint, _, pairings, relay, sockets) = Build();
+		var key = new byte[32];
+		var channel = new LinkChannel(key);
+		endpoint.TryHandle(RelayPairingUri(key, "top-over", "ws://localhost:7299/relay", "dapp-over"), _ => { }).ShouldBeTrue();
+		var socket = sockets.Sockets[0];
+		socket.Open();
+
+		var signedTx = new string('A', 46_000_000); // longer than the base64 of 32 MiB
+		relay.PublishSealed(pairings.Get("top-over")!, $"{{\"plv\":5,\"id\":\"over\",\"result\":{{\"signedTx\":\"{signedTx}\"}}}}");
+
+		var frames = socket.SentFrames().Skip(2).ToArray();
+		frames.Length.ShouldBe(1);
+		var error = OpenSealedPayload(channel, frames[0]["payload"]!);
+		((string)error["id"]!).ShouldBe("over");
+		((int)error["error"]!["code"]!).ShouldBe(5001);
+		((int)error["error"]!["data"]!["maxPayloadBytes"]!).ShouldBe(32 * 1024 * 1024);
+	}
+
+	[Fact]
 	public void Reconnects_resubscribes_and_flushes_frames_queued_while_offline()
 	{
 		var (endpoint, _, pairings, relay, sockets) = Build(new[] { 50 });

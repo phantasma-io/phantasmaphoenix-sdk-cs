@@ -282,6 +282,19 @@ public sealed class LinkRelayClient : IDisposable
 		}
 		var channel = new LinkChannel(pairing.Key);
 		var frame = channel.SealEnvelope(envelopeJson);
+		if ((frame.Length + ChunkChars - 1) / ChunkChars > MaxChunksPerMessage)
+		{
+			// Spec section 11: a payload above the budget gets a clear 5001 with the request id.
+			// Without it the dApp would wait for its own timeout. An event has no id and nobody
+			// waits for an answer to it, so an oversized event is only logged.
+			var id = ReadEnvelopeId(envelopeJson);
+			if (id == null)
+			{
+				_log?.Invoke($"publish DROP topic={pairing.Topic}: {frame.Length} chars exceed the relay budget");
+				return;
+			}
+			frame = channel.SealEnvelope(_dispatcher.BuildPayloadTooLargeEnvelope(id, WalletLinkV5.MaxTxBytes));
+		}
 		_log?.Invoke($"publish sealed topic={pairing.Topic} bytes={frame.Length}");
 
 		lock (_gate)
@@ -299,10 +312,6 @@ public sealed class LinkRelayClient : IDisposable
 			// Chunked publish (spec section 18): split the sealed frame TEXT; only the
 			// receiving SDK reassembles - the relay forwards opaque pieces.
 			var total = (frame.Length + ChunkChars - 1) / ChunkChars;
-			if (total > MaxChunksPerMessage)
-			{
-				return; // beyond the transport ceiling; nothing sane to send
-			}
 			var msgId = Guid.NewGuid().ToString("N");
 			for (var seq = 0; seq < total; seq++)
 			{
@@ -548,6 +557,23 @@ public sealed class LinkRelayClient : IDisposable
 		pairing.LastSeenUtc = DateTime.UtcNow;
 		_pairings.Save(pairing);
 		_dispatcher.HandleMessage(envelopeJson, response => PublishSealed(pairing, response));
+	}
+
+	/// <summary>Returns the top-level <c>id</c> of an envelope, or null when it has none (an
+	/// event). It reads the text as a stream and stops at the id, so a huge result is never
+	/// built into objects.</summary>
+	private static JToken? ReadEnvelopeId(string envelopeJson)
+	{
+		using var reader = new JsonTextReader(new StringReader(envelopeJson));
+		while (reader.Read())
+		{
+			if (reader.TokenType == JsonToken.PropertyName && reader.Depth == 1 && (string?)reader.Value == "id")
+			{
+				reader.Read();
+				return JToken.ReadFrom(reader);
+			}
+		}
+		return null;
 	}
 
 	/// <summary>Collect one chunk (called under the gate); returns the reassembled frame
