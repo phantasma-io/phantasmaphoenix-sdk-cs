@@ -336,13 +336,17 @@ public class WalletLinkV5
 
 	private void HandleGetWalletInfo(JToken? id, Action<string> respond)
 	{
+		// Spec section 9.5: the wallet info carries the same capabilities object as the connect
+		// result. Its chain list needs the current nexus.
 		_ops.GetWalletInfo(info =>
-			respond(BuildResult(id, new JObject
-			{
-				["name"] = info.Name,
-				["version"] = info.Version,
-				["rpc"] = info.Rpc,
-			})));
+			_ops.GetChains(chains =>
+				respond(BuildResult(id, new JObject
+				{
+					["name"] = info.Name,
+					["version"] = info.Version,
+					["rpc"] = info.Rpc,
+					["capabilities"] = BuildCapabilities(chains.Nexus),
+				}))));
 	}
 
 	/// <summary>Shared parsing for the two transaction methods: format + size-guarded base64

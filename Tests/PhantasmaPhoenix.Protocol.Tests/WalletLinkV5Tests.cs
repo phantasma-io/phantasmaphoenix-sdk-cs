@@ -209,6 +209,20 @@ public class WalletLinkV5Tests
 	}
 
 	[Fact]
+	public void GetWalletInfo_returns_the_capabilities_of_the_connect_result()
+	{
+		// Spec section 9.5: pha_getWalletInfo returns { name, version, capabilities, rpc }, and
+		// the capabilities are the same object the connect result carries.
+		var link = new WalletLinkV5(new FakeV5Ops());
+		var session = Connect(link, out var connect);
+
+		var info = Send(link, $"{{\"plv\":5,\"id\":\"w1\",\"session\":\"{session}\",\"method\":\"pha_getWalletInfo\"}}");
+
+		((string)info["result"]!["name"]!).ShouldBe("FakeWallet");
+		JToken.DeepEquals(info["result"]!["capabilities"], connect["result"]!["capabilities"]).ShouldBeTrue();
+	}
+
+	[Fact]
 	public void SignMessage_routes_to_ops_and_returns_signature_and_random()
 	{
 		var ops = new FakeV5Ops();
