@@ -20,9 +20,9 @@ public sealed class TransferFungibleParams : NativeTxParties
 	public ulong TokenId { get; set; }
 
 	/// <summary>Amount in the token's atoms, as a u64. A big-fungible token moves this way too. The chain
-	/// reads the amount as a signed 64-bit value, so it refuses one above the int64 maximum. A larger
-	/// amount needs a <c>Token.TransferFungible</c> module call or a script transfer, whose amounts are
-	/// big integers.</summary>
+	/// reads the amount as a signed 64-bit value, so it refuses zero and anything above the int64
+	/// maximum. A larger amount needs a <c>Token.TransferFungible</c> module call or a script transfer,
+	/// whose amounts are big integers.</summary>
 	public ulong Amount { get; set; }
 }
 

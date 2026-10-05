@@ -7,8 +7,8 @@ namespace PhantasmaPhoenix.Protocol.Carbon.Blockchain;
 /// <para>
 /// The message must already carry its gas offer. A zero <c>maxGas</c> is never admitted, so it marks
 /// a message that was built and not planned. Signing such a message would only produce a rejection.
-/// A native fungible transfer of 2^63 atoms or more is refused too: the chain admits it, the transfer
-/// fails, and the failed transaction is billed.
+/// A native fungible transfer of zero atoms, or of 2^63 atoms or more, is refused too: the chain
+/// admits it, the transfer fails, and the failed transaction is billed.
 /// </para>
 /// </summary>
 public static class TxMsgSigner
@@ -91,14 +91,16 @@ public static class TxMsgSigner
 			throw new InvalidOperationException("Transaction has no gas offer: plan its fees or set maxGas before signing");
 
 		// A native fungible transfer carries its amount as a u64, and the chain reads it as a signed
-		// 64-bit value. An amount of 2^63 or more fails on chain for every fungible token, big-fungible
-		// ones included, and the failed transaction is billed. A larger amount needs a
-		// Token.TransferFungible module call or a script transfer.
-		ulong amount = 0;
+		// 64-bit value that must be above zero. Zero, and an amount of 2^63 or more, fail on chain for
+		// every fungible token, big-fungible ones included, and the failed transaction is billed. A
+		// larger amount needs a Token.TransferFungible module call or a script transfer.
+		ulong? amount = null;
 		if (msg.type == TxTypes.TransferFungible && msg.msg is TxMsgTransferFungible plain)
 			amount = plain.amount;
 		else if (msg.type == TxTypes.TransferFungible_GasPayer && msg.msg is TxMsgTransferFungible_GasPayer withGasPayer)
 			amount = withGasPayer.amount;
+		if (amount == 0)
+			throw new InvalidOperationException("Transfer amount must be above zero for a native transfer");
 		if (amount > long.MaxValue)
 			throw new InvalidOperationException($"Transfer amount {amount} is above the int64 maximum the chain accepts in a native transfer");
 	}
