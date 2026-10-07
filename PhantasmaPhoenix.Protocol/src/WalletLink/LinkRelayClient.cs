@@ -23,11 +23,12 @@ public interface ILinkRelaySocketFactory
 }
 
 /// <summary>
-/// Wallet-side client of the Phantasma Link relay (spec section 18). Keeps one outbound
-/// connection per relay URL, subscribes to the topics of relay-enabled pairings, unseals
-/// delivered frames with the pairing key, routes them through <see cref="WalletLinkV5"/>,
-/// and publishes the sealed responses back - chunking anything above the relay frame cap.
-/// The relay stays E2E-blind: plaintext never leaves this class.
+/// Wallet-side client of the Phantasma Link relay (spec section 16). Keeps one outbound
+/// connection per relay URL. A pairing uses two relay topics: the wallet subscribes to the
+/// dApp's topic `&lt;t&gt;.dapp` and publishes to its own `&lt;t&gt;.wallet`, so it never receives its
+/// own frames. It unseals delivered frames with the pairing key, routes them through
+/// <see cref="WalletLinkV5"/>, and publishes the sealed responses back - chunking anything
+/// above the relay frame cap. The relay stays E2E-blind: plaintext never leaves this class.
 ///
 /// Threading: socket callbacks arrive on arbitrary threads; all dispatcher work is run
 /// through the host-provided marshal hook (the wallet posts to its UI thread). Responses
@@ -123,6 +124,14 @@ public sealed class LinkRelayClient : IDisposable
 
 	private readonly Action<string>? _log;
 
+	/// <summary>Returns the relay topic that the dApp of a pairing publishes to and the wallet
+	/// subscribes to: the pairing topic <c>t</c> and <c>.dapp</c> (spec section 16).</summary>
+	public static string DappTopic(string pairingTopic) => pairingTopic + ".dapp";
+
+	/// <summary>Returns the relay topic that the wallet publishes to and the dApp subscribes to:
+	/// the pairing topic <c>t</c> and <c>.wallet</c> (spec section 16).</summary>
+	public static string WalletTopic(string pairingTopic) => pairingTopic + ".wallet";
+
 	/// <summary>Connect and reconcile subscriptions for every stored relay pairing (wallet start,
 	/// /v5/wake). Prunes idle-expired sessions and keeps only the most-recently-used ones within
 	/// the cap. Safe to call repeatedly: existing connections are reused.</summary>
@@ -190,7 +199,8 @@ public sealed class LinkRelayClient : IDisposable
 				return;
 			}
 			var conn = GetOrCreateConnection(pairing.RelayUrl!);
-			if (!conn.Topics.Add(pairing.Topic))
+			var relayTopic = DappTopic(pairing.Topic);
+			if (!conn.Topics.Add(relayTopic))
 			{
 				return; // already subscribed
 			}
@@ -200,7 +210,7 @@ public sealed class LinkRelayClient : IDisposable
 			_log?.Invoke($"subscribe topic={pairing.Topic} live={live}");
 			if (live)
 			{
-				conn.Socket!.SendText(new JObject { ["op"] = "subscribe", ["topic"] = pairing.Topic }.ToString(Formatting.None));
+				conn.Socket!.SendText(new JObject { ["op"] = "subscribe", ["topic"] = relayTopic }.ToString(Formatting.None));
 			}
 		}
 	}
@@ -257,10 +267,11 @@ public sealed class LinkRelayClient : IDisposable
 			{
 				return;
 			}
-			conn.Topics.Remove(pairing.Topic);
+			var relayTopic = DappTopic(pairing.Topic);
+			conn.Topics.Remove(relayTopic);
 			if (conn.Open && conn.Socket != null)
 			{
-				conn.Socket.SendText(new JObject { ["op"] = "unsubscribe", ["topic"] = pairing.Topic }.ToString(Formatting.None));
+				conn.Socket.SendText(new JObject { ["op"] = "unsubscribe", ["topic"] = relayTopic }.ToString(Formatting.None));
 			}
 		}
 	}
@@ -299,7 +310,7 @@ public sealed class LinkRelayClient : IDisposable
 			var conn = GetOrCreateConnection(pairing.RelayUrl!);
 			if (frame.Length <= ChunkChars)
 			{
-				SendOrQueue(conn, BuildPublish(pairing.Topic, frame));
+				SendOrQueue(conn, BuildPublish(WalletTopic(pairing.Topic), frame));
 				return;
 			}
 			// Chunked publish (spec section 18): split the sealed frame TEXT; only the
@@ -317,7 +328,7 @@ public sealed class LinkRelayClient : IDisposable
 					["total"] = total,
 					["chunk"] = chunk,
 				};
-				SendOrQueue(conn, BuildPublish(pairing.Topic, payload));
+				SendOrQueue(conn, BuildPublish(WalletTopic(pairing.Topic), payload));
 			}
 		}
 	}
@@ -346,7 +357,7 @@ public sealed class LinkRelayClient : IDisposable
 				return;
 			}
 			var conn = GetOrCreateConnection(pairing.RelayUrl!);
-			SendOrQueue(conn, BuildPublish(pairing.Topic, payload));
+			SendOrQueue(conn, BuildPublish(WalletTopic(pairing.Topic), payload));
 		}
 	}
 
@@ -499,11 +510,20 @@ public sealed class LinkRelayClient : IDisposable
 		{
 			return;
 		}
-		var topic = (string?)frame["topic"];
-		if (string.IsNullOrEmpty(topic))
+		// The wallet subscribes only to dApp topics, so a frame on any other topic is not for it.
+		var relayTopic = (string?)frame["topic"];
+		if (relayTopic == null || !relayTopic.EndsWith(".dapp", StringComparison.Ordinal))
 		{
 			return;
 		}
+		lock (_gate)
+		{
+			if (!conn.Topics.Contains(relayTopic))
+			{
+				return;
+			}
+		}
+		var topic = relayTopic.Substring(0, relayTopic.Length - ".dapp".Length);
 		_log?.Invoke($"deliver recv topic={topic}");
 
 		// Chunk reassembly only needs the gate; everything touching the pairing store or

@@ -107,8 +107,10 @@ public class LinkRelayClientTests
 		var frames = socket.SentFrames();
 		// First the topic subscription, then the one-tap sessionEstablished publish.
 		((string)frames[0]["op"]!).ShouldBe("subscribe");
-		((string)frames[0]["topic"]!).ShouldBe(LinkTestTopics.Of("top-r"));
+		((string)frames[0]["topic"]!).ShouldBe(LinkTestTopics.Of("top-r") + ".dapp");
 		((string)frames[1]["op"]!).ShouldBe("publish");
+		// Spec §16: the wallet publishes on its own topic of the pairing, never on the dApp's.
+		((string)frames[1]["topic"]!).ShouldBe(LinkTestTopics.Of("top-r") + ".wallet");
 		var pushed = OpenSealedPayload(channel, frames[1]["payload"]!);
 		((string)pushed["event"]!).ShouldBe(WalletLinkV5.SessionEstablishedEvent);
 		var sessionId = (string)pushed["data"]!["session"]!["id"]!;
@@ -120,13 +122,28 @@ public class LinkRelayClientTests
 		socket.Deliver(new JObject
 		{
 			["op"] = "deliver",
-			["topic"] = LinkTestTopics.Of("top-r"),
+			["topic"] = LinkTestTopics.Of("top-r") + ".dapp",
 			["payload"] = channel.SealEnvelope(request),
 		}.ToString());
 
 		var response = OpenSealedPayload(channel, socket.SentFrames()[2]["payload"]!);
 		((string)response["id"]!).ShouldBe("r1");
 		((string)response["result"]!["nexus"]!).ShouldBe("localnet");
+		((string)socket.SentFrames()[2]["topic"]!).ShouldBe(LinkTestTopics.Of("top-r") + ".wallet");
+
+		// A frame on the wallet's own topic, or on the bare pairing topic, is not a request for
+		// the wallet: no answer goes out.
+		var before = socket.SentFrames().Length;
+		foreach (var topic in new[] { LinkTestTopics.Of("top-r") + ".wallet", LinkTestTopics.Of("top-r") })
+		{
+			socket.Deliver(new JObject
+			{
+				["op"] = "deliver",
+				["topic"] = topic,
+				["payload"] = channel.SealEnvelope($"{{\"plv\":5,\"id\":\"{topic}\",\"session\":\"{sessionId}\",\"method\":\"pha_getChains\"}}"),
+			}.ToString());
+		}
+		socket.SentFrames().Length.ShouldBe(before);
 	}
 
 	[Fact]
@@ -152,7 +169,7 @@ public class LinkRelayClientTests
 		JObject Chunk(int seq, string chunk) => new JObject
 		{
 			["op"] = "deliver",
-			["topic"] = LinkTestTopics.Of("top-big"),
+			["topic"] = LinkTestTopics.Of("top-big") + ".dapp",
 			["payload"] = new JObject { ["msgId"] = "m1", ["seq"] = seq, ["total"] = 2, ["chunk"] = chunk },
 		};
 		socket.Deliver(Chunk(1, sealedRequest.Substring(half)).ToString());
@@ -202,7 +219,7 @@ public class LinkRelayClientTests
 				socket.Deliver(new JObject
 				{
 					["op"] = "deliver",
-					["topic"] = LinkTestTopics.Of("top-67"),
+					["topic"] = LinkTestTopics.Of("top-67") + ".dapp",
 					["payload"] = new JObject { ["msgId"] = id, ["seq"] = seq, ["total"] = total, ["chunk"] = sealedRequest.Substring(start, end - start) },
 				}.ToString());
 			}
@@ -289,7 +306,7 @@ public class LinkRelayClientTests
 		second.Open();
 		var frames = second.SentFrames();
 		((string)frames[0]["op"]!).ShouldBe("subscribe");
-		((string)frames[0]["topic"]!).ShouldBe(LinkTestTopics.Of("top-rc"));
+		((string)frames[0]["topic"]!).ShouldBe(LinkTestTopics.Of("top-rc") + ".dapp");
 		// The queued publish flushed after the resubscribe (plus the original
 		// sessionEstablished push, which also waited out the offline window).
 		frames.Skip(1).ShouldAllBe(frame => (string?)frame["op"] == "publish");
@@ -336,7 +353,7 @@ public class LinkRelayClientTests
 		socket.Deliver(new JObject
 		{
 			["op"] = "deliver",
-			["topic"] = LinkTestTopics.Of("top-e"),
+			["topic"] = LinkTestTopics.Of("top-e") + ".dapp",
 			["payload"] = channel.SealEnvelope(request),
 		}.ToString());
 		var response = OpenSealedPayload(channel, socket.SentFrames()[2]["payload"]!);
@@ -391,8 +408,8 @@ public class LinkRelayClientTests
 		pairings.Get("top-2").ShouldNotBeNull();
 		pairings.Get("top-3").ShouldNotBeNull();
 		var frames = socket.SentFrames();
-		frames.ShouldContain(f => (string?)f["op"] == "unsubscribe" && (string?)f["topic"] == "top-1");
-		frames.ShouldContain(f => (string?)f["op"] == "subscribe" && (string?)f["topic"] == "top-3");
+		frames.ShouldContain(f => (string?)f["op"] == "unsubscribe" && (string?)f["topic"] == "top-1.dapp");
+		frames.ShouldContain(f => (string?)f["op"] == "subscribe" && (string?)f["topic"] == "top-3.dapp");
 	}
 
 	[Fact]
@@ -410,8 +427,8 @@ public class LinkRelayClientTests
 		pairings.Get("top-fresh").ShouldNotBeNull();
 		sockets.Sockets[0].Open();
 		var frames = sockets.Sockets[0].SentFrames();
-		frames.ShouldContain(f => (string?)f["op"] == "subscribe" && (string?)f["topic"] == "top-fresh");
-		frames.ShouldNotContain(f => (string?)f["topic"] == "top-stale");
+		frames.ShouldContain(f => (string?)f["op"] == "subscribe" && (string?)f["topic"] == "top-fresh.dapp");
+		frames.ShouldNotContain(f => ((string?)f["topic"] ?? "").StartsWith("top-stale"));
 	}
 
 	[Fact]
