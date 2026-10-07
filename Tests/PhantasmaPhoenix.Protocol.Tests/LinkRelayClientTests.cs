@@ -53,13 +53,16 @@ public class LinkRelayClientTests
 		return (endpoint, ops, pairings, relay, sockets);
 	}
 
+	// Spec §15: a pairing names a wss:// relay. The fake socket factory never connects to it.
+	private const string Relay = "wss://relay.test/relay";
+
 	private static LinkPairingRecord RelayRecord(string topic, DateTime lastSeenUtc)
 	{
 		return new LinkPairingRecord
 		{
 			Topic = topic,
 			Key = new byte[32],
-			RelayUrl = "ws://localhost:7299/relay",
+			RelayUrl = Relay,
 			DappName = "d",
 			CreatedUtc = lastSeenUtc,
 			LastSeenUtc = lastSeenUtc,
@@ -86,14 +89,6 @@ public class LinkRelayClientTests
 	}
 
 	[Fact]
-	public void Hosts_normalize_to_wss_and_full_urls_pass_through()
-	{
-		// Spec section 17: `relay` is a host by default; explicit URLs serve local testing.
-		LinkRelayClient.NormalizeRelayUrl("link.phantasma.info").ShouldBe("wss://link.phantasma.info/relay");
-		LinkRelayClient.NormalizeRelayUrl("ws://localhost:7299/relay").ShouldBe("ws://localhost:7299/relay");
-	}
-
-	[Fact]
 	public void Relay_pairing_pushes_the_session_and_serves_sealed_requests()
 	{
 		var (endpoint, ops, _, _, sockets) = Build();
@@ -103,16 +98,16 @@ public class LinkRelayClientTests
 
 		// Cross-device shape: relay, dApp name, NO callback (a QR pairing has no usable
 		// callback on the wallet's device).
-		endpoint.TryHandle(RelayPairingUri(key, "top-r", "ws://localhost:7299/relay", "qr-dapp"), _ => { }).ShouldBeTrue();
+		endpoint.TryHandle(RelayPairingUri(key, LinkTestTopics.Of("top-r"), Relay, "qr-dapp"), _ => { }).ShouldBeTrue();
 		sockets.Sockets.Count.ShouldBe(1);
-		sockets.Sockets[0].Url.ShouldBe("ws://localhost:7299/relay");
+		sockets.Sockets[0].Url.ShouldBe(Relay);
 
 		var socket = sockets.Sockets[0];
 		socket.Open();
 		var frames = socket.SentFrames();
 		// First the topic subscription, then the one-tap sessionEstablished publish.
 		((string)frames[0]["op"]!).ShouldBe("subscribe");
-		((string)frames[0]["topic"]!).ShouldBe("top-r");
+		((string)frames[0]["topic"]!).ShouldBe(LinkTestTopics.Of("top-r"));
 		((string)frames[1]["op"]!).ShouldBe("publish");
 		var pushed = OpenSealedPayload(channel, frames[1]["payload"]!);
 		((string)pushed["event"]!).ShouldBe(WalletLinkV5.SessionEstablishedEvent);
@@ -125,7 +120,7 @@ public class LinkRelayClientTests
 		socket.Deliver(new JObject
 		{
 			["op"] = "deliver",
-			["topic"] = "top-r",
+			["topic"] = LinkTestTopics.Of("top-r"),
 			["payload"] = channel.SealEnvelope(request),
 		}.ToString());
 
@@ -145,7 +140,7 @@ public class LinkRelayClientTests
 		key[9] = 9;
 		var channel = new LinkChannel(key);
 
-		endpoint.TryHandle(RelayPairingUri(key, "top-big", "ws://localhost:7299/relay", "big-dapp"), _ => { }).ShouldBeTrue();
+		endpoint.TryHandle(RelayPairingUri(key, LinkTestTopics.Of("top-big"), Relay, "big-dapp"), _ => { }).ShouldBeTrue();
 		var socket = sockets.Sockets[0];
 		socket.Open();
 		var sessionId = (string)OpenSealedPayload(channel, socket.SentFrames()[1]["payload"]!)["data"]!["session"]!["id"]!;
@@ -157,7 +152,7 @@ public class LinkRelayClientTests
 		JObject Chunk(int seq, string chunk) => new JObject
 		{
 			["op"] = "deliver",
-			["topic"] = "top-big",
+			["topic"] = LinkTestTopics.Of("top-big"),
 			["payload"] = new JObject { ["msgId"] = "m1", ["seq"] = seq, ["total"] = 2, ["chunk"] = chunk },
 		};
 		socket.Deliver(Chunk(1, sealedRequest.Substring(half)).ToString());
@@ -191,7 +186,7 @@ public class LinkRelayClientTests
 		var key = new byte[32];
 		key[3] = 3;
 		var channel = new LinkChannel(key);
-		endpoint.TryHandle(RelayPairingUri(key, "top-67", "ws://localhost:7299/relay", "dapp-67"), _ => { }).ShouldBeTrue();
+		endpoint.TryHandle(RelayPairingUri(key, LinkTestTopics.Of("top-67"), Relay, "dapp-67"), _ => { }).ShouldBeTrue();
 		var socket = sockets.Sockets[0];
 		socket.Open();
 		var sessionId = (string)OpenSealedPayload(channel, socket.SentFrames()[1]["payload"]!)["data"]!["session"]!["id"]!;
@@ -207,7 +202,7 @@ public class LinkRelayClientTests
 				socket.Deliver(new JObject
 				{
 					["op"] = "deliver",
-					["topic"] = "top-67",
+					["topic"] = LinkTestTopics.Of("top-67"),
 					["payload"] = new JObject { ["msgId"] = id, ["seq"] = seq, ["total"] = total, ["chunk"] = sealedRequest.Substring(start, end - start) },
 				}.ToString());
 			}
@@ -230,12 +225,12 @@ public class LinkRelayClientTests
 		var (endpoint, _, pairings, relay, sockets) = Build();
 		var key = new byte[32];
 		var channel = new LinkChannel(key);
-		endpoint.TryHandle(RelayPairingUri(key, "top-max", "ws://localhost:7299/relay", "dapp-max"), _ => { }).ShouldBeTrue();
+		endpoint.TryHandle(RelayPairingUri(key, LinkTestTopics.Of("top-max"), Relay, "dapp-max"), _ => { }).ShouldBeTrue();
 		var socket = sockets.Sockets[0];
 		socket.Open();
 
 		var signedTx = new string('A', 44_739_244); // the base64 length of 32 MiB
-		relay.PublishSealed(pairings.Get("top-max")!, $"{{\"plv\":5,\"id\":\"big\",\"result\":{{\"signedTx\":\"{signedTx}\"}}}}");
+		relay.PublishSealed(pairings.Get(LinkTestTopics.Of("top-max"))!, $"{{\"plv\":5,\"id\":\"big\",\"result\":{{\"signedTx\":\"{signedTx}\"}}}}");
 
 		var chunks = socket.SentFrames().Skip(2).Select(frame => (JObject)frame["payload"]!).ToArray();
 		chunks.Length.ShouldBe(67);
@@ -254,12 +249,12 @@ public class LinkRelayClientTests
 		var (endpoint, _, pairings, relay, sockets) = Build();
 		var key = new byte[32];
 		var channel = new LinkChannel(key);
-		endpoint.TryHandle(RelayPairingUri(key, "top-over", "ws://localhost:7299/relay", "dapp-over"), _ => { }).ShouldBeTrue();
+		endpoint.TryHandle(RelayPairingUri(key, LinkTestTopics.Of("top-over"), Relay, "dapp-over"), _ => { }).ShouldBeTrue();
 		var socket = sockets.Sockets[0];
 		socket.Open();
 
 		var signedTx = new string('A', 46_000_000); // longer than the base64 of 32 MiB
-		relay.PublishSealed(pairings.Get("top-over")!, $"{{\"plv\":5,\"id\":\"over\",\"result\":{{\"signedTx\":\"{signedTx}\"}}}}");
+		relay.PublishSealed(pairings.Get(LinkTestTopics.Of("top-over"))!, $"{{\"plv\":5,\"id\":\"over\",\"result\":{{\"signedTx\":\"{signedTx}\"}}}}");
 
 		var frames = socket.SentFrames().Skip(2).ToArray();
 		frames.Length.ShouldBe(1);
@@ -274,13 +269,13 @@ public class LinkRelayClientTests
 	{
 		var (endpoint, _, pairings, relay, sockets) = Build(new[] { 50 });
 		var key = new byte[32];
-		endpoint.TryHandle(RelayPairingUri(key, "top-rc", "ws://localhost:7299/relay", "rc-dapp"), _ => { }).ShouldBeTrue();
+		endpoint.TryHandle(RelayPairingUri(key, LinkTestTopics.Of("top-rc"), Relay, "rc-dapp"), _ => { }).ShouldBeTrue();
 		var first = sockets.Sockets[0];
 		first.Open();
 
 		first.Drop();
 		// A response produced while offline must queue, not vanish.
-		relay.PublishSealed(pairings.Get("top-rc")!, "{\"plv\":5,\"id\":\"x\",\"result\":{}}");
+		relay.PublishSealed(pairings.Get(LinkTestTopics.Of("top-rc"))!, "{\"plv\":5,\"id\":\"x\",\"result\":{}}");
 
 		// The 50 ms ladder should have redialed well within the wait.
 		var deadline = DateTime.UtcNow.AddSeconds(2);
@@ -294,7 +289,7 @@ public class LinkRelayClientTests
 		second.Open();
 		var frames = second.SentFrames();
 		((string)frames[0]["op"]!).ShouldBe("subscribe");
-		((string)frames[0]["topic"]!).ShouldBe("top-rc");
+		((string)frames[0]["topic"]!).ShouldBe(LinkTestTopics.Of("top-rc"));
 		// The queued publish flushed after the resubscribe (plus the original
 		// sessionEstablished push, which also waited out the offline window).
 		frames.Skip(1).ShouldAllBe(frame => (string?)frame["op"] == "publish");
@@ -312,7 +307,7 @@ public class LinkRelayClientTests
 		var pk = Convert.ToBase64String(dappPublic).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 		var metaJson = "{\"name\":\"ecdh-dapp\",\"url\":\"https://dapp.example\"}";
 		var meta = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(metaJson)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-		var uri = $"phantasma://v5/pair#v=5&t=top-e&relay={Uri.EscapeDataString("ws://localhost:7299/relay")}&pk={pk}&meta={meta}";
+		var uri = $"phantasma://v5/pair#v=5&t={LinkTestTopics.Of("top-e")}&relay={Uri.EscapeDataString(Relay)}&pk={pk}&meta={meta}";
 
 		endpoint.TryHandle(uri, _ => { }).ShouldBeTrue();
 		ops.ConfirmPairingCalls.ShouldBe(1);
@@ -341,7 +336,7 @@ public class LinkRelayClientTests
 		socket.Deliver(new JObject
 		{
 			["op"] = "deliver",
-			["topic"] = "top-e",
+			["topic"] = LinkTestTopics.Of("top-e"),
 			["payload"] = channel.SealEnvelope(request),
 		}.ToString());
 		var response = OpenSealedPayload(channel, socket.SentFrames()[2]["payload"]!);
@@ -358,7 +353,7 @@ public class LinkRelayClientTests
 		{
 			Topic = "top-w",
 			Key = new byte[32],
-			RelayUrl = "ws://localhost:7299/relay",
+			RelayUrl = Relay,
 			DappName = "w-dapp",
 			CreatedUtc = DateTime.UtcNow,
 			LastSeenUtc = DateTime.UtcNow,

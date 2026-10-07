@@ -22,8 +22,9 @@ public class LinkDeeplinkEndpointTests
 		return (new LinkDeeplinkEndpoint(dispatcher, ops, pairings), ops, pairings, dispatcher);
 	}
 
-	private static string SymPairingUri(byte[] key, string topic = "top-1", string callback = "https://dapp.example/app", string? dappName = null)
+	private static string SymPairingUri(byte[] key, string? topic = null, string callback = "https://dapp.example/app", string? dappName = null)
 	{
+		topic ??= LinkTestTopics.Of("top-1");
 		// Built the same way the TS SDK does (fragment query, base64url no-pad).
 		var sk = Convert.ToBase64String(key).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 		var uri = $"https://link.phantasma.info/v5/pair#v=5&t={topic}&cb={Uri.EscapeDataString(callback)}&sk={sk}";
@@ -75,7 +76,7 @@ public class LinkDeeplinkEndpointTests
 		endpoint.TryHandle(SymPairingUri(key), _ => { }).ShouldBeTrue();
 		ops.ConfirmPairingCalls.ShouldBe(1);
 		ops.LastPairing!.DappName.ShouldBeNull();
-		var record = pairings.Get("top-1");
+		var record = pairings.Get(LinkTestTopics.Of("top-1"));
 		record.ShouldNotBeNull();
 		record!.Key.ShouldBe(key);
 		record.CallbackUrl.ShouldBe("https://dapp.example/app");
@@ -83,7 +84,7 @@ public class LinkDeeplinkEndpointTests
 		var (endpoint2, ops2, pairings2, _) = Build();
 		ops2.RejectPairing = true;
 		endpoint2.TryHandle(SymPairingUri(key), _ => { }).ShouldBeTrue();
-		pairings2.Get("top-1").ShouldBeNull();
+		pairings2.Get(LinkTestTopics.Of("top-1")).ShouldBeNull();
 	}
 
 	[Fact]
@@ -92,12 +93,12 @@ public class LinkDeeplinkEndpointTests
 		var (endpoint, ops, pairings, _) = Build();
 
 		// sym without cb AND without relay: nowhere to deliver responses.
-		endpoint.TryHandle("https://link.phantasma.info/v5/pair#v=5&t=x&sk=" + new string('A', 43), _ => { }).ShouldBeTrue();
-		pairings.Get("x").ShouldBeNull();
+		endpoint.TryHandle($"https://link.phantasma.info/v5/pair#v=5&t={LinkTestTopics.Of("x")}&sk=" + new string('A', 43), _ => { }).ShouldBeTrue();
+		pairings.Get(LinkTestTopics.Of("x")).ShouldBeNull();
 
 		// ecdh REQUIRES the relay for the wallet-pubkey hop; a callback cannot carry it.
-		endpoint.TryHandle("phantasma://v5/pair#v=5&t=y&cb=https%3A%2F%2Fd.app&pk=" + new string('A', 43), _ => { }).ShouldBeTrue();
-		pairings.Get("y").ShouldBeNull();
+		endpoint.TryHandle($"phantasma://v5/pair#v=5&t={LinkTestTopics.Of("y")}&cb=https%3A%2F%2Fd.app&pk=" + new string('A', 43), _ => { }).ShouldBeTrue();
+		pairings.Get(LinkTestTopics.Of("y")).ShouldBeNull();
 		ops.ConfirmPairingCalls.ShouldBe(0);
 	}
 
@@ -107,22 +108,22 @@ public class LinkDeeplinkEndpointTests
 		var (endpoint, ops, pairings, _) = Build();
 		var key = new byte[32];
 		key[3] = 9;
-		endpoint.TryHandle(SymPairingUri(key, "topic-7", "https://dapp.example/play"), _ => { }).ShouldBeTrue();
-		pairings.Get("topic-7").ShouldNotBeNull();
+		endpoint.TryHandle(SymPairingUri(key, LinkTestTopics.Of("topic-7"), "https://dapp.example/play"), _ => { }).ShouldBeTrue();
+		pairings.Get(LinkTestTopics.Of("topic-7")).ShouldNotBeNull();
 
 		// dApp side: seal a connect envelope with the pairing key and wrap it as a request URL.
 		var channel = new LinkChannel(key);
 		var connectEnvelope = "{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"dl-dapp\"}}}";
 		var requestFrame = channel.SealEnvelope(connectEnvelope);
 		var fb64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(requestFrame)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-		var requestUrl = $"phantasma://v5/req#t=topic-7&f={fb64}";
+		var requestUrl = $"phantasma://v5/req#t={LinkTestTopics.Of("topic-7")}&f={fb64}";
 
 		string? openedUrl = null;
 		endpoint.TryHandle(requestUrl, url => openedUrl = url).ShouldBeTrue();
 
 		// Wallet answered by opening the callback with a sealed response frame.
 		openedUrl.ShouldNotBeNull();
-		openedUrl!.StartsWith("https://dapp.example/play#plv=5&t=topic-7&f=").ShouldBeTrue();
+		openedUrl!.StartsWith($"https://dapp.example/play#plv=5&t={LinkTestTopics.Of("topic-7")}&f=").ShouldBeTrue();
 
 		var f = openedUrl.Substring(openedUrl.IndexOf("&f=") + 3);
 		var pad = f.Replace('-', '+').Replace('_', '/');
@@ -148,9 +149,9 @@ public class LinkDeeplinkEndpointTests
 		// Approval must answer by opening the callback with a sealed sessionEstablished event
 		// (spec §15 step 3) - the one-tap first connection.
 		string? openedUrl = null;
-		endpoint.TryHandle(SymPairingUri(key, "top-ot", "https://dapp.example/app", dappName: "one-tap-dapp"), url => openedUrl = url).ShouldBeTrue();
+		endpoint.TryHandle(SymPairingUri(key, LinkTestTopics.Of("top-ot"), "https://dapp.example/app", dappName: "one-tap-dapp"), url => openedUrl = url).ShouldBeTrue();
 		openedUrl.ShouldNotBeNull();
-		openedUrl!.StartsWith("https://dapp.example/app#plv=5&t=top-ot&f=").ShouldBeTrue();
+		openedUrl!.StartsWith($"https://dapp.example/app#plv=5&t={LinkTestTopics.Of("top-ot")}&f=").ShouldBeTrue();
 
 		var envelope = JObject.Parse(OpenResponseFrame(channel, openedUrl));
 		((string)envelope["type"]!).ShouldBe("event");
@@ -167,7 +168,7 @@ public class LinkDeeplinkEndpointTests
 		var request = $"{{\"plv\":5,\"id\":\"r1\",\"session\":\"{sessionId}\",\"method\":\"pha_getChains\"}}";
 		var fb64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(channel.SealEnvelope(request))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 		string? chainsUrl = null;
-		endpoint.TryHandle($"phantasma://v5/req#t=top-ot&f={fb64}", url => chainsUrl = url).ShouldBeTrue();
+		endpoint.TryHandle($"phantasma://v5/req#t={LinkTestTopics.Of("top-ot")}&f={fb64}", url => chainsUrl = url).ShouldBeTrue();
 		chainsUrl.ShouldNotBeNull();
 		var chains = JObject.Parse(OpenResponseFrame(channel, chainsUrl!));
 		((string)chains["id"]!).ShouldBe("r1");
@@ -182,23 +183,23 @@ public class LinkDeeplinkEndpointTests
 		var (endpoint, _, pairings, _) = Build();
 		var key = new byte[32];
 		var opened = 0;
-		endpoint.TryHandle(SymPairingUri(key, "t-noname"), _ => opened++).ShouldBeTrue();
+		endpoint.TryHandle(SymPairingUri(key, LinkTestTopics.Of("t-noname")), _ => opened++).ShouldBeTrue();
 		opened.ShouldBe(0);
-		pairings.Get("t-noname").ShouldNotBeNull();
+		pairings.Get(LinkTestTopics.Of("t-noname")).ShouldNotBeNull();
 
 		// Wallet not Ready: same graceful degradation to the classic two-step connect.
 		var (endpoint2, ops2, pairings2, _) = Build();
 		ops2.StatusValue = WalletStatus.Closed;
-		endpoint2.TryHandle(SymPairingUri(key, "t-closed", dappName: "d"), _ => opened++).ShouldBeTrue();
+		endpoint2.TryHandle(SymPairingUri(key, LinkTestTopics.Of("t-closed"), dappName: "d"), _ => opened++).ShouldBeTrue();
 		opened.ShouldBe(0);
-		pairings2.Get("t-closed").ShouldNotBeNull();
+		pairings2.Get(LinkTestTopics.Of("t-closed")).ShouldNotBeNull();
 
 		// Account unavailable: pairing stored, no push.
 		var (endpoint3, ops3, pairings3, _) = Build();
 		ops3.FailAccount = LinkFailure.NotLoggedIn;
-		endpoint3.TryHandle(SymPairingUri(key, "t-noacc", dappName: "d"), _ => opened++).ShouldBeTrue();
+		endpoint3.TryHandle(SymPairingUri(key, LinkTestTopics.Of("t-noacc"), dappName: "d"), _ => opened++).ShouldBeTrue();
 		opened.ShouldBe(0);
-		pairings3.Get("t-noacc").ShouldNotBeNull();
+		pairings3.Get(LinkTestTopics.Of("t-noacc")).ShouldNotBeNull();
 	}
 
 	[Fact]
@@ -212,9 +213,9 @@ public class LinkDeeplinkEndpointTests
 
 		// Paired, but the frame does not authenticate.
 		var key = new byte[32];
-		endpoint.TryHandle(SymPairingUri(key, "t9"), _ => opened++).ShouldBeTrue();
+		endpoint.TryHandle(SymPairingUri(key, LinkTestTopics.Of("t9")), _ => opened++).ShouldBeTrue();
 		var garbage = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("{\"nonce\":\"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\"ct\":\"AAAA\"}")).TrimEnd('=');
-		endpoint.TryHandle($"phantasma://v5/req#t=t9&f={garbage}", _ => opened++).ShouldBeTrue();
+		endpoint.TryHandle($"phantasma://v5/req#t={LinkTestTopics.Of("t9")}&f={garbage}", _ => opened++).ShouldBeTrue();
 
 		// Not a v5 URL at all.
 		endpoint.TryHandle("https://example.com/whatever#x=1", _ => opened++).ShouldBeFalse();

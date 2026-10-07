@@ -92,7 +92,7 @@ public sealed class LinkDeeplinkEndpoint
 			return; // malformed pairing material is dropped, never half-accepted
 		}
 
-		var relayUrl = pairing.Relay != null ? LinkRelayClient.NormalizeRelayUrl(pairing.Relay) : null;
+		var relayUrl = pairing.Relay;
 		_log?.Invoke($"pair topic={pairing.Topic} mode={pairing.Mode} relay={(relayUrl != null ? "yes" : "no")} callback={(!string.IsNullOrEmpty(pairing.CallbackUrl) ? "yes" : "no")}");
 
 		// Channel-key material decides the mode (spec §18.1):

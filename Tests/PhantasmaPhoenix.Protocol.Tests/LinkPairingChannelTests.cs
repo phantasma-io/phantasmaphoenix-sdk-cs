@@ -21,10 +21,10 @@ public class LinkPairingChannelTests
 		var parsed = LinkPairing.Parse((string)vector["uri"]!);
 
 		parsed.Version.ShouldBe(5);
-		parsed.Topic.ShouldBe("topic-abc123");
+		parsed.Topic.ShouldBe((string)vector["expect"]!["topic"]!);
 		parsed.Mode.ShouldBe(LinkPairingMode.Sym);
 		Convert.ToBase64String(parsed.SymKey!).ShouldBe((string)vector["expect"]!["key"]!);
-		parsed.Relay.ShouldBe("link.phantasma.info");
+		parsed.Relay.ShouldBe("wss://link.phantasma.info/relay");
 		parsed.CallbackUrl.ShouldBe("https://dapp.example/play");
 		parsed.DappName.ShouldBe("Test dApp");
 		parsed.DappUrl.ShouldBe("https://dapp.example");
@@ -36,24 +36,34 @@ public class LinkPairingChannelTests
 		var vector = (JObject)Vectors["pairing"]![1]!;
 		var parsed = LinkPairing.Parse((string)vector["uri"]!);
 
-		parsed.Topic.ShouldBe("t2");
+		parsed.Topic.ShouldBe((string)vector["expect"]!["topic"]!);
 		parsed.Mode.ShouldBe(LinkPairingMode.Ecdh);
 		Convert.ToBase64String(parsed.DappPublicKey!).ShouldBe((string)vector["expect"]!["key"]!);
 		parsed.Relay.ShouldBeNull();
 		parsed.DappName.ShouldBeNull();
 	}
 
+	// A valid pairing topic: 32 bytes in base64url, 43 characters (spec §15). Each malformed case
+	// below breaks one rule only, so it fails for the reason its comment names.
+	private const string Topic = "AQwXIi04Q05ZZG96hZCbprG8x9Ld6PP-CRQfKjVAS1Y";
+	private const string Key = "AQQHCg0QExYZHB8iJSgrLjE0Nzo9QENGSUxPUlVYW14";
+
 	[Theory]
-	[InlineData("https://link.phantasma.info/v5/pair")] // no fragment
-	[InlineData("https://link.phantasma.info/v5/pair#v=4&t=x&sk=AA")] // wrong version
-	[InlineData("https://link.phantasma.info/v5/pair#v=5&sk=AA")] // no topic
-	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=x")] // neither sk nor pk
-	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=x&sk=AA&pk=BB")] // both keys
-	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=x&sk=AAAA")] // key not 32 bytes
-	[InlineData("phantasma://v5/pair#v=5&t=x&pk=%%%")] // malformed key encoding
-	public void Rejects_malformed_pairing_uris(string uri)
+	[InlineData("https://link.phantasma.info/v5/pair", "no fragment")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=4&t=" + Topic + "&sk=" + Key, "version")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&sk=" + Key, "missing topic")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic, "exactly one of sk / pk")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "&sk=" + Key + "&pk=" + Key, "exactly one of sk / pk")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "&sk=AAAA", "sk must be 32 bytes")]
+	[InlineData("phantasma://v5/pair#v=5&t=" + Topic + "&pk=%%%", "malformed pk")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=short&sk=" + Key, "43 characters")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "x&sk=" + Key, "43 characters")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "&relay=ws%3A%2F%2Frelay.example%2Frelay&sk=" + Key, "wss://")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "&relay=relay.example&sk=" + Key, "wss://")]
+	[InlineData("phantasma://v5/pair#v=5&t=" + Topic + "&sk=" + Key, "symmetric key")]
+	public void Rejects_malformed_pairing_uris(string uri, string reason)
 	{
-		Should.Throw<FormatException>(() => LinkPairing.Parse(uri));
+		Should.Throw<FormatException>(() => LinkPairing.Parse(uri)).Message.ShouldContain(reason);
 	}
 
 	[Fact]

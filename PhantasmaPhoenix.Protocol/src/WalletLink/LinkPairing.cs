@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 
 namespace PhantasmaPhoenix.Protocol;
@@ -36,6 +37,17 @@ public sealed class LinkPairingParams
 
 public static class LinkPairing
 {
+	// Spec §15: `t` is 32 random bytes in base64url without padding. It is the bearer capability
+	// of the pairing, and the relay topics are built from it (§16).
+	private static readonly Regex PairingTopic = new Regex("^[A-Za-z0-9_-]{43}$");
+
+	/// <summary>Returns true if <paramref name="topic"/> has the form of a pairing topic: 32 bytes
+	/// in base64url without padding, 43 characters (spec §15).</summary>
+	public static bool IsPairingTopic(string topic)
+	{
+		return topic != null && PairingTopic.IsMatch(topic);
+	}
+
 	/// <summary>
 	/// Parse a pairing URI (universal-link or custom-scheme). Throws <see cref="FormatException"/>
 	/// on anything malformed - a wallet must not half-accept pairing material.
@@ -58,6 +70,12 @@ public static class LinkPairing
 		{
 			throw new FormatException("Pairing URI is missing topic");
 		}
+		// A longer topic makes relay topics that a relay refuses, and the relay then closes the
+		// connection that the wallet shares between its pairings (spec §7).
+		if (!IsPairingTopic(topic))
+		{
+			throw new FormatException("Pairing topic must be 32 bytes in base64url (43 characters)");
+		}
 
 		var result = new LinkPairingParams
 		{
@@ -67,6 +85,12 @@ public static class LinkPairing
 
 		if (query.TryGetValue("relay", out var relay))
 		{
+			// Spec §15: the relay is a wss:// URL. A plain ws:// relay would expose the topic, the
+			// bearer capability of the pairing, on the network.
+			if (!relay.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
+			{
+				throw new FormatException("Pairing relay must be a wss:// URL");
+			}
 			result.Relay = relay;
 		}
 
@@ -84,6 +108,12 @@ public static class LinkPairing
 
 		if (hasSym)
 		{
+			// Spec §15: another app can register the custom scheme and read such a URI, so it must
+			// never carry the session key.
+			if (uri.StartsWith("phantasma:", StringComparison.OrdinalIgnoreCase))
+			{
+				throw new FormatException("A custom-scheme pairing URI must not carry a symmetric key");
+			}
 			result.Mode = LinkPairingMode.Sym;
 			result.SymKey = DecodeKey(sk!, "sk");
 		}

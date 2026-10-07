@@ -123,13 +123,6 @@ public sealed class LinkRelayClient : IDisposable
 
 	private readonly Action<string>? _log;
 
-	/// <summary>Spec section 17: the `relay` pairing field is a host by default; full URLs
-	/// are accepted too (local testing uses plain ws against a localhost relay).</summary>
-	public static string NormalizeRelayUrl(string relay)
-	{
-		return relay.Contains("://") ? relay : $"wss://{relay}/relay";
-	}
-
 	/// <summary>Connect and reconcile subscriptions for every stored relay pairing (wallet start,
 	/// /v5/wake). Prunes idle-expired sessions and keeps only the most-recently-used ones within
 	/// the cap. Safe to call repeatedly: existing connections are reused.</summary>
