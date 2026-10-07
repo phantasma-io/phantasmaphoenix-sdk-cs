@@ -88,6 +88,41 @@ public class LinkRelayClientTests
 		return JObject.Parse(envelopeJson);
 	}
 
+	// A relay frame comes from the network. A field of an unexpected JSON type, or a chunk number
+	// far beyond an int, must be dropped quietly: a throw inside the socket callback would make the
+	// host take the connection for dead and reconnect, and the relay would hand the same frame back
+	// for its whole hold time.
+	[Fact]
+	public void Frames_with_fields_of_the_wrong_type_are_dropped_and_the_link_keeps_serving()
+	{
+		var (endpoint, _, _, _, sockets) = Build();
+		var key = new byte[32];
+		key[2] = 4;
+		var channel = new LinkChannel(key);
+		endpoint.TryHandle(RelayPairingUri(key, LinkTestTopics.Of("top-types"), Relay, "types-dapp"), _ => { }).ShouldBeTrue();
+		var socket = sockets.Sockets[0];
+		socket.Open();
+		var sessionId = (string)OpenSealedPayload(channel, socket.SentFrames()[1]["payload"]!)["data"]!["session"]!["id"]!;
+		var dappTopic = LinkTestTopics.Of("top-types") + ".dapp";
+		var before = socket.SentFrames().Length;
+
+		socket.Deliver("{\"op\":5}");
+		socket.Deliver(new JObject { ["op"] = "deliver", ["topic"] = new JObject(), ["payload"] = "x" }.ToString());
+		socket.Deliver(new JObject { ["op"] = "error", ["code"] = new JArray(), ["message"] = 7 }.ToString());
+		socket.Deliver(new JObject
+		{
+			["op"] = "deliver",
+			["topic"] = dappTopic,
+			["payload"] = new JObject { ["msgId"] = new JObject(), ["seq"] = 0, ["total"] = 1, ["chunk"] = "x" },
+		}.ToString());
+		socket.Deliver("{\"op\":\"deliver\",\"topic\":\"" + dappTopic + "\",\"payload\":{\"msgId\":\"m\",\"seq\":100000000000000000000,\"total\":2,\"chunk\":\"x\"}}");
+		socket.SentFrames().Length.ShouldBe(before);
+
+		var request = $"{{\"plv\":5,\"id\":\"r2\",\"session\":\"{sessionId}\",\"method\":\"pha_getChains\"}}";
+		socket.Deliver(new JObject { ["op"] = "deliver", ["topic"] = dappTopic, ["payload"] = channel.SealEnvelope(request) }.ToString());
+		((string)OpenSealedPayload(channel, socket.SentFrames()[before]["payload"]!)["id"]!).ShouldBe("r2");
+	}
+
 	[Fact]
 	public void Relay_pairing_pushes_the_session_and_serves_sealed_requests()
 	{

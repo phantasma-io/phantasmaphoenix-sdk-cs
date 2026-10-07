@@ -484,6 +484,25 @@ public sealed class LinkRelayClient : IDisposable
 
 	// --- incoming ------------------------------------------------------------------------
 
+	/// <summary>Returns the text of a JSON string field, or null for a missing field or any other
+	/// JSON type. A frame comes from the network: a cast of a field of another type would throw
+	/// inside the socket callback, and the connection would be taken for dead.</summary>
+	private static string? TextOf(JToken? token)
+	{
+		return token != null && token.Type == JTokenType.String ? (string?)token : null;
+	}
+
+	/// <summary>Returns the value of a JSON integer field that fits an int, or null. A JSON integer
+	/// can be far larger than an int, and narrowing it would throw.</summary>
+	private static int? IntOf(JToken? token)
+	{
+		if (token == null || token.Type != JTokenType.Integer)
+		{
+			return null;
+		}
+		return int.TryParse(token.ToString(Formatting.None), System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var value) ? value : (int?)null;
+	}
+
 	private void OnText(Connection conn, string text)
 	{
 		JObject frame;
@@ -496,13 +515,13 @@ public sealed class LinkRelayClient : IDisposable
 			return; // not a relay frame
 		}
 
-		var op = (string?)frame["op"];
+		var op = TextOf(frame["op"]);
 		// Surface relay errors instead of swallowing them (spec §16): a refused subscribe
 		// (topic_limit) MUST be visible - silently dropping it makes the wallet believe it is
 		// listening while the relay routes nothing to it, so every request on that topic hangs.
 		if (op == "error")
 		{
-			_log?.Invoke($"relay error: code={(string?)frame["code"]} {(string?)frame["message"]} topic={(string?)frame["topic"]}");
+			_log?.Invoke($"relay error: code={TextOf(frame["code"])} {TextOf(frame["message"])} topic={TextOf(frame["topic"])}");
 			return;
 		}
 		// acks confirm our own publishes; only deliver frames carry dApp requests.
@@ -511,7 +530,7 @@ public sealed class LinkRelayClient : IDisposable
 			return;
 		}
 		// The wallet subscribes only to dApp topics, so a frame on any other topic is not for it.
-		var relayTopic = (string?)frame["topic"];
+		var relayTopic = TextOf(frame["topic"]);
 		if (relayTopic == null || !relayTopic.EndsWith(".dapp", StringComparison.Ordinal))
 		{
 			return;
@@ -594,18 +613,16 @@ public sealed class LinkRelayClient : IDisposable
 	/// concurrent partials, and staleness GC.</summary>
 	private string? AcceptChunk(string topic, JObject raw)
 	{
-		var msgId = (string?)raw["msgId"];
-		var seqToken = raw["seq"];
-		var totalToken = raw["total"];
-		var chunk = (string?)raw["chunk"];
-		if (msgId == null || chunk == null ||
-			seqToken == null || seqToken.Type != JTokenType.Integer ||
-			totalToken == null || totalToken.Type != JTokenType.Integer)
+		var msgId = TextOf(raw["msgId"]);
+		var chunk = TextOf(raw["chunk"]);
+		var seqValue = IntOf(raw["seq"]);
+		var totalValue = IntOf(raw["total"]);
+		if (msgId == null || chunk == null || seqValue == null || totalValue == null)
 		{
 			return null;
 		}
-		var seq = (int)seqToken;
-		var total = (int)totalToken;
+		var seq = seqValue.Value;
+		var total = totalValue.Value;
 		if (total < 1 || total > MaxChunksPerMessage || seq < 0 || seq >= total)
 		{
 			return null;
