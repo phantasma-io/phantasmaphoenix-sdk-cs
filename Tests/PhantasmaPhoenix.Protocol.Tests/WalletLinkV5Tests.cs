@@ -906,6 +906,25 @@ public class WalletLinkV5Tests
 	}
 
 	[Fact]
+	public void A_network_switch_reaches_every_live_session()
+	{
+		// Spec §9.5: pha_chainChanged carries the CAIP-2 id of the network.
+		var sessions = new InMemoryLinkSessionStore();
+		var link = new WalletLinkV5(new FakeV5Ops(), sessions);
+		var first = Connect(link, out _);
+		var second = Connect(link, out _);
+		var expired = Connect(link, out _);
+		sessions.Get(expired)!.ExpiresUtc = DateTime.UtcNow.AddSeconds(-1);
+		var events = new List<(string, JObject)>();
+		link.SessionEvent += (session, envelope) => events.Add((session, JObject.Parse(envelope)));
+
+		link.ChainChanged();
+
+		events.Select(e => e.Item1).OrderBy(id => id).ShouldBe(new[] { first, second }.OrderBy(id => id));
+		events.ShouldAllBe(e => (string?)e.Item2["event"] == "pha_chainChanged" && (string?)e.Item2["data"]!["chain"] == "phantasma:localnet");
+	}
+
+	[Fact]
 	public void Disconnect_succeeds_before_the_lock_and_session_checks_and_ends_the_session()
 	{
 		// Spec §9.5: pha_disconnect is idempotent; the session it ends gets pha_sessionDeleted.

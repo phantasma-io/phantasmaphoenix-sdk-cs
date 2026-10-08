@@ -24,15 +24,25 @@ public class LinkServer
 
 	private Dictionary<string, Action<WebSocket>> _websocketsHandlers = new Dictionary<string, Action<WebSocket>>();
 	private List<WebSocket> _activeWebsockets = new List<WebSocket>();
+	// The v5 sessions each loopback connection carries, so that the events of a session reach the
+	// page that holds it (spec §9.5).
+	private readonly Dictionary<WebSocket, HashSet<string>> _v5Sessions = new Dictionary<WebSocket, HashSet<string>>();
 	private Func<MemoryStream>? _bufferFactory;
 	private BufferPool? _bufferPool;
+	private readonly int _port;
 
 	public DateTime StartTime { get; private set; }
 
-	public LinkServer(WalletLink walletLink, WalletLinkV5? walletLinkV5 = null)
+	/// <summary>The port the server listens on once started.</summary>
+	public int Port { get; private set; }
+
+	/// <summary><paramref name="port"/> is the port to listen on; dApps connect to
+	/// <see cref="WalletLink.WebSocketPort"/>, and 0 lets the system pick a free port (tests).</summary>
+	public LinkServer(WalletLink walletLink, WalletLinkV5? walletLinkV5 = null, int port = WalletLink.WebSocketPort)
 	{
 		this.WalletLink = walletLink;
 		this.WalletLinkV5 = walletLinkV5;
+		_port = port;
 
 		listener = null;
 		OnUI = null;
@@ -44,7 +54,7 @@ public class LinkServer
 	// Start is called before the first frame update
 	public void Start()
 	{
-		var port = WalletLink.WebSocketPort;
+		var port = _port;
 
 		// Log.Write("Starting websocket server for Phantasma wallet connector at port " + port);
 
@@ -66,6 +76,7 @@ public class LinkServer
 		{
 			listener.Bind(localEndPoint);
 			listener.Listen(20);
+			Port = ((IPEndPoint)listener.LocalEndPoint!).Port;
 		}
 		catch
 		{
@@ -118,36 +129,67 @@ public class LinkServer
 		var v5 = this.WalletLinkV5;
 		if (v5 != null)
 		{
+			// A second Start must not deliver every event twice.
+			v5.SessionEvent -= OnV5SessionEvent;
+			v5.SessionEnded -= OnV5SessionEnded;
+			v5.SessionEvent += OnV5SessionEvent;
+			v5.SessionEnded += OnV5SessionEnded;
 			this.WebSocket("/phantasma/v5", (socket) =>
 			{
-				while (socket.IsOpen)
+				var sessions = new HashSet<string>();
+				lock (_v5Sessions)
 				{
-					var msg = socket.Receive();
-
-					if (msg.CloseStatus == WebSocketCloseStatus.None)
+					_v5Sessions[socket] = sessions;
+				}
+				try
+				{
+					while (socket.IsOpen)
 					{
-						if (msg.Bytes == null)
-						{
-							throw new InvalidOperationException("Received WebSocket message with null payload.");
-						}
+						var msg = socket.Receive();
 
-						var str = Encoding.UTF8.GetString(msg.Bytes);
-
-						OnUI?.Invoke(() =>
+						if (msg.CloseStatus == WebSocketCloseStatus.None)
 						{
-							v5.HandleMessage(str, (json) =>
+							if (msg.Bytes == null)
 							{
-								try
+								throw new InvalidOperationException("Received WebSocket message with null payload.");
+							}
+
+							var str = Encoding.UTF8.GetString(msg.Bytes);
+
+							OnUI?.Invoke(() =>
+							{
+								v5.HandleMessage(str, (json) =>
 								{
-									socket.Send(json);
-									OnMessageBack?.Invoke(json);
-								}
-								catch (Exception e)
+									try
+									{
+										socket.Send(json);
+										OnMessageBack?.Invoke(json);
+									}
+									catch (Exception e)
+									{
+										System.Diagnostics.Debug.WriteLine("websocket send failure (v5), while answering phantasma link request: " + str + "\nException: " + e.Message);
+									}
+								}, new LinkRequestContext
 								{
-									System.Diagnostics.Debug.WriteLine("websocket send failure (v5), while answering phantasma link request: " + str + "\nException: " + e.Message);
-								}
-							}, new LinkRequestContext { Transport = LinkTransportKind.Loopback });
-						});
+									Transport = LinkTransportKind.Loopback,
+									// The connection carries every session it connected or used.
+									OnSession = session =>
+									{
+										lock (_v5Sessions)
+										{
+											sessions.Add(session);
+										}
+									},
+								});
+							});
+						}
+					}
+				}
+				finally
+				{
+					lock (_v5Sessions)
+					{
+						_v5Sessions.Remove(socket);
 					}
 				}
 			});
@@ -166,12 +208,51 @@ public class LinkServer
 	public void Stop()
 	{
 		// Log.Write("Stopping websocket server");
+		if (WalletLinkV5 != null)
+		{
+			WalletLinkV5.SessionEvent -= OnV5SessionEvent;
+			WalletLinkV5.SessionEnded -= OnV5SessionEnded;
+		}
 
 		// Closing the listener completes the pending accept, and OnClientConnect returns because the
 		// field is null. BeginDisconnect is for a connected socket and does not close a listener.
 		var current = listener;
 		listener = null;
 		current?.Close();
+	}
+
+	/// <summary>Delivers an event of a v5 session to the connections that carry the session (spec
+	/// §9.5), best effort: a page that went away misses it.</summary>
+	private void OnV5SessionEvent(string session, string envelope)
+	{
+		WebSocket[] targets;
+		lock (_v5Sessions)
+		{
+			targets = _v5Sessions.Where(entry => entry.Value.Contains(session)).Select(entry => entry.Key).ToArray();
+		}
+		foreach (var socket in targets)
+		{
+			try
+			{
+				socket.Send(envelope);
+			}
+			catch (Exception e)
+			{
+				System.Diagnostics.Debug.WriteLine("websocket send failure (v5), while delivering a session event: " + e.Message);
+			}
+		}
+	}
+
+	/// <summary>An ended session is no longer carried; its notice went out before.</summary>
+	private void OnV5SessionEnded(string session, LinkSessionEndReason reason)
+	{
+		lock (_v5Sessions)
+		{
+			foreach (var sessions in _v5Sessions.Values)
+			{
+				sessions.Remove(session);
+			}
+		}
 	}
 
 	public void Tick()

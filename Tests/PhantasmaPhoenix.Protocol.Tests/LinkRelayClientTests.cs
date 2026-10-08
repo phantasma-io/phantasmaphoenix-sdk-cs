@@ -650,6 +650,23 @@ public class LinkRelayClientTests
 	}
 
 	[Fact]
+	public void The_events_of_a_session_go_to_its_relay_pairing()
+	{
+		// Spec §9.5: a relay subscription is a persistent channel, so the session's events ride it.
+		var paired = PairOverRelay("events");
+		var before = paired.Socket.Sent.Count;
+
+		paired.Dispatcher.ChainChanged();
+
+		var frames = paired.Socket.SentFrames().Skip(before).ToArray();
+		var chainChanged = paired.Published(frames).Single();
+		((string)chainChanged["event"]!).ShouldBe("pha_chainChanged");
+		((string)chainChanged["session"]!).ShouldBe(paired.SessionId);
+		((string)chainChanged["data"]!["chain"]!).ShouldBe("phantasma:localnet");
+		((string)frames.Single()["topic"]!).ShouldBe(paired.Topic + ".wallet");
+	}
+
+	[Fact]
 	public void A_replayed_frame_gets_no_second_answer()
 	{
 		// Spec §18.2: a replayed frame repeats its request id, so the id memory stops it.

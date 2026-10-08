@@ -33,6 +33,10 @@ public class WalletLinkV5
 	/// Its data is <c>{ accounts }</c>, the session's account.</summary>
 	public const string AccountsChangedEvent = "pha_accountsChanged";
 
+	/// <summary>Wallet->dApp event: the wallet switched to another network (spec §9.5). Its data is
+	/// <c>{ chain }</c>, the CAIP-2 id of the network.</summary>
+	public const string ChainChangedEvent = "pha_chainChanged";
+
 	// Error codes - mirror the SDK taxonomy (spec §10 / errors.ts) so dApps branch on the number.
 	private const int ErrParse = -32700;
 	private const int ErrInvalidRequest = -32600;
@@ -477,6 +481,22 @@ public class WalletLinkV5
 				var envelope = BuildEvent(AccountsChangedEvent, session,
 					new JObject { ["accounts"] = new JArray { BuildAccount(result.Account) } });
 				Raise(SessionEvent, handler => handler(session, envelope));
+			}
+		});
+	}
+
+	/// <summary>The host calls it when the wallet switches to another network (spec §9.5): every
+	/// live session hears <c>pha_chainChanged</c> with the CAIP-2 id of the network.</summary>
+	public void ChainChanged()
+	{
+		_ops.GetChains(chains =>
+		{
+			var chain = ServedChains(chains.Nexus)[0];
+			var now = DateTime.UtcNow;
+			foreach (var record in _sessions.List().Where(record => !IsExpired(record, now)).ToArray())
+			{
+				var envelope = BuildEvent(ChainChangedEvent, record.Id, new JObject { ["chain"] = chain });
+				Raise(SessionEvent, handler => handler(record.Id, envelope));
 			}
 		});
 	}
