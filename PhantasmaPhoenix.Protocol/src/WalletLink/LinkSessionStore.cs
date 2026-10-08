@@ -10,8 +10,15 @@ namespace PhantasmaPhoenix.Protocol;
 public sealed class LinkSessionRecord
 {
 	public string Id { get; set; } = "";
-	/// <summary>The dApp identity the user approved; resume requires an exact match.</summary>
+	/// <summary>The dApp name the user approved; resume requires an exact match.</summary>
 	public string Dapp { get; set; } = "";
+	/// <summary>The dApp url the user approved (spec §7).</summary>
+	public string DappUrl { get; set; } = "";
+	/// <summary>The dApp icon URL, or empty.</summary>
+	public string DappIcon { get; set; } = "";
+	/// <summary>The origin the session is bound to (spec §6.2, §7), or null when the transport
+	/// reported none. A request from another origin is refused.</summary>
+	public string? Origin { get; set; }
 	/// <summary>The account the session was authorized for; resume requires the same account.</summary>
 	public string Address { get; set; } = "";
 	public DateTime CreatedUtc { get; set; }

@@ -7,10 +7,10 @@ namespace PhantasmaPhoenix.Protocol.Tests;
 
 public class WalletLinkV5Tests
 {
-	private static JObject Send(WalletLinkV5 link, string json)
+	private static JObject Send(WalletLinkV5 link, string json, LinkRequestContext? context = null)
 	{
 		JObject? response = null;
-		link.HandleMessage(json, s => response = JObject.Parse(s));
+		link.HandleMessage(json, s => response = JObject.Parse(s), context);
 		response.ShouldNotBeNull();
 		return response!;
 	}
@@ -202,7 +202,7 @@ public class WalletLinkV5Tests
 		var link = new WalletLinkV5(ops);
 
 		var response = Send(link,
-			"{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"d\"}}}");
+			"{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"d\",\"url\":\"https://d.example\"}}}");
 		((int)response["error"]!["code"]!).ShouldBe(4001);
 
 		// No session leaked: a follow-up using a made-up session is still unauthorized.
@@ -216,11 +216,11 @@ public class WalletLinkV5Tests
 		var ops = new FakeV5Ops { FailConnect = LinkFailure.Internal, FailConnectMessage = "account unavailable" };
 		var link = new WalletLinkV5(ops);
 
-		var failed = Send(link, "{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"d\"}}}");
+		var failed = Send(link, "{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"d\",\"url\":\"https://d.example\"}}}");
 		((int)failed["error"]!["code"]!).ShouldBe(-32603);
 
 		ops.FailConnect = LinkFailure.None;
-		var ok = Send(link, "{\"plv\":5,\"id\":\"c2\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"d\"}}}");
+		var ok = Send(link, "{\"plv\":5,\"id\":\"c2\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"d\",\"url\":\"https://d.example\"}}}");
 		((string)ok["result"]!["session"]!["id"]!).ShouldNotBeNullOrEmpty();
 	}
 
@@ -456,6 +456,70 @@ public class WalletLinkV5Tests
 		ops.InvokeCalls.ShouldBe(0);
 	}
 
+	// Spec §7, §9.5: every approval shows the dApp, its origin and the account. The connect prompt
+	// gets the dApp of the request and the channel's origin and transport.
+	[Fact]
+	public void Connect_gives_the_wallet_the_dApp_and_the_origin_of_the_request()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var bound = new List<string>();
+		var context = new LinkRequestContext { Origin = "https://page.example", OnSession = bound.Add };
+
+		var response = Send(link,
+			"{\"plv\":5,\"id\":\"o1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"Game\",\"url\":\"https://game.example\",\"icon\":\"https://game.example/i.png\"}}}",
+			context);
+
+		var caller = ops.LastCaller!;
+		caller.DappName.ShouldBe("Game");
+		caller.DappUrl.ShouldBe("https://game.example");
+		caller.DappIcon.ShouldBe("https://game.example/i.png");
+		caller.Origin.ShouldBe("https://page.example");
+		caller.Transport.ShouldBe(LinkTransportKind.Loopback);
+		bound.ShouldBe(new[] { (string)response["result"]!["session"]!["id"]! });
+	}
+
+	// Spec §7: the wallet signs for a session with its account only, and shows the session's dApp
+	// in the prompt. A sign operation gets the session's dApp, account and origin.
+	[Fact]
+	public void A_sign_operation_gets_the_dApp_and_the_account_of_the_session()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var context = new LinkRequestContext { Origin = "https://page.example" };
+		var session = (string)Send(link,
+			"{\"plv\":5,\"id\":\"o1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"Game\",\"url\":\"https://game.example\"}}}",
+			context)["result"]!["session"]!["id"]!;
+
+		Send(link, $"{{\"plv\":5,\"id\":\"o2\",\"session\":\"{session}\",\"method\":\"pha_signMessage\",\"params\":{{\"message\":\"AA==\"}}}}", context);
+
+		var caller = ops.LastCaller!;
+		caller.DappName.ShouldBe("Game");
+		caller.DappUrl.ShouldBe("https://game.example");
+		caller.Address.ShouldBe("P2KTest");
+		caller.Origin.ShouldBe("https://page.example");
+	}
+
+	// Spec §6.2, §7: a session is bound to the origin it was approved from. Another origin gets 4100
+	// and reaches no prompt; a request whose transport knows no origin is not refused for it.
+	[Fact]
+	public void A_request_from_another_origin_is_refused()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = (string)Send(link,
+			"{\"plv\":5,\"id\":\"o1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"Game\",\"url\":\"https://game.example\"}}}",
+			new LinkRequestContext { Origin = "https://page.example" })["result"]!["session"]!["id"]!;
+		var request = $"{{\"plv\":5,\"id\":\"o2\",\"session\":\"{session}\",\"method\":\"pha_signMessage\",\"params\":{{\"message\":\"AA==\"}}}}";
+
+		var other = Send(link, request, new LinkRequestContext { Origin = "https://evil.example" });
+		((int)other["error"]!["code"]!).ShouldBe(4100);
+		ops.SignedMessage.ShouldBeNull();
+
+		var unknown = Send(link, request, new LinkRequestContext());
+		unknown["error"].ShouldBeNull();
+	}
+
 	// Spec §4: requests are independent by id, and there is no global single-in-flight flag. A
 	// prompt that is still open does not block another request, and each answer carries the id of
 	// its own request, in whatever order the user answers.
@@ -468,10 +532,10 @@ public class WalletLinkV5Tests
 		JObject? first = null;
 		JObject? second = null;
 		link.HandleMessage(
-			"{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"a\"}}}",
+			"{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"a\",\"url\":\"https://a.example\"}}}",
 			s => first = JObject.Parse(s));
 		link.HandleMessage(
-			"{\"plv\":5,\"id\":\"c2\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"b\"}}}",
+			"{\"plv\":5,\"id\":\"c2\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"b\",\"url\":\"https://b.example\"}}}",
 			s => second = JObject.Parse(s));
 		first.ShouldBeNull();
 		second.ShouldBeNull();
@@ -566,6 +630,10 @@ public class WalletLinkV5Tests
 	[Theory]
 	[InlineData("pha_connect", "{\"dapp\":{\"name\":{}}}")]
 	[InlineData("pha_connect", "{\"dapp\":{\"name\":7}}")]
+	[InlineData("pha_connect", "{\"dapp\":{\"name\":\"d\"}}")]
+	[InlineData("pha_connect", "{\"dapp\":{\"name\":\"d\",\"url\":\"\"}}")]
+	[InlineData("pha_connect", "{\"dapp\":{\"name\":\"d\",\"url\":7}}")]
+	[InlineData("pha_connect", "{\"dapp\":{\"name\":\"d\",\"url\":\"https://d.example\",\"icon\":{}}}")]
 	[InlineData("pha_sendTransaction", "{\"format\":7,\"tx\":\"AAEC\"}")]
 	[InlineData("pha_sendTransaction", "{\"format\":\"carbon\",\"tx\":{}}")]
 	[InlineData("pha_sendTransaction", "{\"format\":\"carbon\",\"tx\":\"AAEC\",\"signatureKind\":1}")]
@@ -630,7 +698,7 @@ public class WalletLinkV5Tests
 		ops.ConnectCalls.ShouldBe(1);
 
 		var resumed = Send(link,
-			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\"}},\"session\":\"{session}\"}}}}");
+			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"}},\"session\":\"{session}\"}}}}");
 
 		ops.ConnectCalls.ShouldBe(1); // NO second prompt
 		((string)resumed["result"]!["session"]!["id"]!).ShouldBe(session); // same session id
@@ -645,7 +713,7 @@ public class WalletLinkV5Tests
 		var link = new WalletLinkV5(ops);
 
 		var response = Send(link,
-			"{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\"},\"session\":\"nope\"}}");
+			"{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"},\"session\":\"nope\"}}");
 
 		ops.ConnectCalls.ShouldBe(1); // prompted
 		((string)response["result"]!["session"]!["id"]!).ShouldNotBe("nope"); // fresh session
@@ -660,7 +728,7 @@ public class WalletLinkV5Tests
 		var session = Connect(link, out _);
 
 		var response = Send(link,
-			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"OTHER\"}},\"session\":\"{session}\"}}}}");
+			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"OTHER\",\"url\":\"https://other.example\"}},\"session\":\"{session}\"}}}}");
 
 		ops.ConnectCalls.ShouldBe(2); // re-consent for the other dApp
 		((string)response["result"]!["session"]!["id"]!).ShouldNotBe(session);
@@ -676,7 +744,7 @@ public class WalletLinkV5Tests
 
 		ops.AccountAddress = "P2KOther";
 		var response = Send(link,
-			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\"}},\"session\":\"{session}\"}}}}");
+			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"}},\"session\":\"{session}\"}}}}");
 
 		ops.ConnectCalls.ShouldBe(2);
 		((string)response["result"]!["session"]!["id"]!).ShouldNotBe(session);
@@ -697,7 +765,7 @@ public class WalletLinkV5Tests
 
 		var second = new WalletLinkV5(ops, store); // "restarted" wallet
 		var resumed = Send(second,
-			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\"}},\"session\":\"{session}\"}}}}");
+			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"}},\"session\":\"{session}\"}}}}");
 
 		ops.ConnectCalls.ShouldBe(1); // still no second prompt
 		((string)resumed["result"]!["session"]!["id"]!).ShouldBe(session);

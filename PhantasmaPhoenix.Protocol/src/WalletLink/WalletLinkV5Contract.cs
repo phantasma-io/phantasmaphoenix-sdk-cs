@@ -165,12 +165,12 @@ public interface IWalletLinkV5Ops
 	WalletStatus Status { get; }
 
 	/// <summary>
-	/// Run the connect handshake for <paramref name="dappName"/>: prompt the user for consent, then
-	/// gather account + wallet version + nexus. The v5 session id is owned and issued by the
-	/// dispatcher (<see cref="WalletLinkV5"/>); this op only grants consent and returns account data,
-	/// and must never touch a legacy per-dapp token ledger.
+	/// Run the connect handshake for <paramref name="caller"/>: prompt the user for consent, showing
+	/// the dApp and its origin, then gather account + wallet version + nexus. The v5 session id is
+	/// owned and issued by the dispatcher (<see cref="WalletLinkV5"/>); this op only grants consent
+	/// and returns account data, and must never touch a legacy per-dapp token ledger.
 	/// </summary>
-	void Connect(string dappName, Action<LinkConnectResult> done);
+	void Connect(LinkCaller caller, Action<LinkConnectResult> done);
 
 	/// <summary>Return the active account (no prompt).</summary>
 	void GetAccount(Action<LinkAccountResult> done);
@@ -181,19 +181,22 @@ public interface IWalletLinkV5Ops
 	/// <summary>Return wallet identity + node info (no prompt).</summary>
 	void GetWalletInfo(Action<LinkWalletInfo> done);
 
-	/// <summary>Sign and broadcast a serialized transaction; prompts the user for consent. The
-	/// wallet signs the transaction exactly as the dApp built it (spec §9.5).</summary>
-	void SendTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSendResult> done);
+	/// <summary>Sign and broadcast a serialized transaction; prompts the user for consent, showing
+	/// <paramref name="caller"/>. The wallet signs the transaction exactly as the dApp built it
+	/// (spec §9.5), with the account of the caller's session only (spec §7).</summary>
+	void SendTransaction(LinkCaller caller, byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSendResult> done);
 
 	/// <summary>Sign EXACTLY the spec §8 payload built from <paramref name="message"/> (the op
 	/// itself runs <see cref="LinkSignMessage.BuildPayload"/> with a fresh CSPRNG random);
-	/// prompts the user, showing <paramref name="display"/> when the dApp provided a hint.</summary>
-	void SignMessage(byte[] message, string? display, Action<LinkSignMessageResult> done);
+	/// prompts the user, showing <paramref name="caller"/> and <paramref name="display"/> when the
+	/// dApp provided a hint. It signs with the account of the caller's session only (spec §7).</summary>
+	void SignMessage(LinkCaller caller, byte[] message, string? display, Action<LinkSignMessageResult> done);
 
 	/// <summary>Sign a serialized transaction WITHOUT broadcasting; prompts the user for
-	/// consent with a human-readable description. The wallet signs the transaction exactly as the
-	/// dApp built it (spec §9.5).</summary>
-	void SignTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSignTransactionResult> done);
+	/// consent with a human-readable description and <paramref name="caller"/>. The wallet signs the
+	/// transaction exactly as the dApp built it (spec §9.5), with the account of the caller's session
+	/// only (spec §7).</summary>
+	void SignTransaction(LinkCaller caller, byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSignTransactionResult> done);
 
 	/// <summary>
 	/// Ask the user to approve a deeplink/relay pairing (spec §15): "pair with dApp X?".

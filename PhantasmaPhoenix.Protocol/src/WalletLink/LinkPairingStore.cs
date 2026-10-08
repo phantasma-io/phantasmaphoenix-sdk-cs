@@ -18,12 +18,37 @@ public sealed class LinkPairingRecord
 	/// deeplink-only pairing. Normalized from the pairing URI's `relay` field.</summary>
 	public string? RelayUrl { get; set; }
 	public string DappName { get; set; } = "";
+	/// <summary>The dApp url from the pairing's <c>meta</c> (spec §15). Requests of the pairing carry
+	/// it as their origin.</summary>
+	public string DappUrl { get; set; } = "";
 	public DateTime CreatedUtc { get; set; }
 	public DateTime LastSeenUtc { get; set; }
-	/// <summary>The v5 session id (§7) this relay channel established, so that when the wallet
+	/// <summary>The v5 session id (§7) this channel carries, so that when the wallet
 	/// evicts/expires the pairing it can best-effort notify the dApp with a `pha_sessionDeleted`
-	/// event over the channel. Empty until the connect result is pushed.</summary>
+	/// event over the channel. Empty until the first connect of the pairing.</summary>
 	public string SessionId { get; set; } = "";
+
+	/// <summary>Returns the context of a request that arrived over this pairing: its transport, the
+	/// dApp url of the pairing as the origin, and the session it binds, which the pairing then
+	/// keeps in <paramref name="store"/>.</summary>
+	internal LinkRequestContext RequestContext(LinkTransportKind transport, ILinkPairingStore store)
+	{
+		return new LinkRequestContext
+		{
+			Transport = transport,
+			Origin = DappUrl.Length > 0 ? DappUrl : null,
+			OnSession = session =>
+			{
+				// A pairing that ended while its request waited for the user stays ended: saving it
+				// again would bring its key back (spec §18.3).
+				if (SessionId != session && store.Get(Topic) != null)
+				{
+					SessionId = session;
+					store.Save(this);
+				}
+			},
+		};
+	}
 }
 
 /// <summary>

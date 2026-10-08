@@ -113,7 +113,7 @@ public class LinkDeeplinkEndpointTests
 
 		// dApp side: seal a connect envelope with the pairing key and wrap it as a request URL.
 		var channel = new LinkChannel(key);
-		var connectEnvelope = "{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"dl-dapp\"}}}";
+		var connectEnvelope = "{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"dl-dapp\",\"url\":\"https://dl-dapp.example\"}}}";
 		var requestFrame = channel.SealEnvelope(connectEnvelope);
 		var fb64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(requestFrame)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 		var requestUrl = $"phantasma://v5/req#t={LinkTestTopics.Of("topic-7")}&f={fb64}";
@@ -134,8 +134,36 @@ public class LinkDeeplinkEndpointTests
 		var response = JObject.Parse(responseJson);
 		((string)response["id"]!).ShouldBe("c1");
 		((string)response["result"]!["account"]!["address"]!).ShouldBe("P2KTest");
-		((string)response["result"]!["session"]!["id"]!).ShouldNotBeNullOrEmpty();
+		var sessionId = (string)response["result"]!["session"]!["id"]!;
+		sessionId.ShouldNotBeNullOrEmpty();
 		ops.LastConnectDapp.ShouldBe("dl-dapp");
+		// The pairing keeps the session of its explicit connect, so that the end of the session
+		// can end the pairing too.
+		pairings.Get(LinkTestTopics.Of("topic-7"))!.SessionId.ShouldBe(sessionId);
+		ops.LastCaller!.Transport.ShouldBe(LinkTransportKind.Deeplink);
+	}
+
+	// Spec §18.3: a pairing that ended while its connect waited for the user stays ended. Saving it
+	// again with the new session would bring its key back.
+	[Fact]
+	public void A_pairing_that_ended_during_its_connect_prompt_is_not_saved_again()
+	{
+		var (endpoint, ops, pairings, _) = Build();
+		ops.DeferConnect = true;
+		var key = new byte[32];
+		key[3] = 5;
+		var topic = LinkTestTopics.Of("ended-during-prompt");
+		endpoint.TryHandle(SymPairingUri(key, topic), _ => { }).ShouldBeTrue();
+		var channel = new LinkChannel(key);
+		var frame = channel.SealEnvelope("{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"dl-dapp\",\"url\":\"https://dl-dapp.example\"}}}");
+		var fb64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(frame)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+		endpoint.TryHandle($"phantasma://v5/req#t={topic}&f={fb64}", _ => { }).ShouldBeTrue();
+		ops.PendingConnects.Count.ShouldBe(1);
+
+		pairings.Remove(topic);
+		ops.PendingConnects[0](LinkConnectResult.Ok(new LinkAccount { Address = "P2KTest" }, "FakeWallet", "9.9.9", "localnet"));
+
+		pairings.Get(topic).ShouldBeNull();
 	}
 
 	[Fact]

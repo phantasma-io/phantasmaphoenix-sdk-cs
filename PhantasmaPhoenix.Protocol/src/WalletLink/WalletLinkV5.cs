@@ -76,9 +76,12 @@ public class WalletLinkV5
 	/// <paramref name="respond"/>. The wallet host is expected to marshal this onto its UI thread
 	/// (operations prompt the user); responses may arrive asynchronously from those prompts. The
 	/// method never throws: a malformed request gets an error answer (spec §4).
+	/// <paramref name="context"/> describes the channel; without it the request counts as a
+	/// loopback request of unknown origin.
 	/// </summary>
-	public void HandleMessage(string message, Action<string> respond)
+	public void HandleMessage(string message, Action<string> respond, LinkRequestContext? context = null)
 	{
+		context ??= new LinkRequestContext();
 		// A wallet callback that fires twice, or an exception after the answer, must not send a
 		// second answer.
 		var answered = 0;
@@ -97,7 +100,7 @@ public class WalletLinkV5
 		}
 		try
 		{
-			Dispatch(request, answer);
+			Dispatch(request, context, answer);
 		}
 		catch (Exception)
 		{
@@ -193,7 +196,7 @@ public class WalletLinkV5
 	}
 
 	/// <summary>Routes a request that passed <see cref="TryReadRequest"/> to its handler.</summary>
-	private void Dispatch(RequestEnvelope request, Action<string> respond)
+	private void Dispatch(RequestEnvelope request, LinkRequestContext context, Action<string> respond)
 	{
 		var id = request.Id;
 		var method = request.Method;
@@ -208,49 +211,80 @@ public class WalletLinkV5
 			return;
 		}
 
-		// Everything except connect requires a Ready wallet and a valid session.
-		if (method != "pha_connect")
+		if (method == "pha_connect")
 		{
-			if (_ops.Status != WalletStatus.Ready)
-			{
-				respond(BuildError(id, ErrDisconnected, $"Wallet is {_ops.Status}"));
-				return;
-			}
-			if (session == null || _sessions.Get(session) == null)
-			{
-				respond(BuildError(id, ErrUnauthorized, "Invalid or missing session"));
-				return;
-			}
+			HandleConnect(id, prms, context, respond);
+			return;
 		}
+
+		// Everything except connect requires a Ready wallet and a valid session.
+		if (_ops.Status != WalletStatus.Ready)
+		{
+			respond(BuildError(id, ErrDisconnected, $"Wallet is {_ops.Status}"));
+			return;
+		}
+		var record = session == null ? null : _sessions.Get(session);
+		if (record == null)
+		{
+			respond(BuildError(id, ErrUnauthorized, "Invalid or missing session"));
+			return;
+		}
+		// Spec §6.2, §7: a session is bound to the origin it was approved from.
+		if (!OriginMatches(record, context.Origin))
+		{
+			respond(BuildError(id, ErrUnauthorized, "Origin mismatch"));
+			return;
+		}
+		context.OnSession?.Invoke(record.Id);
+		var caller = CallerOf(record, context);
 
 		// Requests are independent (spec §4): each one is answered by its own id, whatever other
 		// request still waits for the user. The wallet may queue its prompts.
 		switch (method)
 		{
-			case "pha_connect": HandleConnect(id, prms, respond); break;
 			case "pha_disconnect": HandleDisconnect(id, session, respond); break;
 			case "pha_getAccounts": HandleGetAccounts(id, respond); break;
 			case "pha_getChains": HandleGetChains(id, respond); break;
 			case "pha_getWalletInfo": HandleGetWalletInfo(id, respond); break;
-			case "pha_sendTransaction": HandleSendTransaction(id, prms, respond); break;
-			case "pha_signTransaction": HandleSignTransaction(id, prms, respond); break;
-			case "pha_signMessage": HandleSignMessage(id, prms, respond); break;
+			case "pha_sendTransaction": HandleSendTransaction(id, prms, caller, respond); break;
+			case "pha_signTransaction": HandleSignTransaction(id, prms, caller, respond); break;
+			case "pha_signMessage": HandleSignMessage(id, prms, caller, respond); break;
 			case "pha_invokeScript": HandleInvokeScript(id, prms, respond); break;
 		}
 	}
 
-	#region Handlers
-	private void HandleConnect(JToken? id, JObject prms, Action<string> respond)
+	/// <summary>Returns true when <paramref name="origin"/> may use the session: the session or the
+	/// request has no known origin, or both are the same.</summary>
+	private static bool OriginMatches(LinkSessionRecord record, string? origin)
 	{
-		var dapp = prms["dapp"] as JObject;
-		var dappName = TextOf(dapp?["name"]);
-		// `is null || Length == 0` (rather than string.IsNullOrEmpty) so the compiler narrows
-		// `dappName` to a non-null string for the calls below.
-		if (dappName is null || dappName.Length == 0)
+		return record.Origin == null || origin == null || record.Origin == origin;
+	}
+
+	/// <summary>Returns the caller of a request in the session <paramref name="record"/>: the
+	/// approved dApp, the origin of this request (or the session's), and the session's account.</summary>
+	private static LinkCaller CallerOf(LinkSessionRecord record, LinkRequestContext context)
+	{
+		return new LinkCaller
 		{
-			respond(BuildError(id, ErrInvalidParams, "Missing dapp.name"));
+			DappName = record.Dapp,
+			DappUrl = record.DappUrl,
+			DappIcon = record.DappIcon,
+			Origin = context.Origin ?? record.Origin,
+			Address = record.Address,
+			Transport = context.Transport,
+		};
+	}
+
+	#region Handlers
+	private void HandleConnect(JToken? id, JObject prms, LinkRequestContext context, Action<string> respond)
+	{
+		if (!TryReadDapp(prms, out var caller))
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.dapp needs a name and a url"));
 			return;
 		}
+		caller.Origin = context.Origin;
+		caller.Transport = context.Transport;
 
 		// Resume (spec §7): a dApp presenting a known session id for the SAME dApp identity gets
 		// reconnected without a prompt - but only if the wallet still serves the same account.
@@ -259,25 +293,43 @@ public class WalletLinkV5
 		if (resumeId != null)
 		{
 			var record = _sessions.Get(resumeId);
-			if (record != null && record.Dapp == dappName && _ops.Status == WalletStatus.Ready)
+			if (record != null && record.Dapp == caller.DappName && _ops.Status == WalletStatus.Ready && OriginMatches(record, context.Origin))
 			{
-				TryResume(id, dappName, record, respond);
+				TryResume(id, caller, record, context, respond);
 				return;
 			}
 		}
 
-		PromptConnect(id, dappName, respond);
+		PromptConnect(id, caller, context, respond);
+	}
+
+	/// <summary>Reads the <c>dapp</c> param of a connect (spec §9.5): a non-empty <c>name</c> and
+	/// <c>url</c>, and an optional <c>icon</c>, all strings. Returns false for anything else.</summary>
+	private static bool TryReadDapp(JObject prms, out LinkCaller caller)
+	{
+		caller = new LinkCaller();
+		if (!(prms["dapp"] is JObject dapp)
+			|| !TryReadText(dapp, "name", out var name) || name is null || name.Length == 0
+			|| !TryReadText(dapp, "url", out var url) || url is null || url.Length == 0
+			|| !TryReadText(dapp, "icon", out var icon))
+		{
+			return false;
+		}
+		caller.DappName = name;
+		caller.DappUrl = url;
+		caller.DappIcon = icon ?? "";
+		return true;
 	}
 
 	/// <summary>Promptless reconnect for an already-authorized session.</summary>
-	private void TryResume(JToken? id, string dappName, LinkSessionRecord record, Action<string> respond)
+	private void TryResume(JToken? id, LinkCaller caller, LinkSessionRecord record, LinkRequestContext context, Action<string> respond)
 	{
 		_ops.GetAccount(result =>
 		{
 			if (result.Failure != LinkFailure.None || result.Account == null || result.Account.Address != record.Address)
 			{
 				// Session no longer matches the wallet state (e.g. account switched): re-consent.
-				PromptConnect(id, dappName, respond);
+				PromptConnect(id, caller, context, respond);
 				return;
 			}
 
@@ -287,18 +339,20 @@ public class WalletLinkV5
 				{
 					record.LastSeenUtc = DateTime.UtcNow;
 					_sessions.Save(record);
+					context.OnSession?.Invoke(record.Id);
 					respond(BuildResult(id, BuildConnectResponse(record.Id, info.Name, info.Version, chains.Nexus, account)));
 				}));
 		});
 	}
 
-	/// <summary>The full consent flow: prompt the user, then persist a fresh session.</summary>
-	private void PromptConnect(JToken? id, string dappName, Action<string> respond)
+	/// <summary>The full consent flow: prompt the user, then persist a fresh session bound to the
+	/// dApp and the origin of the request.</summary>
+	private void PromptConnect(JToken? id, LinkCaller caller, LinkRequestContext context, Action<string> respond)
 	{
 		// The dispatcher OWNS the session id: it mints the token, hands it to the dApp as the
 		// session id, and persists the record below. The op only grants consent (no token passed in).
 		var token = Guid.NewGuid().ToString("N");
-		_ops.Connect(dappName, result =>
+		_ops.Connect(caller, result =>
 		{
 			if (result.Failure != LinkFailure.None || result.Account == null)
 			{
@@ -310,11 +364,15 @@ public class WalletLinkV5
 			_sessions.Save(new LinkSessionRecord
 			{
 				Id = token,
-				Dapp = dappName,
+				Dapp = caller.DappName,
+				DappUrl = caller.DappUrl,
+				DappIcon = caller.DappIcon,
+				Origin = context.Origin,
 				Address = result.Account.Address,
 				CreatedUtc = now,
 				LastSeenUtc = now,
 			});
+			context.OnSession?.Invoke(token);
 			respond(BuildResult(id, BuildConnectResponse(token, result.WalletName, result.WalletVersion, result.Nexus, result.Account)));
 		});
 	}
@@ -337,11 +395,12 @@ public class WalletLinkV5
 	/// prompt - the caller must invoke it only from an explicit user approval whose consent text
 	/// covers account access (the pairing consent). When the wallet is not Ready or has no
 	/// account, it silently delivers nothing: the dApp then falls back to the classic explicit
-	/// pha_connect (which prompts), so degradation is graceful, never an error.
+	/// pha_connect (which prompts), so degradation is graceful, never an error. The session is
+	/// bound to the dApp and the origin of <paramref name="caller"/>.
 	/// </summary>
-	public void EstablishConsentedSession(string dappName, Action<string> deliver)
+	public void EstablishConsentedSession(LinkCaller caller, Action<string> deliver)
 	{
-		if (string.IsNullOrEmpty(dappName) || _ops.Status != WalletStatus.Ready)
+		if (string.IsNullOrEmpty(caller.DappName) || _ops.Status != WalletStatus.Ready)
 		{
 			return;
 		}
@@ -362,7 +421,10 @@ public class WalletLinkV5
 					_sessions.Save(new LinkSessionRecord
 					{
 						Id = token,
-						Dapp = dappName,
+						Dapp = caller.DappName,
+						DappUrl = caller.DappUrl,
+						DappIcon = caller.DappIcon,
+						Origin = caller.Origin,
 						Address = account.Address,
 						CreatedUtc = now,
 						LastSeenUtc = now,
@@ -494,14 +556,14 @@ public class WalletLinkV5
 		return true;
 	}
 
-	private void HandleSendTransaction(JToken? id, JObject prms, Action<string> respond)
+	private void HandleSendTransaction(JToken? id, JObject prms, LinkCaller caller, Action<string> respond)
 	{
 		if (!TryParseTxParams(id, prms, respond, out var txBytes, out var format, out var kind))
 		{
 			return;
 		}
 
-		_ops.SendTransaction(txBytes, format, kind, result =>
+		_ops.SendTransaction(caller, txBytes, format, kind, result =>
 		{
 			if (result.Failure != LinkFailure.None || result.Hash == Hash.Null)
 			{
@@ -512,14 +574,14 @@ public class WalletLinkV5
 		});
 	}
 
-	private void HandleSignTransaction(JToken? id, JObject prms, Action<string> respond)
+	private void HandleSignTransaction(JToken? id, JObject prms, LinkCaller caller, Action<string> respond)
 	{
 		if (!TryParseTxParams(id, prms, respond, out var txBytes, out var format, out var kind))
 		{
 			return;
 		}
 
-		_ops.SignTransaction(txBytes, format, kind, result =>
+		_ops.SignTransaction(caller, txBytes, format, kind, result =>
 		{
 			if (result.Failure != LinkFailure.None || result.SignedTx == null)
 			{
@@ -530,7 +592,7 @@ public class WalletLinkV5
 		});
 	}
 
-	private void HandleSignMessage(JToken? id, JObject prms, Action<string> respond)
+	private void HandleSignMessage(JToken? id, JObject prms, LinkCaller caller, Action<string> respond)
 	{
 		if (!TryReadText(prms, "message", out var messageValue) || !TryReadText(prms, "display", out var display))
 		{
@@ -574,7 +636,7 @@ public class WalletLinkV5
 			return;
 		}
 
-		_ops.SignMessage(message, display, result =>
+		_ops.SignMessage(caller, message, display, result =>
 		{
 			if (result.Failure != LinkFailure.None || result.Signature == null || result.Random == null)
 			{

@@ -588,7 +588,8 @@ public sealed class LinkRelayClient : IDisposable
 		_log?.Invoke($"deliver OK topic={topic}: dispatching to wallet");
 		pairing.LastSeenUtc = DateTime.UtcNow;
 		_pairings.Save(pairing);
-		_dispatcher.HandleMessage(envelopeJson, response => PublishSealed(pairing, response));
+		_dispatcher.HandleMessage(envelopeJson, response => PublishSealed(pairing, response),
+			pairing.RequestContext(LinkTransportKind.Relay, _pairings));
 	}
 
 	/// <summary>Returns the top-level <c>id</c> of an envelope, or null when it has none (an

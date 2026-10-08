@@ -20,6 +20,8 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	/// <summary>The consent callbacks of the deferred connects, in the order they came.</summary>
 	public readonly List<Action<LinkConnectResult>> PendingConnects = new List<Action<LinkConnectResult>>();
 	public string? LastConnectDapp;
+	/// <summary>The caller of the last prompting operation (connect or sign).</summary>
+	public LinkCaller? LastCaller;
 	/// <summary>How many times the consent flow (Connect) ran - resume must NOT increase it.</summary>
 	public int ConnectCalls;
 
@@ -44,10 +46,11 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 		},
 	};
 
-	public void Connect(string dappName, Action<LinkConnectResult> done)
+	public void Connect(LinkCaller caller, Action<LinkConnectResult> done)
 	{
 		ConnectCalls++;
-		LastConnectDapp = dappName;
+		LastConnectDapp = caller.DappName;
+		LastCaller = caller;
 		if (DeferConnect) { PendingConnects.Add(done); return; }
 		if (RejectConnect) { done(LinkConnectResult.Fail(LinkFailure.UserRejected, "rejected")); return; }
 		if (FailConnect != LinkFailure.None) { done(LinkConnectResult.Fail(FailConnect, FailConnectMessage)); return; }
@@ -75,8 +78,9 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	public void GetWalletInfo(Action<LinkWalletInfo> done) =>
 		done(new LinkWalletInfo { Name = "FakeWallet", Version = "9.9.9", Rpc = "http://localhost:7077/rpc" });
 
-	public void SendTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSendResult> done)
+	public void SendTransaction(LinkCaller caller, byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSendResult> done)
 	{
+		LastCaller = caller;
 		SentFormat = format;
 		SentTx = serializedTx;
 		if (FailSend != LinkFailure.None) { done(LinkSendResult.Fail(FailSend, FailSendMessage)); return; }
@@ -106,8 +110,9 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	public LinkTxFormat? SignTxFormat;
 	public SignatureKind? SignTxKind;
 
-	public void SignMessage(byte[] message, string? display, Action<LinkSignMessageResult> done)
+	public void SignMessage(LinkCaller caller, byte[] message, string? display, Action<LinkSignMessageResult> done)
 	{
+		LastCaller = caller;
 		SignedMessage = message;
 		SignedDisplay = display;
 		if (FailSignMessage != LinkFailure.None) { done(LinkSignMessageResult.Fail(FailSignMessage, "sign refused")); return; }
@@ -119,8 +124,9 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 		done(LinkSignMessageResult.Ok(signature, random));
 	}
 
-	public void SignTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSignTransactionResult> done)
+	public void SignTransaction(LinkCaller caller, byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSignTransactionResult> done)
 	{
+		LastCaller = caller;
 		SignTxFormat = format;
 		SignTxKind = kind;
 		if (FailSignTx != LinkFailure.None) { done(LinkSignTransactionResult.Fail(FailSignTx, "sign refused")); return; }

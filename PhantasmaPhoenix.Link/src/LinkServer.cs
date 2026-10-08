@@ -146,7 +146,7 @@ public class LinkServer
 								{
 									System.Diagnostics.Debug.WriteLine("websocket send failure (v5), while answering phantasma link request: " + str + "\nException: " + e.Message);
 								}
-							});
+							}, new LinkRequestContext { Transport = LinkTransportKind.Loopback });
 						});
 					}
 				}

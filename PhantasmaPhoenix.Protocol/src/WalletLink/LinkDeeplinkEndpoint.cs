@@ -147,6 +147,7 @@ public sealed class LinkDeeplinkEndpoint
 				CallbackUrl = pairing.CallbackUrl ?? "",
 				RelayUrl = relayUrl,
 				DappName = pairing.DappName ?? "",
+				DappUrl = pairing.DappUrl ?? "",
 				CreatedUtc = now,
 				LastSeenUtc = now,
 			};
@@ -171,7 +172,14 @@ public sealed class LinkDeeplinkEndpoint
 				_log?.Invoke($"pair topic={pairing.Topic}: no dapp name, deferring to explicit pha_connect");
 				return;
 			}
-			_dispatcher.EstablishConsentedSession(dappName!, eventJson =>
+			var caller = new LinkCaller
+			{
+				DappName = dappName!,
+				DappUrl = record.DappUrl,
+				Origin = record.DappUrl.Length > 0 ? record.DappUrl : null,
+				Transport = relayUrl != null ? LinkTransportKind.Relay : LinkTransportKind.Deeplink,
+			};
+			_dispatcher.EstablishConsentedSession(caller, eventJson =>
 			{
 				// Remember which v5 session this channel established, so an eviction/expiry of the
 				// pairing can best-effort notify the dApp with pha_sessionDeleted (spec §7).
@@ -239,7 +247,7 @@ public sealed class LinkDeeplinkEndpoint
 			_log?.Invoke($"req response via callback host={CallbackHost(pairing.CallbackUrl)} topic={topic}");
 			var responseFrame = channel.SealEnvelope(responseJson);
 			openUrl(BuildResponseUrl(pairing.CallbackUrl, topic, responseFrame));
-		});
+		}, pairing.RequestContext(LinkTransportKind.Deeplink, _pairings));
 	}
 
 	/// <summary>Build the wallet->dApp response URL (mirrors the TS SDK's buildResponseUrl).</summary>
