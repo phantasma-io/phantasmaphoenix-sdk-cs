@@ -12,6 +12,13 @@ public class ScriptBuilder
 
 	private Dictionary<int, string> _jumpLocations = new Dictionary<int, string>();
 	private Dictionary<string, int> _labelLocations = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+	// The offsets in _jumpLocations that a CALL reserved. Every other offset belongs to a jump.
+	private HashSet<int> _callOffsets = new HashSet<int>();
+
+	// The farthest targets the chain accepts. It reads a target from two bytes: a jump target as a
+	// signed number, a call target as an unsigned one.
+	private const int MaxJumpTarget = short.MaxValue;
+	private const int MaxCallTarget = ushort.MaxValue;
 
 	public int CurrentSize => (int)writer.BaseStream.Position;
 
@@ -189,6 +196,7 @@ public class ScriptBuilder
 		writer.Write((ushort)0);
 
 		_jumpLocations[ofs] = label;
+		_callOffsets.Add(ofs);
 		return this;
 	}
 
@@ -243,9 +251,18 @@ public class ScriptBuilder
 				throw new Exception("Could not find label: " + label);
 			}
 
-			var labelOffset = (ushort)_labelLocations[label];
-			var bytes = BitConverter.GetBytes(labelOffset);
+			var labelOffset = _labelLocations[label];
 			var targetOffset = entry.Key;
+
+			// A larger offset would otherwise be cut to its low 16 bits, and the jump would land
+			// somewhere else. The chain refuses a jump target of 0x8000 or more.
+			var limit = _callOffsets.Contains(targetOffset) ? MaxCallTarget : MaxJumpTarget;
+			if (labelOffset > limit)
+			{
+				throw new Exception($"Label offset {labelOffset} is above {limit}, the largest target allowed here");
+			}
+
+			var bytes = BitConverter.GetBytes((ushort)labelOffset);
 
 			for (int i = 0; i < 2; i++)
 			{
