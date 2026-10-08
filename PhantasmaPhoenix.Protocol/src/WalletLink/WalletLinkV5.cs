@@ -29,6 +29,10 @@ public class WalletLinkV5
 	/// (spec §7). Its data is <c>{ session }</c>.</summary>
 	public const string SessionExpiredEvent = "pha_sessionExpired";
 
+	/// <summary>Wallet->dApp event: the account of the session is selected again (spec §7, §9.5).
+	/// Its data is <c>{ accounts }</c>, the session's account.</summary>
+	public const string AccountsChangedEvent = "pha_accountsChanged";
+
 	// Error codes - mirror the SDK taxonomy (spec §10 / errors.ts) so dApps branch on the number.
 	private const int ErrParse = -32700;
 	private const int ErrInvalidRequest = -32600;
@@ -43,6 +47,7 @@ public class WalletLinkV5
 	private const int ErrNexusMismatch = 5002;
 	private const int ErrUnsupportedSignatureKind = 5003;
 	private const int ErrCapabilityNotSupported = 5004;
+	private const int ErrAccountNotSelected = 5006;
 	private const int ErrSessionExpired = 5100;
 
 	/// <summary>The methods this dispatcher serves (spec §9.2), in the order the capabilities list
@@ -302,6 +307,11 @@ public class WalletLinkV5
 			respond(BuildError(id, ErrDisconnected, $"Wallet is {_ops.Status}"));
 			return;
 		}
+		if (_ops.SelectedAddress != record.Address)
+		{
+			respond(AccountNotSelected(id, record));
+			return;
+		}
 		context.OnSession?.Invoke(record.Id);
 		var caller = CallerOf(record, context);
 
@@ -309,7 +319,7 @@ public class WalletLinkV5
 		// request still waits for the user. The wallet may queue its prompts.
 		switch (method)
 		{
-			case "pha_getAccounts": HandleGetAccounts(id, respond); break;
+			case "pha_getAccounts": HandleGetAccounts(id, record, respond); break;
 			case "pha_getChains": HandleGetChains(id, respond); break;
 			case "pha_getWalletInfo": HandleGetWalletInfo(id, record, respond); break;
 			case "pha_sendTransaction": HandleSendTransaction(id, prms, caller, respond); break;
@@ -360,6 +370,16 @@ public class WalletLinkV5
 		record.LastSeenUtc = now;
 		_sessions.Save(record);
 		return true;
+	}
+
+	/// <summary>Returns the answer to a request in a session whose account is not the selected one
+	/// (spec §7): 5006 with the session's account. The wallet answers and signs for a session with
+	/// its account only, and the session stays, so that the dApp can ask the user to select that
+	/// account and send the request again.</summary>
+	private static string AccountNotSelected(JToken? id, LinkSessionRecord record)
+	{
+		return BuildError(id, ErrAccountNotSelected, "The account of the session is not the selected account",
+			new JObject { ["address"] = record.Address });
 	}
 
 	/// <summary>Returns the caller of a request in the session <paramref name="record"/>: the
@@ -425,6 +445,40 @@ public class WalletLinkV5
 				EndSession(record.Id, LinkSessionEndReason.Expired);
 			}
 		}
+	}
+
+	/// <summary>The host calls it when the user selects an account (spec §7): the live sessions of
+	/// that account, which got 5006 while another account was selected, hear
+	/// <c>pha_accountsChanged</c> with it.</summary>
+	public void SelectedAccountChanged()
+	{
+		var address = _ops.SelectedAddress;
+		if (string.IsNullOrEmpty(address) || _ops.Status != WalletStatus.Ready)
+		{
+			return;
+		}
+		var now = DateTime.UtcNow;
+		var sessions = _sessions.List()
+			.Where(record => record.Address == address && !IsExpired(record, now))
+			.Select(record => record.Id)
+			.ToArray();
+		if (sessions.Length == 0)
+		{
+			return;
+		}
+		_ops.GetAccount(result =>
+		{
+			if (result.Failure != LinkFailure.None || result.Account == null || result.Account.Address != address)
+			{
+				return;
+			}
+			foreach (var session in sessions)
+			{
+				var envelope = BuildEvent(AccountsChangedEvent, session,
+					new JObject { ["accounts"] = new JArray { BuildAccount(result.Account) } });
+				Raise(SessionEvent, handler => handler(session, envelope));
+			}
+		});
 	}
 
 	/// <summary>Returns true when the wallet keeps the session and it has not expired.</summary>
@@ -523,10 +577,13 @@ public class WalletLinkV5
 				}
 				if (_ops.Status == WalletStatus.Ready)
 				{
-					Action connectAgain = paired
-						? () => respond(BuildError(id, ErrUnauthorized, "The wallet does not serve the account of the session"))
-						: () => ConnectNew(id, caller, chains, methods, context, respond);
-					TryResume(id, record, context, respond, connectAgain);
+					// Spec §7: the account rule applies to the resume too.
+					if (_ops.SelectedAddress != record.Address)
+					{
+						respond(AccountNotSelected(id, record));
+						return;
+					}
+					TryResume(id, record, context, respond);
 					return;
 				}
 				respond(BuildError(id, ErrDisconnected, $"Wallet is {_ops.Status}"));
@@ -606,17 +663,20 @@ public class WalletLinkV5
 		return true;
 	}
 
-	/// <summary>Promptless reconnect for an already-authorized session. The answer carries the
-	/// capabilities granted to it. <paramref name="connectAgain"/> runs when the wallet no longer
-	/// serves the session's account.</summary>
-	private void TryResume(JToken? id, LinkSessionRecord record, LinkRequestContext context, Action<string> respond, Action connectAgain)
+	/// <summary>Promptless reconnect for an already-authorized session whose account is selected.
+	/// The answer carries the capabilities granted to it.</summary>
+	private void TryResume(JToken? id, LinkSessionRecord record, LinkRequestContext context, Action<string> respond)
 	{
 		_ops.GetAccount(result =>
 		{
-			if (result.Failure != LinkFailure.None || result.Account == null || result.Account.Address != record.Address)
+			if (result.Failure != LinkFailure.None || result.Account == null)
 			{
-				// Session no longer matches the wallet state (e.g. account switched): re-consent.
-				connectAgain();
+				respond(BuildError(id, MapFailure(result.Failure), result.Message ?? "Account unavailable"));
+				return;
+			}
+			if (result.Account.Address != record.Address)
+			{
+				respond(AccountNotSelected(id, record));
 				return;
 			}
 
@@ -624,8 +684,6 @@ public class WalletLinkV5
 			_ops.GetWalletInfo(info =>
 				_ops.GetChains(chains =>
 				{
-					record.LastSeenUtc = DateTime.UtcNow;
-					_sessions.Save(record);
 					context.OnSession?.Invoke(record.Id);
 					respond(BuildResult(id, BuildConnectResponse(record, info.Name, info.Version, chains.Nexus, account)));
 				}));
@@ -888,13 +946,19 @@ public class WalletLinkV5
 		respond(BuildResult(id, new JObject { ["ok"] = true }));
 	}
 
-	private void HandleGetAccounts(JToken? id, Action<string> respond)
+	private void HandleGetAccounts(JToken? id, LinkSessionRecord record, Action<string> respond)
 	{
+		// Spec §9.5: only the account of this session.
 		_ops.GetAccount(result =>
 		{
 			if (result.Failure != LinkFailure.None || result.Account == null)
 			{
 				respond(BuildError(id, MapFailure(result.Failure), result.Message ?? "Account unavailable"));
+				return;
+			}
+			if (result.Account.Address != record.Address)
+			{
+				respond(AccountNotSelected(id, record));
 				return;
 			}
 			respond(BuildResult(id, new JObject { ["accounts"] = new JArray { BuildAccount(result.Account) } }));

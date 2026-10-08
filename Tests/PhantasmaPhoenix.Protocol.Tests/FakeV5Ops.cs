@@ -36,6 +36,7 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	public byte[]? SentTx;
 
 	public WalletStatus Status => StatusValue;
+	public string? SelectedAddress => StatusValue == WalletStatus.Ready ? AccountAddress : null;
 
 	private LinkAccount Account() => new LinkAccount
 	{

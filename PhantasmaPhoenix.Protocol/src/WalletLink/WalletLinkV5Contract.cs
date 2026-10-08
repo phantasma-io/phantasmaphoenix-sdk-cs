@@ -182,6 +182,11 @@ public interface IWalletLinkV5Ops
 	/// <summary>Current wallet readiness; the dispatcher rejects non-connect calls unless Ready.</summary>
 	WalletStatus Status { get; }
 
+	/// <summary>The address of the account the user has selected, or null when none is open. A
+	/// request in a session of another account gets 5006, and the session stays (spec §7). The
+	/// host calls <see cref="WalletLinkV5.SelectedAccountChanged"/> when it changes.</summary>
+	string? SelectedAddress { get; }
+
 	/// <summary>
 	/// Run the connect handshake for <paramref name="caller"/>: prompt the user for consent, showing
 	/// the dApp and its origin, then gather account + wallet version + nexus. The v5 session id is

@@ -1251,9 +1251,9 @@ public class WalletLinkV5Tests
 	}
 
 	[Fact]
-	public void Resume_after_account_switch_falls_back_to_the_consent_prompt()
+	public void Resume_while_another_account_is_selected_gets_5006_and_keeps_the_session()
 	{
-		// The session is bound to the account it authorized; a switched wallet re-prompts.
+		// Spec §7: the account rule applies to the resume too; the session stays on both sides.
 		var ops = new FakeV5Ops();
 		var link = new WalletLinkV5(ops);
 		var session = Connect(link, out _);
@@ -1262,9 +1262,52 @@ public class WalletLinkV5Tests
 		var response = Send(link,
 			$"{{\"plv\":5,\"id\":\"r1\",\"session\":\"{session}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"}}}}}}");
 
-		ops.ConnectCalls.ShouldBe(2);
-		((string)response["result"]!["session"]!["id"]!).ShouldNotBe(session);
-		((string)response["result"]!["account"]!["address"]!).ShouldBe("P2KOther");
+		((int)response["error"]!["code"]!).ShouldBe(5006);
+		((string)response["error"]!["data"]!["address"]!).ShouldBe("P2KTest");
+		ops.ConnectCalls.ShouldBe(1);
+		link.IsSessionLive(session).ShouldBeTrue();
+	}
+
+	[Fact]
+	public void A_request_while_another_account_is_selected_gets_5006_and_the_account_again_serves_it()
+	{
+		// Spec §7: every request in the session except pha_disconnect gets 5006 with the session's
+		// account; when the user selects that account again, the session hears pha_accountsChanged
+		// and its requests are served.
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+		var events = new List<JObject>();
+		link.SessionEvent += (_, envelope) => events.Add(JObject.Parse(envelope));
+
+		ops.AccountAddress = "P2KOther";
+		link.SelectedAccountChanged();
+		var refused = Send(link, $"{{\"plv\":5,\"id\":\"a1\",\"session\":\"{session}\",\"method\":\"pha_getAccounts\"}}");
+		ops.AccountAddress = "P2KTest";
+		link.SelectedAccountChanged();
+		var served = Send(link, $"{{\"plv\":5,\"id\":\"a2\",\"session\":\"{session}\",\"method\":\"pha_getAccounts\"}}");
+
+		((int)refused["error"]!["code"]!).ShouldBe(5006);
+		((string)refused["error"]!["data"]!["address"]!).ShouldBe("P2KTest");
+		var notice = events.Single();
+		((string)notice["event"]!).ShouldBe("pha_accountsChanged");
+		((string)notice["session"]!).ShouldBe(session);
+		((string)notice["data"]!["accounts"]![0]!["address"]!).ShouldBe("P2KTest");
+		((string)served["result"]!["accounts"]![0]!["address"]!).ShouldBe("P2KTest");
+	}
+
+	[Fact]
+	public void A_disconnect_while_another_account_is_selected_ends_the_session()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+		ops.AccountAddress = "P2KOther";
+
+		var response = Send(link, $"{{\"plv\":5,\"id\":\"d1\",\"session\":\"{session}\",\"method\":\"pha_disconnect\"}}");
+
+		((bool)response["result"]!["ok"]!).ShouldBeTrue();
+		link.IsSessionLive(session).ShouldBeFalse();
 	}
 
 	[Fact]
