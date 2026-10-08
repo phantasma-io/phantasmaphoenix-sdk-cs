@@ -375,6 +375,129 @@ public class WalletLinkV5Tests
 		var noMethod = Send(link, "{\"plv\":5,\"id\":\"x1\"}");
 		((int)noMethod["error"]!["code"]!).ShouldBe(-32600);
 	}
+
+	// Spec §4: valid JSON that is no request object, or a request without a string id, gets -32600.
+	// The answer carries a null id, because nothing in the message can correlate it.
+	[Theory]
+	[InlineData("[]")]
+	[InlineData("\"text\"")]
+	[InlineData("5")]
+	[InlineData("{\"plv\":5,\"method\":\"pha_getChains\"}")]
+	[InlineData("{\"plv\":5,\"id\":7,\"method\":\"pha_getChains\"}")]
+	[InlineData("{\"plv\":5,\"id\":{},\"method\":\"pha_getChains\"}")]
+	[InlineData("{\"plv\":5,\"id\":\"\",\"method\":\"pha_getChains\"}")]
+	public void A_message_without_a_request_object_or_a_string_id_gets_invalid_request(string message)
+	{
+		var response = Send(new WalletLinkV5(new FakeV5Ops()), message);
+
+		((int)response["error"]!["code"]!).ShouldBe(-32600);
+		response["id"]!.Type.ShouldBe(JTokenType.Null);
+	}
+
+	// Spec §4: an envelope field of the wrong type is an invalid request (-32600), a params value
+	// that is no object is a bad param (-32602), and the answer keeps the request id.
+	[Theory]
+	[InlineData("{\"plv\":\"5\",\"id\":\"e1\",\"method\":\"pha_getChains\"}", -32600)]
+	[InlineData("{\"plv\":4,\"id\":\"e1\",\"method\":\"pha_getChains\"}", -32600)]
+	[InlineData("{\"id\":\"e1\",\"method\":\"pha_getChains\"}", -32600)]
+	[InlineData("{\"plv\":5,\"id\":\"e1\",\"method\":{}}", -32600)]
+	[InlineData("{\"plv\":5,\"id\":\"e1\",\"method\":\"\"}", -32600)]
+	[InlineData("{\"plv\":5,\"id\":\"e1\",\"method\":\"pha_getChains\",\"session\":{}}", -32600)]
+	[InlineData("{\"plv\":5,\"id\":\"e1\",\"method\":\"pha_getChains\",\"sentAt\":\"now\"}", -32600)]
+	[InlineData("{\"plv\":5,\"id\":\"e1\",\"method\":\"pha_getChains\",\"params\":[]}", -32602)]
+	public void An_envelope_field_of_the_wrong_type_gets_an_error_with_the_request_id(string message, int code)
+	{
+		var response = Send(new WalletLinkV5(new FakeV5Ops()), message);
+
+		((int)response["error"]!["code"]!).ShouldBe(code);
+		((string)response["id"]!).ShouldBe("e1");
+	}
+
+	// Spec §4: a field of a request set to null counts as absent, so a null send time is no error.
+	[Fact]
+	public void A_request_field_set_to_null_counts_as_absent()
+	{
+		var response = Send(new WalletLinkV5(new FakeV5Ops()),
+			"{\"plv\":5,\"id\":\"n1\",\"method\":\"pha_getChains\",\"session\":null,\"sentAt\":null,\"params\":null}");
+
+		((int)response["error"]!["code"]!).ShouldBe(4100);
+		((string)response["id"]!).ShouldBe("n1");
+	}
+
+	// Spec §4: a method that the wallet does not implement gets -32601 before the checks of the
+	// session and of the lock, because the methods of a wallet depend on neither.
+	[Fact]
+	public void An_unknown_method_gets_method_not_found_before_the_session_and_lock_checks()
+	{
+		var ops = new FakeV5Ops { StatusValue = WalletStatus.Closed };
+		var link = new WalletLinkV5(ops);
+
+		var noSession = Send(link, "{\"plv\":5,\"id\":\"m1\",\"method\":\"pha_requestSigningPermission\",\"params\":{}}");
+		((int)noSession["error"]!["code"]!).ShouldBe(-32601);
+		var badSession = Send(link, "{\"plv\":5,\"id\":\"m2\",\"session\":\"gone\",\"method\":\"pha_unknown\"}");
+		((int)badSession["error"]!["code"]!).ShouldBe(-32601);
+	}
+
+	// Spec §4: params of the wrong JSON type are bad params (-32602). None of them may throw out of
+	// HandleMessage: the request is answered, and the wallet is never asked.
+	[Theory]
+	[InlineData("pha_connect", "{\"dapp\":{\"name\":{}}}")]
+	[InlineData("pha_connect", "{\"dapp\":{\"name\":7}}")]
+	[InlineData("pha_sendTransaction", "{\"format\":7,\"tx\":\"AAEC\"}")]
+	[InlineData("pha_sendTransaction", "{\"format\":\"carbon\",\"tx\":{}}")]
+	[InlineData("pha_sendTransaction", "{\"format\":\"carbon\",\"tx\":\"AAEC\",\"signatureKind\":1}")]
+	[InlineData("pha_signTransaction", "{\"format\":\"script\",\"tx\":\"AAEC\",\"pow\":{}}")]
+	[InlineData("pha_signMessage", "{\"message\":{}}")]
+	[InlineData("pha_signMessage", "{\"message\":\"AAEC\",\"display\":[]}")]
+	[InlineData("pha_invokeScript", "{\"chain\":{},\"script\":\"AA==\"}")]
+	[InlineData("pha_invokeScript", "{\"chain\":\"main\",\"script\":5}")]
+	public void A_param_of_the_wrong_type_gets_invalid_params(string method, string prms)
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+		var connectCalls = ops.ConnectCalls;
+
+		var response = Send(link,
+			$"{{\"plv\":5,\"id\":\"p1\",\"session\":\"{session}\",\"method\":\"{method}\",\"params\":{prms}}}");
+
+		((int)response["error"]!["code"]!).ShouldBe(-32602);
+		ops.ConnectCalls.ShouldBe(connectCalls);
+		ops.SentTx.ShouldBeNull();
+		ops.SignTxFormat.ShouldBeNull();
+		ops.SignedMessage.ShouldBeNull();
+	}
+
+	// An exception from the wallet's own code ends as a -32603 answer. It must not reach the
+	// transport, which would take its connection for dead.
+	[Fact]
+	public void An_exception_from_the_wallet_is_answered_with_internal_error()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+		ops.ThrowOnGetChains = true;
+
+		var response = Send(link, $"{{\"plv\":5,\"id\":\"x1\",\"session\":\"{session}\",\"method\":\"pha_getChains\"}}");
+
+		((int)response["error"]!["code"]!).ShouldBe(-32603);
+		((string)response["id"]!).ShouldBe("x1");
+	}
+
+	// A wallet callback that fires twice still produces one answer per request.
+	[Fact]
+	public void A_request_gets_one_answer_even_when_the_wallet_answers_twice()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+		ops.AnswerTwice = true;
+
+		var answers = 0;
+		link.HandleMessage($"{{\"plv\":5,\"id\":\"t1\",\"session\":\"{session}\",\"method\":\"pha_getChains\"}}", _ => answers++);
+
+		answers.ShouldBe(1);
+	}
 	[Fact]
 	public void Resume_with_known_session_skips_the_prompt_and_keeps_the_id()
 	{

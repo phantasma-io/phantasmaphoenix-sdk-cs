@@ -38,6 +38,14 @@ public class WalletLinkV5
 	private const int ErrNexusMismatch = 5002;
 	private const int ErrUnsupportedSignatureKind = 5003;
 
+	/// <summary>The methods this dispatcher serves (spec §9.2), in the order the capabilities list
+	/// them (spec §5).</summary>
+	private static readonly string[] ServedMethods =
+	{
+		"pha_connect", "pha_disconnect", "pha_getAccounts", "pha_getChains", "pha_getWalletInfo",
+		"pha_signMessage", "pha_signTransaction", "pha_sendTransaction", "pha_invokeScript",
+	};
+
 	/// <summary>Per-transaction byte ceiling = the chain's max transaction size; the guard
 	/// rejects oversized base64 BEFORE decoding or parsing (fast structured 5001 instead of
 	/// an expensive parse failure).</summary>
@@ -65,38 +73,139 @@ public class WalletLinkV5
 	/// <summary>
 	/// Handle one incoming envelope string and deliver exactly one response string via
 	/// <paramref name="respond"/>. The wallet host is expected to marshal this onto its UI thread
-	/// (operations prompt the user); responses may arrive asynchronously from those prompts.
+	/// (operations prompt the user); responses may arrive asynchronously from those prompts. The
+	/// method never throws: a malformed request gets an error answer (spec §4).
 	/// </summary>
 	public void HandleMessage(string message, Action<string> respond)
 	{
-		JObject root;
+		// A wallet callback that fires twice, or an exception after the answer, must not send a
+		// second answer.
+		var answered = 0;
+		Action<string> answer = response =>
+		{
+			if (System.Threading.Interlocked.Exchange(ref answered, 1) == 0)
+			{
+				respond(response);
+			}
+		};
+
+		if (!TryReadRequest(message, out var request, out var refusal))
+		{
+			answer(refusal);
+			return;
+		}
 		try
 		{
-			root = JObject.Parse(message);
+			Dispatch(request, answer);
 		}
-		catch
+		catch (Exception)
 		{
-			respond(BuildError(null, ErrParse, "Message is not valid JSON"));
+			// Every request gets an answer, and no exception reaches the transport: a socket
+			// callback that throws is taken for a dead connection.
+			answer(BuildError(request.Id, ErrInternal, "Request failed"));
+		}
+	}
+
+	/// <summary>A request envelope that passed the checks of spec §4.</summary>
+	private sealed class RequestEnvelope
+	{
+		public JToken Id = JValue.CreateNull();
+		public string Method = "";
+		public string? Session;
+		public JObject Params = new JObject();
+	}
+
+	/// <summary>
+	/// Reads a request envelope (spec §4). Returns false with the error answer when the text is not
+	/// JSON (-32700); when it is no JSON object, has another <c>plv</c>, no string <c>id</c>, no
+	/// <c>method</c>, a <c>session</c> that is no string or a <c>sentAt</c> that is no number
+	/// (-32600); or when <c>params</c> is no object (-32602). Fields it does not know are ignored.
+	/// </summary>
+	private static bool TryReadRequest(string message, out RequestEnvelope request, out string refusal)
+	{
+		request = new RequestEnvelope();
+		refusal = "";
+		JToken parsed;
+		try
+		{
+			parsed = JToken.Parse(message);
+		}
+		catch (Exception)
+		{
+			refusal = BuildError(null, ErrParse, "Message is not valid JSON");
+			return false;
+		}
+		if (!(parsed is JObject root))
+		{
+			refusal = BuildError(null, ErrInvalidRequest, "Message is not a JSON object");
+			return false;
+		}
+
+		// The id goes into every later answer, so it is read first. Only a non-empty string can
+		// correlate an answer; any other value is answered with a null id.
+		var idToken = root["id"];
+		var hasId = idToken != null && idToken.Type == JTokenType.String && ((string?)idToken)!.Length > 0;
+		var id = hasId ? idToken! : JValue.CreateNull();
+
+		var plv = root["plv"];
+		if (plv == null || plv.Type != JTokenType.Integer || plv.ToString(Formatting.None) != ProtocolVersion.ToString())
+		{
+			refusal = BuildError(id, ErrInvalidRequest, "Unsupported Phantasma Link protocol version");
+			return false;
+		}
+		if (!hasId)
+		{
+			refusal = BuildError(id, ErrInvalidRequest, "Request is missing a string id");
+			return false;
+		}
+		var method = root["method"];
+		if (method == null || method.Type != JTokenType.String || ((string?)method)!.Length == 0)
+		{
+			refusal = BuildError(id, ErrInvalidRequest, "Request is missing a method");
+			return false;
+		}
+		var session = root["session"];
+		if (session != null && session.Type != JTokenType.Null && session.Type != JTokenType.String)
+		{
+			refusal = BuildError(id, ErrInvalidRequest, "Request session must be a string");
+			return false;
+		}
+		// Spec §4: a field of a request set to null counts as absent.
+		var sentAt = root["sentAt"];
+		if (sentAt != null && sentAt.Type != JTokenType.Null && sentAt.Type != JTokenType.Integer && sentAt.Type != JTokenType.Float)
+		{
+			refusal = BuildError(id, ErrInvalidRequest, "Request sentAt must be a number");
+			return false;
+		}
+		var prms = root["params"];
+		if (prms != null && prms.Type != JTokenType.Null && !(prms is JObject))
+		{
+			refusal = BuildError(id, ErrInvalidParams, "Request params must be an object");
+			return false;
+		}
+
+		request.Id = id;
+		request.Method = (string)method!;
+		request.Session = session != null && session.Type == JTokenType.String ? (string?)session : null;
+		request.Params = prms as JObject ?? new JObject();
+		return true;
+	}
+
+	/// <summary>Routes a request that passed <see cref="TryReadRequest"/> to its handler.</summary>
+	private void Dispatch(RequestEnvelope request, Action<string> respond)
+	{
+		var id = request.Id;
+		var method = request.Method;
+		var prms = request.Params;
+		var session = request.Session;
+
+		// Spec §4: a method that the wallet does not implement gets -32601 before any check of the
+		// session or of the lock, because the methods of a wallet depend on neither.
+		if (Array.IndexOf(ServedMethods, method) < 0)
+		{
+			respond(BuildError(id, ErrMethodNotFound, $"Unknown method: {method}"));
 			return;
 		}
-
-		var id = root["id"];
-
-		if ((int?)root["plv"] != ProtocolVersion)
-		{
-			respond(BuildError(id, ErrInvalidRequest, "Unsupported Phantasma Link protocol version"));
-			return;
-		}
-
-		var method = (string?)root["method"];
-		if (string.IsNullOrEmpty(method))
-		{
-			respond(BuildError(id, ErrInvalidRequest, "Missing method"));
-			return;
-		}
-
-		var prms = root["params"] as JObject ?? new JObject();
-		var session = (string?)root["session"];
 
 		// Everything except connect requires a Ready wallet and a valid session.
 		if (method != "pha_connect")
@@ -126,10 +235,6 @@ public class WalletLinkV5
 			case "pha_signTransaction": HandleSignTransaction(id, prms, respond); break;
 			case "pha_signMessage": HandleSignMessage(id, prms, respond); break;
 			case "pha_invokeScript": HandleInvokeScript(id, prms, respond); break;
-
-			default:
-				respond(BuildError(id, ErrMethodNotFound, $"Unknown method: {method}"));
-				break;
 		}
 	}
 
@@ -137,7 +242,7 @@ public class WalletLinkV5
 	private void HandleConnect(JToken? id, JObject prms, Action<string> respond)
 	{
 		var dapp = prms["dapp"] as JObject;
-		var dappName = (string?)dapp?["name"];
+		var dappName = TextOf(dapp?["name"]);
 		// `is null || Length == 0` (rather than string.IsNullOrEmpty) so the compiler narrows
 		// `dappName` to a non-null string for the calls below.
 		if (dappName is null || dappName.Length == 0)
@@ -149,7 +254,7 @@ public class WalletLinkV5
 		// Resume (spec §7): a dApp presenting a known session id for the SAME dApp identity gets
 		// reconnected without a prompt - but only if the wallet still serves the same account.
 		// Any mismatch falls back to the full consent flow below (one round-trip, fresh session).
-		var resumeId = (string?)prms["session"];
+		var resumeId = TextOf(prms["session"]);
 		if (resumeId != null)
 		{
 			var record = _sessions.Get(resumeId);
@@ -327,7 +432,12 @@ public class WalletLinkV5
 		pow = ProofOfWork.None;
 		format = LinkTxFormat.Carbon;
 
-		switch ((string?)prms["format"])
+		if (!TryReadText(prms, "format", out var formatText))
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.format must be a string"));
+			return false;
+		}
+		switch (formatText)
 		{
 			case "script": format = LinkTxFormat.Script; break;
 			case "carbon": format = LinkTxFormat.Carbon; break;
@@ -336,7 +446,12 @@ public class WalletLinkV5
 				return false;
 		}
 
-		var txText = (string?)prms["tx"] ?? "";
+		if (!TryReadText(prms, "tx", out var txValue))
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.tx must be base64"));
+			return false;
+		}
+		var txText = txValue ?? "";
 		// The pre-parse guard: refuse anything beyond the chain's max transaction size
 		// before paying for base64 decode or deserialization (spec §10/§11: structured
 		// 5001 carrying the limit, instead of a slow opaque parse failure).
@@ -361,8 +476,13 @@ public class WalletLinkV5
 			return false;
 		}
 
-		kind = ParseSignatureKind(prms["signatureKind"]);
-		pow = ParseProofOfWork(prms["pow"]);
+		if (!TryReadText(prms, "signatureKind", out var kindText) || !TryReadText(prms, "pow", out var powText))
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.signatureKind and params.pow must be strings"));
+			return false;
+		}
+		kind = ParseSignatureKind(kindText);
+		pow = ParseProofOfWork(powText);
 		return true;
 	}
 
@@ -404,7 +524,12 @@ public class WalletLinkV5
 
 	private void HandleSignMessage(JToken? id, JObject prms, Action<string> respond)
 	{
-		var messageText = (string?)prms["message"] ?? "";
+		if (!TryReadText(prms, "message", out var messageValue) || !TryReadText(prms, "display", out var display))
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.message and params.display must be strings"));
+			return;
+		}
+		var messageText = messageValue ?? "";
 		if (messageText.Length == 0)
 		{
 			respond(BuildError(id, ErrInvalidParams, "params.message is required (base64)"));
@@ -429,7 +554,6 @@ public class WalletLinkV5
 			return;
 		}
 
-		var display = (string?)prms["display"];
 		_ops.SignMessage(message, display, result =>
 		{
 			if (result.Failure != LinkFailure.None || result.Signature == null || result.Random == null)
@@ -447,11 +571,16 @@ public class WalletLinkV5
 
 	private void HandleInvokeScript(JToken? id, JObject prms, Action<string> respond)
 	{
-		var chain = (string?)prms["chain"] ?? "main";
+		if (!TryReadText(prms, "chain", out var chainText) || !TryReadText(prms, "script", out var scriptText))
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.chain and params.script must be strings"));
+			return;
+		}
+		var chain = chainText ?? "main";
 		byte[] script;
 		try
 		{
-			script = Convert.FromBase64String((string?)prms["script"] ?? "");
+			script = Convert.FromBase64String(scriptText ?? "");
 		}
 		catch
 		{
@@ -490,12 +619,7 @@ public class WalletLinkV5
 		return new JObject
 		{
 			["plvVersions"] = new JArray { ProtocolVersion },
-			["methods"] = new JArray
-			{
-				"pha_connect", "pha_disconnect", "pha_getAccounts", "pha_getChains",
-				"pha_getWalletInfo", "pha_signMessage", "pha_signTransaction",
-				"pha_sendTransaction", "pha_invokeScript",
-			},
+			["methods"] = new JArray(ServedMethods),
 			["chains"] = new JArray { "phantasma:" + nexus },
 			["txFormats"] = new JArray { "script", "carbon" },
 			["signatureKinds"] = new JArray { "Ed25519", "ECDSA" },
@@ -537,9 +661,8 @@ public class WalletLinkV5
 		};
 	}
 
-	private static SignatureKind ParseSignatureKind(JToken? token)
+	private static SignatureKind ParseSignatureKind(string? value)
 	{
-		var value = (string?)token;
 		if (!string.IsNullOrEmpty(value) && Enum.TryParse<SignatureKind>(value, true, out var kind))
 		{
 			return kind;
@@ -547,14 +670,30 @@ public class WalletLinkV5
 		return SignatureKind.Ed25519;
 	}
 
-	private static ProofOfWork ParseProofOfWork(JToken? token)
+	private static ProofOfWork ParseProofOfWork(string? value)
 	{
-		var value = (string?)token;
 		if (!string.IsNullOrEmpty(value) && Enum.TryParse<ProofOfWork>(value, true, out var pow))
 		{
 			return pow;
 		}
 		return ProofOfWork.None;
+	}
+
+	/// <summary>Returns the text of a JSON string, or null for a missing value or any other JSON
+	/// type. A cast of another type would throw.</summary>
+	private static string? TextOf(JToken? token)
+	{
+		return token != null && token.Type == JTokenType.String ? (string?)token : null;
+	}
+
+	/// <summary>Reads an optional string parameter into <paramref name="text"/>: null when it is
+	/// missing or null. Returns false when it holds another JSON type, which the caller answers with
+	/// -32602 (spec §4).</summary>
+	private static bool TryReadText(JObject prms, string name, out string? text)
+	{
+		var token = prms[name];
+		text = TextOf(token);
+		return token == null || token.Type == JTokenType.Null || token.Type == JTokenType.String;
 	}
 
 	private static string BuildResult(JToken? id, JObject result)

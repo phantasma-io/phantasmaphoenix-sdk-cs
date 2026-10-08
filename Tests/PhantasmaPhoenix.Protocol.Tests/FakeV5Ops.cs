@@ -60,7 +60,17 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 		done(LinkAccountResult.Ok(Account()));
 	}
 
-	public void GetChains(Action<LinkChains> done) => done(new LinkChains { Nexus = "localnet" });
+	/// <summary>GetChains throws, as faulty wallet code would.</summary>
+	public bool ThrowOnGetChains;
+	/// <summary>GetChains calls its callback twice, as faulty wallet code would.</summary>
+	public bool AnswerTwice;
+
+	public void GetChains(Action<LinkChains> done)
+	{
+		if (ThrowOnGetChains) { throw new InvalidOperationException("wallet failure"); }
+		done(new LinkChains { Nexus = "localnet" });
+		if (AnswerTwice) { done(new LinkChains { Nexus = "localnet" }); }
+	}
 
 	public void GetWalletInfo(Action<LinkWalletInfo> done) =>
 		done(new LinkWalletInfo { Name = "FakeWallet", Version = "9.9.9", Rpc = "http://localhost:7077/rpc" });
