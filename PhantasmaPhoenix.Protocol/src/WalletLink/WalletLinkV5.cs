@@ -56,16 +56,6 @@ public class WalletLinkV5
 	// bearer; encrypted transports (deeplink/relay) add the channel key on top (later phases).
 	private readonly ILinkSessionStore _sessions;
 
-	// Single-flight lock with an OWNER and a TAKEOVER timeout. A bare boolean deadlocks the
-	// dispatcher forever when a consent prompt is abandoned (client timed out / went away and
-	// the operation callback never fires). The owner key lets a LATE completion of an abandoned
-	// request release only ITS OWN lock instead of clobbering a newer request's lock; the timeout
-	// lets a new request take over a stale lock.
-	private string? _pendingOwner;
-	private DateTime _pendingSinceUtc;
-	/// <summary>Seconds after which a new request may take over an unanswered pending request.</summary>
-	public int PendingTakeoverSeconds { get; set; } = 150;
-
 	public WalletLinkV5(IWalletLinkV5Ops ops, ILinkSessionStore? sessions = null)
 	{
 		_ops = ops;
@@ -123,43 +113,22 @@ public class WalletLinkV5
 			}
 		}
 
-		// One user-facing request at a time, mirroring the legacy dispatcher, but with a takeover
-		// timeout so an abandoned consent prompt cannot deadlock the dispatcher.
-		if (_pendingOwner != null && (DateTime.UtcNow - _pendingSinceUtc).TotalSeconds < PendingTakeoverSeconds)
-		{
-			respond(BuildError(id, ErrInternal, "A previous request is still pending"));
-			return;
-		}
-		// Owner key: the envelope id is unique per client request; suffix with ticks so even a
-		// reused id cannot make a stale completion release the new lock.
-		var owner = $"{(string?)id ?? "-"}#{DateTime.UtcNow.Ticks}";
-		_pendingOwner = owner;
-		_pendingSinceUtc = DateTime.UtcNow;
-		Action<string> complete = (response) =>
-		{
-			// Release the lock only if this request still owns it (a taken-over request that
-			// completes late must not clobber the current owner's lock).
-			if (_pendingOwner == owner)
-			{
-				_pendingOwner = null;
-			}
-			respond(response);
-		};
-
+		// Requests are independent (spec §4): each one is answered by its own id, whatever other
+		// request still waits for the user. The wallet may queue its prompts.
 		switch (method)
 		{
-			case "pha_connect": HandleConnect(id, prms, complete); break;
-			case "pha_disconnect": HandleDisconnect(id, session, complete); break;
-			case "pha_getAccounts": HandleGetAccounts(id, complete); break;
-			case "pha_getChains": HandleGetChains(id, complete); break;
-			case "pha_getWalletInfo": HandleGetWalletInfo(id, complete); break;
-			case "pha_sendTransaction": HandleSendTransaction(id, prms, complete); break;
-			case "pha_signTransaction": HandleSignTransaction(id, prms, complete); break;
-			case "pha_signMessage": HandleSignMessage(id, prms, complete); break;
-			case "pha_invokeScript": HandleInvokeScript(id, prms, complete); break;
+			case "pha_connect": HandleConnect(id, prms, respond); break;
+			case "pha_disconnect": HandleDisconnect(id, session, respond); break;
+			case "pha_getAccounts": HandleGetAccounts(id, respond); break;
+			case "pha_getChains": HandleGetChains(id, respond); break;
+			case "pha_getWalletInfo": HandleGetWalletInfo(id, respond); break;
+			case "pha_sendTransaction": HandleSendTransaction(id, prms, respond); break;
+			case "pha_signTransaction": HandleSignTransaction(id, prms, respond); break;
+			case "pha_signMessage": HandleSignMessage(id, prms, respond); break;
+			case "pha_invokeScript": HandleInvokeScript(id, prms, respond); break;
 
 			default:
-				complete(BuildError(id, ErrMethodNotFound, $"Unknown method: {method}"));
+				respond(BuildError(id, ErrMethodNotFound, $"Unknown method: {method}"));
 				break;
 		}
 	}

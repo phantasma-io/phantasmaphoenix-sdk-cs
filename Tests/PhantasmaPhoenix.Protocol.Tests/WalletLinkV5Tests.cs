@@ -333,48 +333,35 @@ public class WalletLinkV5Tests
 		((int)fail["error"]!["code"]!).ShouldBe(-32603);
 	}
 
+	// Spec §4: requests are independent by id, and there is no global single-in-flight flag. A
+	// prompt that is still open does not block another request, and each answer carries the id of
+	// its own request, in whatever order the user answers.
 	[Fact]
-	public void Concurrent_request_while_a_prompt_is_pending_is_rejected_then_recovers()
+	public void Each_pending_request_is_answered_by_its_own_id()
 	{
 		var ops = new FakeV5Ops { DeferConnect = true };
 		var link = new WalletLinkV5(ops);
 
 		JObject? first = null;
+		JObject? second = null;
 		link.HandleMessage(
 			"{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"a\"}}}",
 			s => first = JObject.Parse(s));
-		first.ShouldBeNull(); // prompt still open
-
-		var second = Send(link, "{\"plv\":5,\"id\":\"c2\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"b\"}}}");
-		((int)second["error"]!["code"]!).ShouldBe(-32603);
-		((string)second["error"]!["message"]!).ShouldContain("pending");
-
-		// Approve the original prompt: it completes and unlocks the dispatcher.
-		ops.DeferConnect = false;
-		ops.PendingConnect!(LinkConnectResult.Ok(new LinkAccount { Address = "P2KTest", Name = "tester" }, "FakeWallet", "9.9.9", "localnet"));
-		first.ShouldNotBeNull();
-		((string)first!["result"]!["session"]!["id"]!).ShouldNotBeNullOrEmpty();
-
-		var third = Send(link, "{\"plv\":5,\"id\":\"c3\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"c\"}}}");
-		((string)third["result"]!["session"]!["id"]!).ShouldNotBeNullOrEmpty();
-	}
-
-	[Fact]
-	public void Abandoned_pending_request_can_be_taken_over_after_the_timeout()
-	{
-		var ops = new FakeV5Ops { DeferConnect = true };
-		var link = new WalletLinkV5(ops) { PendingTakeoverSeconds = 0 };
-
-		JObject? stale = null;
 		link.HandleMessage(
-			"{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"stale\"}}}",
-			s => stale = JObject.Parse(s));
-		stale.ShouldBeNull();
+			"{\"plv\":5,\"id\":\"c2\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"b\"}}}",
+			s => second = JObject.Parse(s));
+		first.ShouldBeNull();
+		second.ShouldBeNull();
+		ops.PendingConnects.Count.ShouldBe(2);
 
-		// Takeover timeout is 0s: a new connect proceeds instead of being rejected.
-		ops.DeferConnect = false;
-		var fresh = Send(link, "{\"plv\":5,\"id\":\"c2\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"fresh\"}}}");
-		((string)fresh["result"]!["session"]!["id"]!).ShouldNotBeNullOrEmpty();
+		ops.PendingConnects[1](LinkConnectResult.Fail(LinkFailure.UserRejected, "rejected"));
+		((string)second!["id"]!).ShouldBe("c2");
+		((int)second["error"]!["code"]!).ShouldBe(4001);
+		first.ShouldBeNull();
+
+		ops.PendingConnects[0](LinkConnectResult.Ok(new LinkAccount { Address = "P2KTest", Name = "tester" }, "FakeWallet", "9.9.9", "localnet"));
+		((string)first!["id"]!).ShouldBe("c1");
+		((string)first["result"]!["session"]!["id"]!).ShouldNotBeNullOrEmpty();
 	}
 
 	[Fact]

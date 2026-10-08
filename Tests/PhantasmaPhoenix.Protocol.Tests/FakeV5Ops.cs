@@ -17,7 +17,8 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	public LinkFailure FailConnect = LinkFailure.None;
 	public string? FailConnectMessage;
 	public bool DeferConnect;
-	public Action<LinkConnectResult>? PendingConnect;
+	/// <summary>The consent callbacks of the deferred connects, in the order they came.</summary>
+	public readonly List<Action<LinkConnectResult>> PendingConnects = new List<Action<LinkConnectResult>>();
 	public string? LastConnectDapp;
 	/// <summary>How many times the consent flow (Connect) ran - resume must NOT increase it.</summary>
 	public int ConnectCalls;
@@ -47,7 +48,7 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	{
 		ConnectCalls++;
 		LastConnectDapp = dappName;
-		if (DeferConnect) { PendingConnect = done; return; }
+		if (DeferConnect) { PendingConnects.Add(done); return; }
 		if (RejectConnect) { done(LinkConnectResult.Fail(LinkFailure.UserRejected, "rejected")); return; }
 		if (FailConnect != LinkFailure.None) { done(LinkConnectResult.Fail(FailConnect, FailConnectMessage)); return; }
 		done(LinkConnectResult.Ok(Account(), "FakeWallet", "9.9.9", "localnet"));
