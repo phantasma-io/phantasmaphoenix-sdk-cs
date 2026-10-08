@@ -23,20 +23,21 @@ public sealed class LinkPairingRecord
 	public string DappUrl { get; set; } = "";
 	public DateTime CreatedUtc { get; set; }
 	public DateTime LastSeenUtc { get; set; }
-	/// <summary>The v5 session id (§7) this channel carries, so that when the wallet
-	/// evicts/expires the pairing it can best-effort notify the dApp with a `pha_sessionDeleted`
-	/// event over the channel. Empty until the first connect of the pairing.</summary>
+	/// <summary>The v5 session id (§7) this channel carries. The pairing ends with this session
+	/// (spec §18.3), and the session's events go over this channel. Empty until the first session
+	/// of the pairing.</summary>
 	public string SessionId { get; set; } = "";
 
 	/// <summary>Returns the context of a request that arrived over this pairing: its transport, the
-	/// dApp url of the pairing as the origin, and the session it binds, which the pairing then
-	/// keeps in <paramref name="store"/>.</summary>
+	/// dApp url of the pairing as the origin, the session of the pairing, and the session the
+	/// request binds, which the pairing then keeps in <paramref name="store"/>.</summary>
 	internal LinkRequestContext RequestContext(LinkTransportKind transport, ILinkPairingStore store)
 	{
 		return new LinkRequestContext
 		{
 			Transport = transport,
 			Origin = DappUrl.Length > 0 ? DappUrl : null,
+			PairingSession = SessionId.Length > 0 ? SessionId : null,
 			OnSession = session =>
 			{
 				// A pairing that ended while its request waited for the user stays ended: saving it

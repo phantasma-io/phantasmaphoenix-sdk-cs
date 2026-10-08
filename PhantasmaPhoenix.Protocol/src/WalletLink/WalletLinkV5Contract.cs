@@ -79,12 +79,30 @@ public sealed class LinkConnectResult
 	public string WalletName { get; set; } = "";
 	public string WalletVersion { get; set; } = "";
 	public string Nexus { get; set; } = "";
+	/// <summary>The lifetime the user picked for the session (spec §7); <c>Always</c> when the
+	/// wallet offers no choice.</summary>
+	public LinkSessionLifetime Lifetime { get; set; } = LinkSessionLifetime.Always;
 
-	public static LinkConnectResult Ok(LinkAccount account, string walletName, string walletVersion, string nexus) =>
-		new LinkConnectResult { Account = account, WalletName = walletName, WalletVersion = walletVersion, Nexus = nexus };
+	public static LinkConnectResult Ok(LinkAccount account, string walletName, string walletVersion, string nexus,
+		LinkSessionLifetime lifetime = LinkSessionLifetime.Always) =>
+		new LinkConnectResult { Account = account, WalletName = walletName, WalletVersion = walletVersion, Nexus = nexus, Lifetime = lifetime };
 
 	public static LinkConnectResult Fail(LinkFailure failure, string? message) =>
 		new LinkConnectResult { Failure = failure, Message = message };
+}
+
+/// <summary>The user's answer to a pairing (spec §15). An approved pairing gets its session at
+/// once, with the lifetime the user picked (spec §7).</summary>
+public sealed class LinkPairingDecision
+{
+	public bool Approved { get; private set; }
+	public LinkSessionLifetime Lifetime { get; private set; } = LinkSessionLifetime.Always;
+
+	/// <summary>The user approved; <paramref name="lifetime"/> is <c>Always</c> when the wallet
+	/// offers no choice.</summary>
+	public static LinkPairingDecision Approve(LinkSessionLifetime lifetime = LinkSessionLifetime.Always) =>
+		new LinkPairingDecision { Approved = true, Lifetime = lifetime };
+	public static LinkPairingDecision Decline() => new LinkPairingDecision();
 }
 
 /// <summary>Outcome of <c>pha_getAccounts</c>.</summary>
@@ -199,10 +217,11 @@ public interface IWalletLinkV5Ops
 	void SignTransaction(LinkCaller caller, byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSignTransactionResult> done);
 
 	/// <summary>
-	/// Ask the user to approve a deeplink/relay pairing (spec §15): "pair with dApp X?".
-	/// Approval hands the channel key to the endpoint, which persists the pairing.
+	/// Ask the user to approve a deeplink/relay pairing (spec §15): "pair with dApp X?", and the
+	/// lifetime of its session (spec §7). Approval hands the channel key to the endpoint, which
+	/// persists the pairing.
 	/// </summary>
-	void ConfirmPairing(LinkPairingParams pairing, Action<bool> done);
+	void ConfirmPairing(LinkPairingParams pairing, Action<LinkPairingDecision> done);
 
 	/// <summary>Run a read-only VM script through the wallet's node (no prompt).</summary>
 	void InvokeScript(string chain, byte[] script, Action<LinkInvokeResult> done);

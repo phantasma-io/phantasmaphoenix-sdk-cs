@@ -11,4 +11,11 @@ public sealed class WalletLinkV5Options
 		LinkTransportKind.Deeplink,
 		LinkTransportKind.Relay,
 	};
+
+	/// <summary>A session without a request for this long ends (spec §7). Default: 7 days.</summary>
+	public TimeSpan SessionIdleTimeout { get; set; } = TimeSpan.FromDays(7);
+
+	/// <summary>The most sessions the wallet keeps. A new session past it evicts the least recently
+	/// used one, whose dApp gets <c>pha_sessionDeleted</c> (spec §7). Default: 50.</summary>
+	public int MaxSessions { get; set; } = 50;
 }

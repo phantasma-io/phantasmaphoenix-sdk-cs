@@ -236,6 +236,26 @@ public class WalletLinkV5Tests
 		((int)response["error"]!["code"]!).ShouldBe(4900);
 	}
 
+	// Spec §7: a locked wallet never opens a second session in place of a live one. Over loopback
+	// the resume of a live session gets 4900 and no prompt; a connect without a session still gets
+	// the approval, where the user unlocks the wallet.
+	[Fact]
+	public void A_resume_while_the_wallet_is_locked_opens_no_second_session()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+		var prompts = ops.ConnectCalls;
+
+		ops.StatusValue = WalletStatus.Closed;
+		var resume = Send(link,
+			$"{{\"plv\":5,\"id\":\"r7\",\"session\":\"{session}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}}}}");
+
+		((int)resume["error"]!["code"]!).ShouldBe(4900);
+		ops.ConnectCalls.ShouldBe(prompts);
+		link.IsSessionLive(session).ShouldBeTrue();
+	}
+
 	[Fact]
 	public void Wrong_protocol_version_and_unknown_methods_are_rejected()
 	{
@@ -366,7 +386,15 @@ public class WalletLinkV5Tests
 		// A session stored by an older version has no grants: it keeps every network and method
 		// the wallet serves.
 		var store = new InMemoryLinkSessionStore();
-		store.Save(new LinkSessionRecord { Id = "old", Dapp = "testdapp", DappUrl = "https://t.example", Address = "P2KTest" });
+		store.Save(new LinkSessionRecord
+		{
+			Id = "old",
+			Dapp = "testdapp",
+			DappUrl = "https://t.example",
+			Address = "P2KTest",
+			CreatedUtc = DateTime.UtcNow,
+			LastSeenUtc = DateTime.UtcNow,
+		});
 		var link = new WalletLinkV5(new FakeV5Ops(), store);
 
 		var info = Send(link, "{\"plv\":5,\"id\":\"o1\",\"session\":\"old\",\"method\":\"pha_getWalletInfo\"}");
@@ -775,6 +803,175 @@ public class WalletLinkV5Tests
 
 		answers.ShouldBe(1);
 	}
+	// Spec §5, §7: `expiresAt` is the end of the lifetime the user picked, in Unix milliseconds, or
+	// null for a lifetime without a fixed end.
+	[Theory]
+	[InlineData(LinkSessionLifetime.OneHour, 3600)]
+	[InlineData(LinkSessionLifetime.OneDay, 86400)]
+	[InlineData(LinkSessionLifetime.OneMonth, 30 * 86400)]
+	[InlineData(LinkSessionLifetime.Session, 0)]
+	[InlineData(LinkSessionLifetime.Always, 0)]
+	public void The_connect_result_reports_the_end_of_the_lifetime_the_user_picked(LinkSessionLifetime lifetime, int seconds)
+	{
+		var link = new WalletLinkV5(new FakeV5Ops { ConnectLifetime = lifetime });
+		var start = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+		Connect(link, out var response);
+		var end = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+		var expiresAt = response["result"]!["session"]!["expiresAt"]!;
+		if (seconds == 0)
+		{
+			expiresAt.Type.ShouldBe(JTokenType.Null);
+			return;
+		}
+		((long)expiresAt).ShouldBeInRange(start + seconds * 1000L, end + seconds * 1000L);
+	}
+
+	[Fact]
+	public void A_request_in_a_session_past_its_end_gets_5100_and_ends_it()
+	{
+		// Spec §7: the session ends, its dApp gets pha_sessionExpired, and the transports hear of
+		// the end. The wallet then no longer keeps it.
+		var sessions = new InMemoryLinkSessionStore();
+		var link = new WalletLinkV5(new FakeV5Ops(), sessions);
+		var session = Connect(link, out _);
+		var events = new List<JObject>();
+		var ended = new List<(string, LinkSessionEndReason)>();
+		link.SessionEvent += (_, envelope) => events.Add(JObject.Parse(envelope));
+		link.SessionEnded += (id, reason) => ended.Add((id, reason));
+		sessions.Get(session)!.ExpiresUtc = DateTime.UtcNow.AddSeconds(-1);
+
+		var response = Send(link, $"{{\"plv\":5,\"id\":\"e1\",\"session\":\"{session}\",\"method\":\"pha_getChains\"}}");
+
+		((int)response["error"]!["code"]!).ShouldBe(5100);
+		var notice = events.Single();
+		((string)notice["event"]!).ShouldBe("pha_sessionExpired");
+		((string)notice["session"]!).ShouldBe(session);
+		((string)notice["data"]!["session"]!).ShouldBe(session);
+		ended.ShouldBe(new[] { (session, LinkSessionEndReason.Expired) });
+		var after = Send(link, $"{{\"plv\":5,\"id\":\"e2\",\"session\":\"{session}\",\"method\":\"pha_getChains\"}}");
+		((int)after["error"]!["code"]!).ShouldBe(4100);
+	}
+
+	[Fact]
+	public void A_session_without_a_request_for_7_days_expires()
+	{
+		var sessions = new InMemoryLinkSessionStore();
+		var link = new WalletLinkV5(new FakeV5Ops(), sessions);
+		var session = Connect(link, out _);
+		sessions.Get(session)!.LastSeenUtc = DateTime.UtcNow.AddDays(-7).AddMinutes(-1);
+
+		var response = Send(link, $"{{\"plv\":5,\"id\":\"i1\",\"session\":\"{session}\",\"method\":\"pha_getChains\"}}");
+
+		((int)response["error"]!["code"]!).ShouldBe(5100);
+	}
+
+	[Fact]
+	public void Every_request_moves_the_inactivity_end()
+	{
+		var sessions = new InMemoryLinkSessionStore();
+		var link = new WalletLinkV5(new FakeV5Ops(), sessions);
+		var session = Connect(link, out _);
+		sessions.Get(session)!.LastSeenUtc = DateTime.UtcNow.AddDays(-6);
+
+		var response = Send(link, $"{{\"plv\":5,\"id\":\"a1\",\"session\":\"{session}\",\"method\":\"pha_getChains\"}}");
+
+		response["error"].ShouldBeNull();
+		sessions.Get(session)!.LastSeenUtc.ShouldBeGreaterThan(DateTime.UtcNow.AddMinutes(-1));
+	}
+
+	[Fact]
+	public void The_lock_ends_the_sessions_with_the_lifetime_session_only()
+	{
+		// Spec §7: the lifetime `session` ends when the wallet locks.
+		var ops = new FakeV5Ops { ConnectLifetime = LinkSessionLifetime.Session };
+		var link = new WalletLinkV5(ops);
+		var shortSession = Connect(link, out _);
+		ops.ConnectLifetime = LinkSessionLifetime.Always;
+		var longSession = Connect(link, out _);
+		var events = new List<JObject>();
+		link.SessionEvent += (_, envelope) => events.Add(JObject.Parse(envelope));
+
+		link.EndSessionLifetimes();
+
+		events.Select(e => ((string)e["event"]!, (string)e["session"]!)).ShouldBe(new[] { ("pha_sessionExpired", shortSession) });
+		link.IsSessionLive(shortSession).ShouldBeFalse();
+		link.IsSessionLive(longSession).ShouldBeTrue();
+	}
+
+	[Fact]
+	public void Disconnect_succeeds_before_the_lock_and_session_checks_and_ends_the_session()
+	{
+		// Spec §9.5: pha_disconnect is idempotent; the session it ends gets pha_sessionDeleted.
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+		var events = new List<JObject>();
+		link.SessionEvent += (_, envelope) => events.Add(JObject.Parse(envelope));
+		ops.StatusValue = WalletStatus.Closed;
+
+		var unknown = Send(link, "{\"plv\":5,\"id\":\"d0\",\"session\":\"gone\",\"method\":\"pha_disconnect\"}");
+		var known = Send(link, $"{{\"plv\":5,\"id\":\"d1\",\"session\":\"{session}\",\"method\":\"pha_disconnect\"}}");
+
+		((bool)unknown["result"]!["ok"]!).ShouldBeTrue();
+		((bool)known["result"]!["ok"]!).ShouldBeTrue();
+		var notice = events.Last();
+		((string)notice["event"]!).ShouldBe("pha_sessionDeleted");
+		((string)notice["session"]!).ShouldBe(session);
+		link.IsSessionLive(session).ShouldBeFalse();
+	}
+
+	[Fact]
+	public void A_disconnect_from_another_origin_leaves_the_session()
+	{
+		var link = new WalletLinkV5(new FakeV5Ops());
+		var session = (string)Send(link,
+			"{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}",
+			new LinkRequestContext { Origin = "https://page.example" })["result"]!["session"]!["id"]!;
+
+		var response = Send(link, $"{{\"plv\":5,\"id\":\"d1\",\"session\":\"{session}\",\"method\":\"pha_disconnect\"}}",
+			new LinkRequestContext { Origin = "https://other.example" });
+
+		((bool)response["result"]!["ok"]!).ShouldBeTrue();
+		link.IsSessionLive(session).ShouldBeTrue();
+	}
+
+	[Fact]
+	public void A_resume_over_loopback_of_an_expired_session_runs_the_approval_again()
+	{
+		// Spec §9.5: over loopback a session that ended gets the full approval and a new session.
+		var sessions = new InMemoryLinkSessionStore();
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops, sessions);
+		var session = Connect(link, out _);
+		sessions.Get(session)!.ExpiresUtc = DateTime.UtcNow.AddSeconds(-1);
+
+		var response = Send(link,
+			$"{{\"plv\":5,\"id\":\"r1\",\"session\":\"{session}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}}}}");
+
+		ops.ConnectCalls.ShouldBe(2);
+		((string)response["result"]!["session"]!["id"]!).ShouldNotBe(session);
+	}
+
+	[Fact]
+	public void A_session_past_the_limit_evicts_the_least_recently_used_one()
+	{
+		// Spec §7: the store is bounded; the evicted session's dApp gets pha_sessionDeleted.
+		var sessions = new InMemoryLinkSessionStore();
+		var link = new WalletLinkV5(new FakeV5Ops(), sessions, new WalletLinkV5Options { MaxSessions = 2 });
+		var oldest = Connect(link, out _);
+		var second = Connect(link, out _);
+		sessions.Get(oldest)!.LastSeenUtc = DateTime.UtcNow.AddMinutes(-5);
+		var ended = new List<(string, LinkSessionEndReason)>();
+		link.SessionEnded += (id, reason) => ended.Add((id, reason));
+
+		var third = Connect(link, out _);
+
+		ended.ShouldBe(new[] { (oldest, LinkSessionEndReason.Evicted) });
+		link.IsSessionLive(second).ShouldBeTrue();
+		link.IsSessionLive(third).ShouldBeTrue();
+	}
+
 	[Fact]
 	public void Resume_with_known_session_skips_the_prompt_and_keeps_the_id()
 	{

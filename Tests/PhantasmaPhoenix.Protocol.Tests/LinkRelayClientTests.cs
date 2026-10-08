@@ -41,16 +41,76 @@ public class LinkRelayClientTests
 		}
 	}
 
-	private static (LinkDeeplinkEndpoint endpoint, FakeV5Ops ops, ILinkPairingStore pairings, LinkRelayClient relay, FakeRelaySocketFactory sockets) Build(int[]? ladder = null, int cap = 6, TimeSpan? idleTtl = null)
+	private static (LinkDeeplinkEndpoint endpoint, FakeV5Ops ops, ILinkPairingStore pairings, LinkRelayClient relay, FakeRelaySocketFactory sockets) Build(int[]? ladder = null, int cap = 6)
 	{
 		var ops = new FakeV5Ops();
 		var dispatcher = new WalletLinkV5(ops);
 		var pairings = new InMemoryLinkPairingStore();
 		var sockets = new FakeRelaySocketFactory();
 		// Inline marshal: tests run single-threaded, the Unity host passes PostToUi instead.
-		var relay = new LinkRelayClient(dispatcher, pairings, sockets, action => action(), ladder, null, cap, idleTtl);
+		var relay = new LinkRelayClient(dispatcher, pairings, sockets, action => action(), ladder, null, cap);
 		var endpoint = new LinkDeeplinkEndpoint(dispatcher, ops, pairings, relay);
 		return (endpoint, ops, pairings, relay, sockets);
+	}
+
+	/// <summary>A relay pairing approved with dApp meta, its socket open and its session pushed.</summary>
+	private sealed class PairedRelay
+	{
+		public FakeV5Ops Ops = null!;
+		public WalletLinkV5 Dispatcher = null!;
+		public InMemoryLinkSessionStore Sessions = null!;
+		public ILinkPairingStore Pairings = null!;
+		public LinkRelayClient Relay = null!;
+		public FakeRelaySocket Socket = null!;
+		public LinkChannel Channel = null!;
+		public string Topic = "";
+		public string SessionId = "";
+
+		/// <summary>Delivers a sealed request from the dApp and returns the frames the wallet sent
+		/// for it.</summary>
+		public JObject[] Request(string envelope)
+		{
+			var before = Socket.Sent.Count;
+			Socket.Deliver(new JObject { ["op"] = "deliver", ["topic"] = Topic + ".dapp", ["payload"] = Channel.SealEnvelope(envelope) }.ToString());
+			return Socket.SentFrames().Skip(before).ToArray();
+		}
+
+		/// <summary>Returns the envelopes of the publish frames among <paramref name="frames"/>.</summary>
+		public JObject[] Published(IEnumerable<JObject> frames)
+		{
+			return frames.Where(f => (string?)f["op"] == "publish").Select(f => OpenSealedPayload(Channel, f["payload"]!)).ToArray();
+		}
+	}
+
+	private static PairedRelay PairOverRelay(string label)
+	{
+		var ops = new FakeV5Ops();
+		var sessions = new InMemoryLinkSessionStore();
+		var dispatcher = new WalletLinkV5(ops, sessions);
+		var pairings = new InMemoryLinkPairingStore();
+		var sockets = new FakeRelaySocketFactory();
+		var relay = new LinkRelayClient(dispatcher, pairings, sockets, action => action());
+		var endpoint = new LinkDeeplinkEndpoint(dispatcher, ops, pairings, relay);
+		var key = new byte[32];
+		key[9] = 1;
+		var channel = new LinkChannel(key);
+		var topic = LinkTestTopics.Of(label);
+		endpoint.TryHandle(RelayPairingUri(key, topic, Relay, label + "-dapp"), _ => { }).ShouldBeTrue();
+		var socket = sockets.Sockets[0];
+		socket.Open();
+		var sessionId = (string)OpenSealedPayload(channel, socket.SentFrames()[1]["payload"]!)["data"]!["session"]!["id"]!;
+		return new PairedRelay
+		{
+			Ops = ops,
+			Dispatcher = dispatcher,
+			Sessions = sessions,
+			Pairings = pairings,
+			Relay = relay,
+			Socket = socket,
+			Channel = channel,
+			Topic = topic,
+			SessionId = sessionId,
+		};
 	}
 
 	// Spec §15: a pairing names a wss:// relay. The fake socket factory never connects to it.
@@ -450,9 +510,9 @@ public class LinkRelayClientTests
 	[Fact]
 	public void Idle_expired_relay_sessions_are_pruned()
 	{
-		// A session idle past the TTL is dropped on reconcile (spec §7), so dead pairings cannot
-		// pile up and starve fresh ones.
-		var (_, _, pairings, relay, sockets) = Build(idleTtl: TimeSpan.FromDays(7));
+		// A pairing without a session, idle past the inactivity limit of 7 days, is dropped on
+		// reconcile (spec §7), so dead pairings cannot pile up and starve fresh ones.
+		var (_, _, pairings, relay, sockets) = Build();
 		pairings.Save(RelayRecord("top-stale", DateTime.UtcNow.AddDays(-8))); // expired
 		pairings.Save(RelayRecord("top-fresh", DateTime.UtcNow));             // live
 
@@ -467,14 +527,17 @@ public class LinkRelayClientTests
 	}
 
 	[Fact]
-	public void Revoking_a_deeplink_only_pairing_does_not_throw()
+	public void Ending_the_session_of_a_deeplink_only_pairing_ends_it_without_the_relay()
 	{
 		// Regression (logout crash): a deeplink-only pairing has no RelayUrl and never subscribed a
-		// relay topic. RevokeSession (user revoke / account logout) must tear it down WITHOUT
-		// touching the relay - UnsubscribeRelay used to call Dictionary.TryGetValue(null) and throw
-		// ArgumentNullException, which aborted the wallet's logout mid-way. Revoke must forget the
-		// pairing and stay quiet: no relay socket is ever opened for a deeplink-only pairing.
-		var (_, _, pairings, relay, sockets) = Build();
+		// relay topic. The end of its session must forget it WITHOUT touching the relay: a lookup
+		// with its null relay URL used to throw and abort the wallet's logout.
+		var ops = new FakeV5Ops();
+		var dispatcher = new WalletLinkV5(ops);
+		var pairings = new InMemoryLinkPairingStore();
+		var sockets = new FakeRelaySocketFactory();
+		using var relay = new LinkRelayClient(dispatcher, pairings, sockets, action => action());
+		var endpoint = new LinkDeeplinkEndpoint(dispatcher, ops, pairings, relay);
 		pairings.Save(new LinkPairingRecord
 		{
 			Topic = "top-dl",
@@ -486,8 +549,119 @@ public class LinkRelayClientTests
 			LastSeenUtc = DateTime.UtcNow,
 		});
 
-		Should.NotThrow(() => relay.RevokeSession("sess-dl"));
+		Should.NotThrow(() => dispatcher.EndSession("sess-dl", LinkSessionEndReason.Revoked));
 		pairings.Get("top-dl").ShouldBeNull();   // the pairing is forgotten
 		sockets.Sockets.ShouldBeEmpty();         // no relay connection was ever opened
+		endpoint.ShouldNotBeNull();
+	}
+
+	// Spec §7, §18.3: when a session ends, its dApp gets the notice that fits over the pairing, and
+	// the pairing ends with it: the wallet leaves the topic and forgets the key.
+	[Theory]
+	[InlineData(LinkSessionEndReason.Revoked, "pha_sessionDeleted")]
+	[InlineData(LinkSessionEndReason.Evicted, "pha_sessionDeleted")]
+	[InlineData(LinkSessionEndReason.Expired, "pha_sessionExpired")]
+	public void Ending_a_session_sends_its_notice_and_ends_its_relay_pairing(LinkSessionEndReason reason, string notice)
+	{
+		var paired = PairOverRelay("end-" + reason);
+		var before = paired.Socket.Sent.Count;
+
+		paired.Dispatcher.EndSession(paired.SessionId, reason).ShouldBeTrue();
+
+		var frames = paired.Socket.SentFrames().Skip(before).ToArray();
+		var events = paired.Published(frames);
+		events.Length.ShouldBe(1);
+		((string)events[0]["event"]!).ShouldBe(notice);
+		((string)events[0]["session"]!).ShouldBe(paired.SessionId);
+		((string)events[0]["data"]!["session"]!).ShouldBe(paired.SessionId);
+		frames.ShouldContain(f => (string?)f["op"] == "unsubscribe" && (string?)f["topic"] == paired.Topic + ".dapp");
+		paired.Pairings.Get(paired.Topic).ShouldBeNull();
+		paired.Sessions.Get(paired.SessionId).ShouldBeNull();
+	}
+
+	[Fact]
+	public void A_disconnect_over_the_relay_is_answered_and_ends_the_pairing()
+	{
+		var paired = PairOverRelay("disconnect");
+
+		var frames = paired.Request($"{{\"plv\":5,\"id\":\"d1\",\"session\":\"{paired.SessionId}\",\"method\":\"pha_disconnect\",\"params\":{{}}}}");
+
+		// The notice first, then the answer: the transport still holds the key for it.
+		var published = paired.Published(frames);
+		((string)published[0]["event"]!).ShouldBe("pha_sessionDeleted");
+		((string)published[1]["id"]!).ShouldBe("d1");
+		((bool)published[1]["result"]!["ok"]!).ShouldBeTrue();
+		frames.ShouldContain(f => (string?)f["op"] == "unsubscribe");
+		paired.Pairings.Get(paired.Topic).ShouldBeNull();
+	}
+
+	[Fact]
+	public void A_request_in_an_expired_session_gets_5100_and_the_pairing_ends()
+	{
+		// Spec §7: a wallet that finds the session ended when a request arrives, while it still
+		// holds the pairing, answers 5100 over it.
+		var paired = PairOverRelay("expired");
+		paired.Sessions.Get(paired.SessionId)!.ExpiresUtc = DateTime.UtcNow.AddMinutes(-1);
+
+		var frames = paired.Request($"{{\"plv\":5,\"id\":\"x1\",\"session\":\"{paired.SessionId}\",\"method\":\"pha_getChains\"}}");
+
+		var published = paired.Published(frames);
+		((string)published[0]["event"]!).ShouldBe("pha_sessionExpired");
+		((string)published[1]["id"]!).ShouldBe("x1");
+		((int)published[1]["error"]!["code"]!).ShouldBe(5100);
+		paired.Pairings.Get(paired.Topic).ShouldBeNull();
+	}
+
+	[Fact]
+	public void A_connect_without_a_session_resumes_the_session_of_the_pairing()
+	{
+		// Spec §9.5: a late copy of the first pha_connect of a pairing changes nothing.
+		var paired = PairOverRelay("late-connect");
+
+		var frames = paired.Request("{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"late-connect-dapp\",\"url\":\"https://dapp.example\"}}}");
+
+		var answer = paired.Published(frames).Single();
+		((string)answer["result"]!["session"]!["id"]!).ShouldBe(paired.SessionId);
+		paired.Ops.ConnectCalls.ShouldBe(0);
+	}
+
+	[Theory]
+	[InlineData("unknown", 4100)]
+	[InlineData("expired", 5100)]
+	public void A_resume_that_fails_over_the_relay_gets_an_error_and_never_a_second_session(string state, int code)
+	{
+		// Spec §9.5: over deeplink and relay a pairing carries one session and ends with it.
+		var paired = PairOverRelay("resume-" + state);
+		var session = paired.SessionId;
+		if (state == "unknown")
+		{
+			session = "no-such-session";
+		}
+		else
+		{
+			paired.Sessions.Get(session)!.LastSeenUtc = DateTime.UtcNow.AddDays(-8);
+		}
+
+		var frames = paired.Request($"{{\"plv\":5,\"id\":\"c2\",\"session\":\"{session}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"resume-{state}-dapp\",\"url\":\"https://dapp.example\"}}}}}}");
+
+		var answer = paired.Published(frames).Single(e => (string?)e["id"] == "c2");
+		((int)answer["error"]!["code"]!).ShouldBe(code);
+		paired.Ops.ConnectCalls.ShouldBe(0);
+	}
+
+	[Fact]
+	public void A_pairing_whose_session_the_wallet_no_longer_keeps_ends_on_reconnect()
+	{
+		// Spec §18.3: a pairing lives as long as its session. A session that went without its
+		// pairing (a store that dropped it) ends the pairing with a notice at the next reconcile.
+		var paired = PairOverRelay("orphan");
+		paired.Sessions.Remove(paired.SessionId);
+		var before = paired.Socket.Sent.Count;
+
+		paired.Relay.EnsureConnected();
+
+		var frames = paired.Socket.SentFrames().Skip(before).ToArray();
+		((string)paired.Published(frames).Single()["event"]!).ShouldBe("pha_sessionDeleted");
+		paired.Pairings.Get(paired.Topic).ShouldBeNull();
 	}
 }

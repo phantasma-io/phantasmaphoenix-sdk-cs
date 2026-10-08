@@ -34,6 +34,21 @@ public sealed class LinkDeeplinkEndpoint
 		_pairings = pairings;
 		_relay = relay;
 		_log = log;
+		// A pairing ends with its session (spec §18.3). The relay client ends the pairings it
+		// serves; this endpoint ends the others.
+		_dispatcher.SessionEnded += OnSessionEnded;
+	}
+
+	private void OnSessionEnded(string session, LinkSessionEndReason reason)
+	{
+		foreach (var pairing in _pairings.List())
+		{
+			if (pairing.SessionId == session && (_relay == null || string.IsNullOrEmpty(pairing.RelayUrl)))
+			{
+				_log?.Invoke($"pairing ended with its session reason={reason}");
+				_pairings.Remove(pairing.Topic);
+			}
+		}
 	}
 
 	/// <summary>Host of a callback URL for logging only - never its path/query/fragment, which can
@@ -131,9 +146,9 @@ public sealed class LinkDeeplinkEndpoint
 			return; // malformed mode/material combination
 		}
 
-		_ops.ConfirmPairing(pairing, approved =>
+		_ops.ConfirmPairing(pairing, decision =>
 		{
-			if (!approved)
+			if (!decision.Approved)
 			{
 				_log?.Invoke($"pair consent declined topic={pairing.Topic}");
 				return;
@@ -179,10 +194,10 @@ public sealed class LinkDeeplinkEndpoint
 				Origin = record.DappUrl.Length > 0 ? record.DappUrl : null,
 				Transport = relayUrl != null ? LinkTransportKind.Relay : LinkTransportKind.Deeplink,
 			};
-			_dispatcher.EstablishConsentedSession(caller, eventJson =>
+			_dispatcher.EstablishConsentedSession(caller, decision.Lifetime, eventJson =>
 			{
-				// Remember which v5 session this channel established, so an eviction/expiry of the
-				// pairing can best-effort notify the dApp with pha_sessionDeleted (spec §7).
+				// Remember which v5 session this channel carries: the pairing ends with it, and its
+				// events go over this channel (spec §7, §18.3).
 				try
 				{
 					record.SessionId = (string?)Newtonsoft.Json.Linq.JObject.Parse(eventJson)["session"] ?? "";

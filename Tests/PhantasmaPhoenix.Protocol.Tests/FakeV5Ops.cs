@@ -24,6 +24,8 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	public LinkCaller? LastCaller;
 	/// <summary>How many times the consent flow (Connect) ran - resume must NOT increase it.</summary>
 	public int ConnectCalls;
+	/// <summary>The lifetime the user picks at a connect.</summary>
+	public LinkSessionLifetime ConnectLifetime = LinkSessionLifetime.Always;
 
 	// Other-op controls.
 	public LinkFailure FailAccount = LinkFailure.None;
@@ -54,7 +56,7 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 		if (DeferConnect) { PendingConnects.Add(done); return; }
 		if (RejectConnect) { done(LinkConnectResult.Fail(LinkFailure.UserRejected, "rejected")); return; }
 		if (FailConnect != LinkFailure.None) { done(LinkConnectResult.Fail(FailConnect, FailConnectMessage)); return; }
-		done(LinkConnectResult.Ok(Account(), "FakeWallet", "9.9.9", "localnet"));
+		done(LinkConnectResult.Ok(Account(), "FakeWallet", "9.9.9", "localnet", ConnectLifetime));
 	}
 
 	public void GetAccount(Action<LinkAccountResult> done)
@@ -139,13 +141,15 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 
 	// Pairing controls.
 	public bool RejectPairing;
+	/// <summary>The lifetime the user picks at a pairing.</summary>
+	public LinkSessionLifetime PairingLifetime = LinkSessionLifetime.Always;
 	public LinkPairingParams? LastPairing;
 	public int ConfirmPairingCalls;
 
-	public void ConfirmPairing(LinkPairingParams pairing, Action<bool> done)
+	public void ConfirmPairing(LinkPairingParams pairing, Action<LinkPairingDecision> done)
 	{
 		ConfirmPairingCalls++;
 		LastPairing = pairing;
-		done(!RejectPairing);
+		done(RejectPairing ? LinkPairingDecision.Decline() : LinkPairingDecision.Approve(PairingLifetime));
 	}
 }

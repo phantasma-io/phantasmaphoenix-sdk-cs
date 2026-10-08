@@ -20,10 +20,14 @@ public class WalletLinkV5
 	/// approval (spec §15 step 3); lets the first connection complete in one user gesture.</summary>
 	public const string SessionEstablishedEvent = "pha_sessionEstablished";
 
-	/// <summary>Unsolicited wallet->dApp event telling the dApp its session ended (the wallet
-	/// expired/evicted/revoked it, spec §7). The dApp should drop the session and re-pair rather
-	/// than hang on requests the wallet will never answer.</summary>
+	/// <summary>Wallet->dApp event: eviction, the user's revoke or <c>pha_disconnect</c> ended the
+	/// session (spec §7). Its data is <c>{ session }</c>. The dApp drops the session and pairs again
+	/// rather than hang on requests the wallet will never answer.</summary>
 	public const string SessionDeletedEvent = "pha_sessionDeleted";
+
+	/// <summary>Wallet->dApp event: the lifetime of the session or the inactivity limit ended it
+	/// (spec §7). Its data is <c>{ session }</c>.</summary>
+	public const string SessionExpiredEvent = "pha_sessionExpired";
 
 	// Error codes - mirror the SDK taxonomy (spec §10 / errors.ts) so dApps branch on the number.
 	private const int ErrParse = -32700;
@@ -39,6 +43,7 @@ public class WalletLinkV5
 	private const int ErrNexusMismatch = 5002;
 	private const int ErrUnsupportedSignatureKind = 5003;
 	private const int ErrCapabilityNotSupported = 5004;
+	private const int ErrSessionExpired = 5100;
 
 	/// <summary>The methods this dispatcher serves (spec §9.2), in the order the capabilities list
 	/// them (spec §5).</summary>
@@ -73,6 +78,18 @@ public class WalletLinkV5
 		_sessions = sessions ?? new InMemoryLinkSessionStore();
 		_options = options ?? new WalletLinkV5Options();
 	}
+
+	/// <summary>Raised with a session id and the envelope of an event of that session (spec §4,
+	/// §9.5). A transport delivers it on the session's channel, best effort.</summary>
+	public event Action<string, string>? SessionEvent;
+
+	/// <summary>Raised when a session ended (spec §7), after its notice went out through
+	/// <see cref="SessionEvent"/>. A transport ends the channel of the session: a pairing ends with
+	/// its session (spec §18.3).</summary>
+	public event Action<string, LinkSessionEndReason>? SessionEnded;
+
+	/// <summary>A session without a request for this long ends (spec §7).</summary>
+	public TimeSpan SessionIdleTimeout => _options.SessionIdleTimeout;
 
 	/// <summary>
 	/// Handle one incoming envelope string and deliver exactly one response string via
@@ -219,8 +236,15 @@ public class WalletLinkV5
 			HandleConnect(id, session, prms, context, respond);
 			return;
 		}
+		// Spec §9.5: pha_disconnect is idempotent, so an unknown or ended session gets its success
+		// before the lock and session checks.
+		if (method == "pha_disconnect")
+		{
+			HandleDisconnect(id, session, context, respond);
+			return;
+		}
 
-		// Everything except connect requires a Ready wallet and a valid session.
+		// Everything else requires a Ready wallet and a live session.
 		if (_ops.Status != WalletStatus.Ready)
 		{
 			respond(BuildError(id, ErrDisconnected, $"Wallet is {_ops.Status}"));
@@ -238,6 +262,18 @@ public class WalletLinkV5
 			respond(BuildError(id, ErrUnauthorized, "Origin mismatch"));
 			return;
 		}
+		var now = DateTime.UtcNow;
+		if (IsExpired(record, now))
+		{
+			// Spec §7: a request in an expired session ends it and gets 5100. Over deeplink and
+			// relay the transport still holds the pairing key for this answer.
+			EndSession(record.Id, LinkSessionEndReason.Expired);
+			respond(BuildError(id, ErrSessionExpired, "Session expired"));
+			return;
+		}
+		// Every request moves the inactivity end of the session (spec §7).
+		record.LastSeenUtc = now;
+		_sessions.Save(record);
 		context.OnSession?.Invoke(record.Id);
 		var caller = CallerOf(record, context);
 
@@ -245,7 +281,6 @@ public class WalletLinkV5
 		// request still waits for the user. The wallet may queue its prompts.
 		switch (method)
 		{
-			case "pha_disconnect": HandleDisconnect(id, session, respond); break;
 			case "pha_getAccounts": HandleGetAccounts(id, respond); break;
 			case "pha_getChains": HandleGetChains(id, respond); break;
 			case "pha_getWalletInfo": HandleGetWalletInfo(id, record, respond); break;
@@ -278,6 +313,103 @@ public class WalletLinkV5
 		};
 	}
 
+	#region Sessions
+	/// <summary>Ends a session (spec §7): forgets it, sends its dApp the notice that fits the
+	/// reason, and has the transports end its channel. The host calls it when the user revokes a
+	/// session. Returns false when the wallet did not keep the session; the notice and the end of
+	/// the channel still go out, so a pairing that outlived its session ends too.</summary>
+	public bool EndSession(string sessionId, LinkSessionEndReason reason)
+	{
+		if (string.IsNullOrEmpty(sessionId))
+		{
+			return false;
+		}
+		var known = _sessions.Get(sessionId) != null;
+		_sessions.Remove(sessionId);
+		var notice = reason == LinkSessionEndReason.Expired ? SessionExpiredEvent : SessionDeletedEvent;
+		var envelope = BuildEvent(notice, sessionId, new JObject { ["session"] = sessionId });
+		// Best effort (spec §7): a transport that fails must not keep the session alive or keep the
+		// other transports from hearing of its end.
+		Raise(SessionEvent, handler => handler(sessionId, envelope));
+		Raise(SessionEnded, handler => handler(sessionId, reason));
+		return known;
+	}
+
+	/// <summary>Ends every session with the lifetime <c>Session</c> (spec §7): that lifetime ends
+	/// when the wallet locks, and a restart locks the wallet. The host calls it when the wallet
+	/// locks, and at start once its transports are wired, so that the notices reach the dApps.</summary>
+	public void EndSessionLifetimes()
+	{
+		foreach (var record in _sessions.List())
+		{
+			if (record.Lifetime == LinkSessionLifetime.Session)
+			{
+				EndSession(record.Id, LinkSessionEndReason.Expired);
+			}
+		}
+	}
+
+	/// <summary>Ends every session whose lifetime or inactivity limit passed (spec §7). A request
+	/// in such a session ends it as well; this ends the sessions of dApps that stay quiet.</summary>
+	public void ExpireSessions()
+	{
+		var now = DateTime.UtcNow;
+		foreach (var record in _sessions.List())
+		{
+			if (IsExpired(record, now))
+			{
+				EndSession(record.Id, LinkSessionEndReason.Expired);
+			}
+		}
+	}
+
+	/// <summary>Returns true when the wallet keeps the session and it has not expired.</summary>
+	public bool IsSessionLive(string sessionId)
+	{
+		var record = string.IsNullOrEmpty(sessionId) ? null : _sessions.Get(sessionId);
+		return record != null && !IsExpired(record, DateTime.UtcNow);
+	}
+
+	private bool IsExpired(LinkSessionRecord record, DateTime now)
+	{
+		return (record.ExpiresUtc != null && now >= AsUtc(record.ExpiresUtc.Value))
+			|| now - AsUtc(record.LastSeenUtc) >= _options.SessionIdleTimeout;
+	}
+
+	/// <summary>Returns a stored time as UTC. The dispatcher writes UTC only, but a store that
+	/// serializes the record may read a time back without its kind.</summary>
+	private static DateTime AsUtc(DateTime value)
+	{
+		switch (value.Kind)
+		{
+			case DateTimeKind.Utc: return value;
+			case DateTimeKind.Local: return value.ToUniversalTime();
+			default: return DateTime.SpecifyKind(value, DateTimeKind.Utc);
+		}
+	}
+
+	/// <summary>Calls every handler of <paramref name="handlers"/>; a handler that throws does not
+	/// stop the others.</summary>
+	private static void Raise<T>(T? handlers, Action<T> invoke) where T : Delegate
+	{
+		if (handlers == null)
+		{
+			return;
+		}
+		foreach (var handler in handlers.GetInvocationList())
+		{
+			try
+			{
+				invoke((T)handler);
+			}
+			catch (Exception)
+			{
+				// Best effort, see the callers.
+			}
+		}
+	}
+	#endregion
+
 	#region Handlers
 	private void HandleConnect(JToken? id, string? session, JObject prms, LinkRequestContext context, Action<string> respond)
 	{
@@ -295,16 +427,46 @@ public class WalletLinkV5
 		caller.Origin = context.Origin;
 		caller.Transport = context.Transport;
 
-		// Resume (spec §4, §9.5): the session to resume rides in the envelope `session` field. A
-		// known session of the SAME dApp identity gets reconnected without a prompt - but only if
-		// the wallet still serves the same account. Any mismatch falls back to the full consent
-		// flow below (one round-trip, fresh session).
-		if (session != null)
+		// Resume (spec §9.5): the session to resume rides in the envelope `session` field; over
+		// deeplink and relay a connect without one resumes the session of its pairing. A live
+		// session of the SAME dApp identity reconnects without a prompt while the wallet serves
+		// its account.
+		var resumeId = session ?? context.PairingSession;
+		if (resumeId != null)
 		{
-			var record = _sessions.Get(session);
-			if (record != null && record.Dapp == caller.DappName && _ops.Status == WalletStatus.Ready && OriginMatches(record, context.Origin))
+			// Over deeplink and relay a pairing carries one session and ends with it: a resume
+			// that fails there gets an error, never a second session (spec §9.5, §18.3). Over
+			// loopback a session that ended or that the wallet does not know gets the full
+			// approval. A live session is never replaced because the wallet is locked (spec §7):
+			// its resume gets 4900 then, on every transport.
+			var paired = context.Transport == LinkTransportKind.Deeplink || context.Transport == LinkTransportKind.Relay;
+			var record = _sessions.Get(resumeId);
+			if (record != null && IsExpired(record, DateTime.UtcNow))
 			{
-				TryResume(id, record, context, respond, () => ConnectNew(id, caller, chains, methods, context, respond));
+				EndSession(record.Id, LinkSessionEndReason.Expired);
+				if (paired)
+				{
+					respond(BuildError(id, ErrSessionExpired, "Session expired"));
+					return;
+				}
+				record = null;
+			}
+			if (record != null && record.Dapp == caller.DappName && OriginMatches(record, context.Origin))
+			{
+				if (_ops.Status == WalletStatus.Ready)
+				{
+					Action connectAgain = paired
+						? () => respond(BuildError(id, ErrUnauthorized, "The wallet does not serve the account of the session"))
+						: () => ConnectNew(id, caller, chains, methods, context, respond);
+					TryResume(id, record, context, respond, connectAgain);
+					return;
+				}
+				respond(BuildError(id, ErrDisconnected, $"Wallet is {_ops.Status}"));
+				return;
+			}
+			else if (paired)
+			{
+				respond(BuildError(id, ErrUnauthorized, "No valid session"));
 				return;
 			}
 		}
@@ -377,8 +539,8 @@ public class WalletLinkV5
 	}
 
 	/// <summary>Promptless reconnect for an already-authorized session. The answer carries the
-	/// capabilities granted to it. <paramref name="connectAgain"/> runs the consent flow when the
-	/// wallet no longer serves the session's account.</summary>
+	/// capabilities granted to it. <paramref name="connectAgain"/> runs when the wallet no longer
+	/// serves the session's account.</summary>
 	private void TryResume(JToken? id, LinkSessionRecord record, LinkRequestContext context, Action<string> respond, Action connectAgain)
 	{
 		_ops.GetAccount(result =>
@@ -403,12 +565,10 @@ public class WalletLinkV5
 	}
 
 	/// <summary>The full consent flow: prompt the user, then persist a fresh session bound to the
-	/// dApp and the origin of the request, with the networks and methods granted to it.</summary>
+	/// dApp and the origin of the request, with the networks and methods granted to it and the
+	/// lifetime the user picked.</summary>
 	private void PromptConnect(JToken? id, LinkCaller caller, string[] grantedChains, string[] grantedMethods, LinkRequestContext context, Action<string> respond)
 	{
-		// The dispatcher OWNS the session id: it mints the token, hands it to the dApp as the
-		// session id, and persists the record below. The op only grants consent (no token passed in).
-		var token = Guid.NewGuid().ToString("N");
 		_ops.Connect(caller, result =>
 		{
 			if (result.Failure != LinkFailure.None || result.Account == null)
@@ -417,25 +577,67 @@ public class WalletLinkV5
 				return;
 			}
 
-			var now = DateTime.UtcNow;
-			var record = new LinkSessionRecord
-			{
-				Id = token,
-				Dapp = caller.DappName,
-				DappUrl = caller.DappUrl,
-				DappIcon = caller.DappIcon,
-				Origin = context.Origin,
-				Address = result.Account.Address,
-				Chains = grantedChains,
-				Methods = grantedMethods,
-				Features = Array.Empty<string>(),
-				CreatedUtc = now,
-				LastSeenUtc = now,
-			};
-			_sessions.Save(record);
-			context.OnSession?.Invoke(token);
+			var record = SaveNewSession(caller, result.Account.Address, grantedChains, grantedMethods, result.Lifetime);
+			context.OnSession?.Invoke(record.Id);
 			respond(BuildResult(id, BuildConnectResponse(record, result.WalletName, result.WalletVersion, result.Nexus, result.Account)));
 		});
+	}
+
+	/// <summary>Stores a new session and keeps the store bounded: the expired sessions end first,
+	/// then the least recently used ones past the limit (spec §7). The dispatcher OWNS the session
+	/// id: it mints it here, and the ops only grant consent.</summary>
+	private LinkSessionRecord SaveNewSession(LinkCaller caller, string address, string[] chains, string[] methods, LinkSessionLifetime lifetime)
+	{
+		ExpireSessions();
+		var now = DateTime.UtcNow;
+		var record = new LinkSessionRecord
+		{
+			Id = Guid.NewGuid().ToString("N"),
+			Dapp = caller.DappName,
+			DappUrl = caller.DappUrl,
+			DappIcon = caller.DappIcon,
+			Origin = caller.Origin,
+			Address = address,
+			Chains = chains,
+			Methods = methods,
+			Features = Array.Empty<string>(),
+			Lifetime = lifetime,
+			ExpiresUtc = EndOf(lifetime, now),
+			CreatedUtc = now,
+			LastSeenUtc = now,
+		};
+		_sessions.Save(record);
+		EvictBeyondLimit(record.Id);
+		return record;
+	}
+
+	/// <summary>Returns the fixed end of a lifetime that starts at <paramref name="now"/>, or null
+	/// when it has none (spec §7).</summary>
+	private static DateTime? EndOf(LinkSessionLifetime lifetime, DateTime now)
+	{
+		switch (lifetime)
+		{
+			case LinkSessionLifetime.OneHour: return now.AddHours(1);
+			case LinkSessionLifetime.OneDay: return now.AddDays(1);
+			case LinkSessionLifetime.OneMonth: return now.AddDays(30);
+			default: return null;
+		}
+	}
+
+	/// <summary>Keeps at most <see cref="WalletLinkV5Options.MaxSessions"/> sessions: the least
+	/// recently used ones past it end as evicted (spec §7). The new session stays.</summary>
+	private void EvictBeyondLimit(string newSessionId)
+	{
+		var records = _sessions.List();
+		var extra = records.Length - Math.Max(1, _options.MaxSessions);
+		if (extra <= 0)
+		{
+			return;
+		}
+		foreach (var record in records.Where(r => r.Id != newSessionId).OrderBy(r => AsUtc(r.LastSeenUtc)).Take(extra).ToArray())
+		{
+			EndSession(record.Id, LinkSessionEndReason.Evicted);
+		}
 	}
 
 	/// <summary>Returns the <c>pha_connect</c> result of a session (spec §5): the wallet, the
@@ -447,8 +649,14 @@ public class WalletLinkV5
 			["wallet"] = new JObject { ["name"] = walletName, ["version"] = walletVersion },
 			["capabilities"] = BuildCapabilities(record, nexus),
 			["account"] = BuildAccount(account),
-			// No lifetime with a fixed end exists yet, so `expiresAt` is null (spec §5).
-			["session"] = new JObject { ["id"] = record.Id, ["expiresAt"] = JValue.CreateNull() },
+			// The end of the lifetime in Unix milliseconds, or null without a fixed end (spec §5).
+			["session"] = new JObject
+			{
+				["id"] = record.Id,
+				["expiresAt"] = record.ExpiresUtc == null
+					? JValue.CreateNull()
+					: new JValue(new DateTimeOffset(AsUtc(record.ExpiresUtc.Value)).ToUnixTimeMilliseconds()),
+			},
 		};
 	}
 
@@ -460,9 +668,10 @@ public class WalletLinkV5
 	/// covers account access (the pairing consent). When the wallet is not Ready or has no
 	/// account, it silently delivers nothing: the dApp then falls back to the classic explicit
 	/// pha_connect (which prompts), so degradation is graceful, never an error. The session is
-	/// bound to the dApp and the origin of <paramref name="caller"/>.
+	/// bound to the dApp and the origin of <paramref name="caller"/> and lasts the
+	/// <paramref name="lifetime"/> the user picked at the pairing.
 	/// </summary>
-	public void EstablishConsentedSession(LinkCaller caller, Action<string> deliver)
+	public void EstablishConsentedSession(LinkCaller caller, LinkSessionLifetime lifetime, Action<string> deliver)
 	{
 		if (string.IsNullOrEmpty(caller.DappName) || _ops.Status != WalletStatus.Ready)
 		{
@@ -478,38 +687,25 @@ public class WalletLinkV5
 			_ops.GetWalletInfo(info =>
 				_ops.GetChains(chains =>
 				{
-					// Same record shape and token scheme as the prompted connect flow, so the
-					// session is indistinguishable downstream (resume, disconnect, request auth).
-					var token = Guid.NewGuid().ToString("N");
-					var now = DateTime.UtcNow;
-					// The pairing asked for nothing in particular: the session gets every network
-					// and method the wallet serves.
-					var record = new LinkSessionRecord
-					{
-						Id = token,
-						Dapp = caller.DappName,
-						DappUrl = caller.DappUrl,
-						DappIcon = caller.DappIcon,
-						Origin = caller.Origin,
-						Address = account.Address,
-						Chains = ServedChains(chains.Nexus),
-						Methods = ServedMethods.ToArray(),
-						Features = Array.Empty<string>(),
-						CreatedUtc = now,
-						LastSeenUtc = now,
-					};
-					_sessions.Save(record);
-					deliver(BuildEvent(SessionEstablishedEvent, token,
+					// Same record as the prompted connect flow, so the session is
+					// indistinguishable downstream (resume, disconnect, request auth). The pairing
+					// asked for nothing in particular: the session gets every network and method
+					// the wallet serves.
+					var record = SaveNewSession(caller, account.Address, ServedChains(chains.Nexus), ServedMethods.ToArray(), lifetime);
+					deliver(BuildEvent(SessionEstablishedEvent, record.Id,
 						BuildConnectResponse(record, info.Name, info.Version, chains.Nexus, account)));
 				}));
 		});
 	}
 
-	private void HandleDisconnect(JToken? id, string? session, Action<string> respond)
+	private void HandleDisconnect(JToken? id, string? session, LinkRequestContext context, Action<string> respond)
 	{
-		if (session != null)
+		// A session of another origin is left alone: its id alone does not end it. An unknown
+		// session still ends, so that a channel that outlived it ends too.
+		var record = session == null ? null : _sessions.Get(session);
+		if (session != null && (record == null || OriginMatches(record, context.Origin)))
 		{
-			_sessions.Remove(session); // idempotent: removing an unknown session still succeeds
+			EndSession(session, LinkSessionEndReason.Disconnected);
 		}
 		respond(BuildResult(id, new JObject { ["ok"] = true }));
 	}
@@ -913,14 +1109,6 @@ public class WalletLinkV5
 			["event"] = eventName,
 			["data"] = data,
 		}.ToString(Formatting.None);
-	}
-
-	/// <summary>Build the (unsealed) <see cref="SessionDeletedEvent"/> envelope for a session id.
-	/// The relay client seals + publishes it as a best-effort notice when it evicts/expires a
-	/// pairing (spec §7), so the dApp re-pairs instead of hanging.</summary>
-	public string BuildSessionDeletedEnvelope(string sessionId)
-	{
-		return BuildEvent(SessionDeletedEvent, sessionId, new JObject());
 	}
 
 	/// <summary>Builds the (unsealed) error envelope that answers request <paramref name="id"/>

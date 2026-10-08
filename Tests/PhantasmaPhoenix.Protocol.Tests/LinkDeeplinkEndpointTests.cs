@@ -204,6 +204,47 @@ public class LinkDeeplinkEndpointTests
 	}
 
 	[Fact]
+	public void A_pairing_gives_its_session_the_lifetime_the_user_picked()
+	{
+		var (endpoint, ops, _, _) = Build();
+		ops.PairingLifetime = LinkSessionLifetime.OneDay;
+		var key = new byte[32];
+		key[6] = 2;
+		string? openedUrl = null;
+		var start = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+		endpoint.TryHandle(SymPairingUri(key, LinkTestTopics.Of("top-life"), "https://dapp.example/app", dappName: "life-dapp"), url => openedUrl = url).ShouldBeTrue();
+
+		var envelope = JObject.Parse(OpenResponseFrame(new LinkChannel(key), openedUrl!));
+		((long)envelope["data"]!["session"]!["expiresAt"]!).ShouldBeInRange(start + 86_400_000L, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 86_400_000L);
+	}
+
+	[Fact]
+	public void A_deeplink_pairing_ends_with_its_session()
+	{
+		// Spec §18.3: the wallet forgets the pairing and its key when the session ends, so a later
+		// request on it gets no answer.
+		var (endpoint, _, pairings, dispatcher) = Build();
+		var key = new byte[32];
+		key[8] = 6;
+		var channel = new LinkChannel(key);
+		var topic = LinkTestTopics.Of("top-end");
+		string? openedUrl = null;
+		endpoint.TryHandle(SymPairingUri(key, topic, "https://dapp.example/app", dappName: "end-dapp"), url => openedUrl = url).ShouldBeTrue();
+		var sessionId = (string)JObject.Parse(OpenResponseFrame(channel, openedUrl!))["data"]!["session"]!["id"]!;
+		pairings.Get(topic)!.SessionId.ShouldBe(sessionId);
+
+		dispatcher.EndSession(sessionId, LinkSessionEndReason.Revoked).ShouldBeTrue();
+
+		pairings.Get(topic).ShouldBeNull();
+		var request = $"{{\"plv\":5,\"id\":\"r1\",\"session\":\"{sessionId}\",\"method\":\"pha_getChains\"}}";
+		var fb64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(channel.SealEnvelope(request))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+		string? answer = null;
+		endpoint.TryHandle($"phantasma://v5/req#t={topic}&f={fb64}", url => answer = url).ShouldBeTrue();
+		answer.ShouldBeNull();
+	}
+
+	[Fact]
 	public void Pairing_push_is_skipped_without_meta_name_or_without_a_ready_account()
 	{
 		// No dApp name in the pairing meta: the consent dialog could only show the bare topic,

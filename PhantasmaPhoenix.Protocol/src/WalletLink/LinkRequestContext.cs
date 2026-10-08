@@ -25,6 +25,10 @@ public sealed class LinkRequestContext
 	/// then labels the caller as unverified (spec §6.2).</summary>
 	public string? Origin { get; set; }
 
+	/// <summary>Over deeplink and relay, the session that the pairing of the request carries, or
+	/// null before its first session. A <c>pha_connect</c> without a session resumes it (spec §9.5).</summary>
+	public string? PairingSession { get; set; }
+
 	/// <summary>Called with the id of the session that the dispatcher accepted a request of, or
 	/// created for it. A transport keeps it as the session its channel carries, to deliver that
 	/// session's events and to end the channel with the session.</summary>

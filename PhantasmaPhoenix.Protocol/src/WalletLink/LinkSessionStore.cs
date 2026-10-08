@@ -6,6 +6,37 @@ namespace PhantasmaPhoenix.Protocol;
 // ILinkSessionStore (e.g. PlayerPrefs in a Unity wallet). InMemoryLinkSessionStore is the
 // default for tests and for hosts that deliberately want non-persistent sessions.
 
+/// <summary>How long a Link session lasts (spec §7), as the user picks it at the approval. Every
+/// lifetime also ends by inactivity, eviction and revoke. The values are stored with the session:
+/// <c>Always</c> is 0, so a session stored before lifetimes existed keeps no fixed end.</summary>
+public enum LinkSessionLifetime
+{
+	/// <summary>Until the wallet locks; a restart locks the wallet. No fixed end date.</summary>
+	Session = 1,
+	/// <summary>One hour from the approval.</summary>
+	OneHour = 2,
+	/// <summary>One day from the approval.</summary>
+	OneDay = 3,
+	/// <summary>30 days from the approval.</summary>
+	OneMonth = 4,
+	/// <summary>No fixed end.</summary>
+	Always = 0,
+}
+
+/// <summary>Why a Link session ended (spec §7). It picks the notice the dApp gets:
+/// <c>pha_sessionExpired</c> for <see cref="Expired"/>, <c>pha_sessionDeleted</c> for the rest.</summary>
+public enum LinkSessionEndReason
+{
+	/// <summary>Its lifetime or the inactivity limit ended it.</summary>
+	Expired,
+	/// <summary>The user revoked it in the wallet.</summary>
+	Revoked,
+	/// <summary>The dApp ended it with <c>pha_disconnect</c>.</summary>
+	Disconnected,
+	/// <summary>The wallet evicted it to stay within its limits.</summary>
+	Evicted,
+}
+
 /// <summary>One authorized dApp session as the wallet remembers it.</summary>
 public sealed class LinkSessionRecord
 {
@@ -29,7 +60,13 @@ public sealed class LinkSessionRecord
 	public string[]? Methods { get; set; }
 	/// <summary>The features granted to the session (spec §5); this version defines none.</summary>
 	public string[]? Features { get; set; }
+	/// <summary>The lifetime the user picked (spec §7).</summary>
+	public LinkSessionLifetime Lifetime { get; set; } = LinkSessionLifetime.Always;
+	/// <summary>The fixed end of the lifetime, or null when it has none (<c>Session</c> and
+	/// <c>Always</c>).</summary>
+	public DateTime? ExpiresUtc { get; set; }
 	public DateTime CreatedUtc { get; set; }
+	/// <summary>The last request in the session; the inactivity limit counts from it (spec §7).</summary>
 	public DateTime LastSeenUtc { get; set; }
 }
 

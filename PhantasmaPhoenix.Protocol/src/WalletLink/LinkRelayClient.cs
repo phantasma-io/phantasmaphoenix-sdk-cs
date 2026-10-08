@@ -86,10 +86,9 @@ public sealed class LinkRelayClient : IDisposable
 	private readonly int[] _reconnectDelaysMs;
 	// Spec §7 session-store lifecycle: keep only the N most-recently-used relay sessions
 	// subscribed (LRU eviction by LastSeenUtc), kept BELOW the relay's per-connection topic cap
-	// (§16, default 8) so a fresh pairing always has a slot. A session idle past _idleTtl is
-	// pruned. Without this the (cap+1)-th pairing's subscribe is rejected and that dApp hangs.
+	// (§16, default 8) so a fresh pairing always has a slot. Without this the (cap+1)-th
+	// pairing's subscribe is rejected and that dApp hangs.
 	private readonly int _relaySessionCap;
-	private readonly TimeSpan _idleTtl;
 	private readonly object _gate = new object();
 	private readonly Dictionary<string, Connection> _connections = new Dictionary<string, Connection>();
 	private readonly Dictionary<string, Partial> _partials = new Dictionary<string, Partial>();
@@ -103,8 +102,7 @@ public sealed class LinkRelayClient : IDisposable
 		Action<Action>? marshal = null,
 		int[]? reconnectDelaysMs = null,
 		Action<string>? log = null,
-		int relaySessionCap = 6,
-		TimeSpan? idleTtl = null)
+		int relaySessionCap = 6)
 	{
 		_dispatcher = dispatcher;
 		_pairings = pairings;
@@ -113,13 +111,15 @@ public sealed class LinkRelayClient : IDisposable
 		// because the dispatcher prompts the user and touches wallet state.
 		_marshal = marshal ?? (action => action());
 		_reconnectDelaysMs = reconnectDelaysMs ?? new[] { 1000, 2000, 5000, 15000, 30000 };
-		// Default 6 sits below the relay's default 8-topic cap; 7 days mirrors WalletConnect v2.
+		// Default 6 sits below the relay's default 8-topic cap.
 		_relaySessionCap = relaySessionCap > 0 ? relaySessionCap : 6;
-		_idleTtl = idleTtl ?? TimeSpan.FromDays(7);
 		// Transport visibility: this client absorbs connection failures by silent
 		// reconnection, so without a log sink a host cannot tell a dead relay link from
 		// a quiet one. Hosts wire this to their own logger.
 		_log = log;
+		// The sessions of relay pairings send their events and their end through this client.
+		_dispatcher.SessionEvent += OnSessionEvent;
+		_dispatcher.SessionEnded += OnSessionEnded;
 	}
 
 	private readonly Action<string>? _log;
@@ -133,7 +133,7 @@ public sealed class LinkRelayClient : IDisposable
 	public static string WalletTopic(string pairingTopic) => pairingTopic + ".wallet";
 
 	/// <summary>Connect and reconcile subscriptions for every stored relay pairing (wallet start,
-	/// /v5/wake). Prunes idle-expired sessions and keeps only the most-recently-used ones within
+	/// /v5/wake). Ends the expired sessions and keeps only the most-recently-used pairings within
 	/// the cap. Safe to call repeatedly: existing connections are reused.</summary>
 	public void EnsureConnected()
 	{
@@ -151,41 +151,99 @@ public sealed class LinkRelayClient : IDisposable
 		Reconcile(pairing.Topic);
 	}
 
-	/// <summary>Bring the subscribed relay sessions in line with the spec §7 lifecycle: drop
-	/// idle-expired ones, keep the <see cref="_relaySessionCap"/> most-recently-used (LRU-evict the
-	/// rest, below the relay's per-connection topic cap), and subscribe the survivors.
-	/// <paramref name="protectTopic"/> (a just-created pairing) is never evicted. Runs on the
-	/// dispatch thread; the per-connection helpers take the gate themselves.</summary>
+	/// <summary>Bring the subscribed relay sessions in line with the spec §7 lifecycle: end the
+	/// expired sessions and the pairings that outlived theirs, keep the
+	/// <see cref="_relaySessionCap"/> most-recently-used pairings (evict the rest, below the relay's
+	/// per-connection topic cap), and subscribe the survivors. <paramref name="protectTopic"/> (a
+	/// just-created pairing) is never evicted. Runs on the dispatch thread; the per-connection
+	/// helpers take the gate themselves.</summary>
 	private void Reconcile(string? protectTopic)
 	{
-		var now = DateTime.UtcNow;
-		var relay = _pairings.List()
-			.Where(p => !string.IsNullOrEmpty(p.RelayUrl))
-			.ToList();
+		// 1) Sessions past their lifetime or the inactivity limit end with their notice, and their
+		//    pairings with them (OnSessionEnded).
+		_dispatcher.ExpireSessions();
 
-		// 1) Prune idle-expired sessions (the just-created pairing is exempt).
-		foreach (var p in relay.Where(p => p.Topic != protectTopic && now - p.LastSeenUtc > _idleTtl).ToArray())
+		// 2) A pairing lives as long as its session (spec §18.3): one whose session the wallet no
+		//    longer keeps ends, and one that never got a session ends when it stays idle past the
+		//    inactivity limit. The just-created pairing is exempt.
+		var now = DateTime.UtcNow;
+		foreach (var p in RelayPairings().Where(p => p.Topic != protectTopic))
 		{
-			EvictSession(p, "expired");
-			relay.Remove(p);
+			var ended = p.SessionId.Length > 0
+				? !_dispatcher.IsSessionLive(p.SessionId)
+				: now - p.LastSeenUtc >= _dispatcher.SessionIdleTimeout;
+			if (ended)
+			{
+				Evict(p, "session ended");
+			}
 		}
 
-		// 2) Most-recently-used first (the fresh protected topic forced to the front), then evict
+		// 3) Most-recently-used first (the fresh protected topic forced to the front), then evict
 		//    everything past the cap so the relay never rejects our subscribe with topic_limit.
-		var ordered = relay
+		var ordered = RelayPairings()
 			.OrderByDescending(p => p.Topic == protectTopic)
 			.ThenByDescending(p => p.LastSeenUtc)
 			.ToList();
 		foreach (var p in ordered.Skip(_relaySessionCap).ToArray())
 		{
-			EvictSession(p, "lru");
+			Evict(p, "lru");
 		}
 
-		// 3) Subscribe the survivors (idempotent).
-		foreach (var p in ordered.Take(_relaySessionCap))
+		// 4) Subscribe the survivors (idempotent).
+		foreach (var p in RelayPairings())
 		{
 			SubscribeTopic(p);
 		}
+	}
+
+	private List<LinkPairingRecord> RelayPairings()
+	{
+		return _pairings.List().Where(p => !string.IsNullOrEmpty(p.RelayUrl)).ToList();
+	}
+
+	/// <summary>Ends a relay pairing. One with a session ends through the session (spec §7): its
+	/// dApp gets <c>pha_sessionDeleted</c> and every transport ends its channel.</summary>
+	private void Evict(LinkPairingRecord pairing, string reason)
+	{
+		_log?.Invoke($"evict pairing reason={reason}");
+		if (pairing.SessionId.Length > 0)
+		{
+			_dispatcher.EndSession(pairing.SessionId, LinkSessionEndReason.Evicted);
+		}
+		ForgetPairing(pairing);
+	}
+
+	/// <summary>Delivers an event of a session to the dApp of its relay pairing (spec §9.5).</summary>
+	private void OnSessionEvent(string session, string envelope)
+	{
+		foreach (var pairing in RelayPairings())
+		{
+			if (pairing.SessionId == session)
+			{
+				PublishSealed(pairing, envelope);
+			}
+		}
+	}
+
+	/// <summary>A relay pairing ends with its session (spec §7, §18.3): the wallet leaves its topic
+	/// and forgets its key. The session's notice went out before.</summary>
+	private void OnSessionEnded(string session, LinkSessionEndReason reason)
+	{
+		foreach (var pairing in RelayPairings())
+		{
+			if (pairing.SessionId == session)
+			{
+				_log?.Invoke($"pairing ended with its session reason={reason}");
+				ForgetPairing(pairing);
+			}
+		}
+	}
+
+	/// <summary>Leaves the relay topic of a pairing and forgets the pairing with its key.</summary>
+	private void ForgetPairing(LinkPairingRecord pairing)
+	{
+		UnsubscribeRelay(pairing);
+		_pairings.Remove(pairing.Topic);
 	}
 
 	/// <summary>Subscribe one pairing's topic on its relay connection (connecting if needed).
@@ -215,48 +273,12 @@ public sealed class LinkRelayClient : IDisposable
 		}
 	}
 
-	/// <summary>User-initiated revoke of a session: tear down every pairing that established it
-	/// - best-effort notify the dApp, unsubscribe the relay topic, forget the pairing. Idempotent.</summary>
-	public void RevokeSession(string sessionId)
-	{
-		if (string.IsNullOrEmpty(sessionId))
-		{
-			return;
-		}
-
-		foreach (var pairing in _pairings.List())
-		{
-			if (pairing.SessionId == sessionId)
-			{
-				EvictSession(pairing, "user revoke");
-			}
-		}
-	}
-
-	/// <summary>Tear down one relay session: best-effort notify the dApp (pha_sessionDeleted, so it
-	/// re-pairs instead of hanging), unsubscribe the topic, and forget the pairing.</summary>
-	private void EvictSession(LinkPairingRecord pairing, string reason)
-	{
-		_log?.Invoke($"evict topic={pairing.Topic} reason={reason}");
-		// Notify BEFORE unsubscribing so a still-listening dApp gets the deliver (best-effort: a
-		// gone dApp never reads it and the relay mailbox/TTL discards it).
-		if (!string.IsNullOrEmpty(pairing.SessionId))
-		{
-			try { PublishSealed(pairing, _dispatcher.BuildSessionDeletedEnvelope(pairing.SessionId)); }
-			catch { /* notify is best-effort; eviction proceeds regardless */ }
-		}
-		UnsubscribeRelay(pairing);
-		_pairings.Remove(pairing.Topic);
-	}
-
 	/// <summary>Unsubscribe a topic on its relay connection and drop it from the tracked set.</summary>
 	private void UnsubscribeRelay(LinkPairingRecord pairing)
 	{
 		// A deeplink-only pairing carries no relay URL and never subscribed a relay topic, so there
 		// is nothing to unsubscribe. Guard before the lookup: Dictionary.TryGetValue throws
-		// ArgumentNullException on a null key, and RevokeSession (user revoke / logout) can reach
-		// here with such a pairing. The Reconcile prune path only ever passes relay pairings, so
-		// this stayed latent until session revoke began evicting deeplink-only pairings too.
+		// ArgumentNullException on a null key.
 		if (string.IsNullOrEmpty(pairing.RelayUrl))
 		{
 			return;
@@ -268,8 +290,7 @@ public sealed class LinkRelayClient : IDisposable
 				return;
 			}
 			var relayTopic = DappTopic(pairing.Topic);
-			conn.Topics.Remove(relayTopic);
-			if (conn.Open && conn.Socket != null)
+			if (conn.Topics.Remove(relayTopic) && conn.Open && conn.Socket != null)
 			{
 				conn.Socket.SendText(new JObject { ["op"] = "unsubscribe", ["topic"] = relayTopic }.ToString(Formatting.None));
 			}
@@ -363,6 +384,8 @@ public sealed class LinkRelayClient : IDisposable
 
 	public void Dispose()
 	{
+		_dispatcher.SessionEvent -= OnSessionEvent;
+		_dispatcher.SessionEnded -= OnSessionEnded;
 		lock (_gate)
 		{
 			if (_disposed)
