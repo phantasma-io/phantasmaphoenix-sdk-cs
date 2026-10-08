@@ -31,8 +31,12 @@ public sealed class LinkPairingParams
 	public byte[]? DappPublicKey { get; set; }
 	/// <summary>Where the wallet opens response deeplinks for this pairing (spec §17).</summary>
 	public string? CallbackUrl { get; set; }
+	/// <summary>The dApp name from the pairing's <c>meta</c>, or null without a <c>meta</c>.</summary>
 	public string? DappName { get; set; }
+	/// <summary>The dApp url from the pairing's <c>meta</c>, or null without a <c>meta</c>.</summary>
 	public string? DappUrl { get; set; }
+	/// <summary>The dApp icon URL from the pairing's <c>meta</c>, or null.</summary>
+	public string? DappIcon { get; set; }
 }
 
 public static class LinkPairing
@@ -50,7 +54,12 @@ public static class LinkPairing
 
 	/// <summary>
 	/// Parse a pairing URI (universal-link or custom-scheme). Throws <see cref="FormatException"/>
-	/// on anything malformed - a wallet must not half-accept pairing material.
+	/// on anything malformed - a wallet must not half-accept pairing material. Refuses what spec
+	/// §15 tells a wallet to refuse: a topic that is not 32 bytes in base64url, a <c>relay</c> that
+	/// is not a <c>wss://</c> URL, a key that is not 32 bytes, a symmetric key in a
+	/// <c>phantasma://</c> URL, a pairing with neither <c>relay</c> nor <c>cb</c>, an ecdh pairing
+	/// without a <c>relay</c> or without <c>meta</c>, and a <c>meta</c> without a string
+	/// <c>name</c> and <c>url</c>.
 	/// </summary>
 	public static LinkPairingParams Parse(string uri)
 	{
@@ -96,7 +105,18 @@ public static class LinkPairing
 
 		if (query.TryGetValue("cb", out var callback))
 		{
+			// Spec §15: a cb that is present is not empty; an empty one is no way back.
+			if (callback.Length == 0)
+			{
+				throw new FormatException("Pairing cb must not be empty");
+			}
 			result.CallbackUrl = callback;
+		}
+
+		var hasMeta = query.TryGetValue("meta", out var metaRaw);
+		if (hasMeta)
+		{
+			ReadMeta(metaRaw!, result);
 		}
 
 		var hasSym = query.TryGetValue("sk", out var sk);
@@ -116,29 +136,54 @@ public static class LinkPairing
 			}
 			result.Mode = LinkPairingMode.Sym;
 			result.SymKey = DecodeKey(sk!, "sk");
+			// The wallet answers over the relay or by opening the callback; without either it
+			// would have no way to answer.
+			if (result.Relay == null && result.CallbackUrl == null)
+			{
+				throw new FormatException("Pairing has neither a relay nor a callback");
+			}
 		}
 		else
 		{
 			result.Mode = LinkPairingMode.Ecdh;
 			result.DappPublicKey = DecodeKey(pk!, "pk");
-		}
-
-		if (query.TryGetValue("meta", out var metaRaw))
-		{
-			JObject meta;
-			try
+			// The wallet's public key travels back over the relay, beside the first sealed frame,
+			// and only after the user saw the dApp named in `meta`. Without either the dApp would
+			// never get the session key.
+			if (result.Relay == null)
 			{
-				meta = JObject.Parse(Encoding.UTF8.GetString(LinkEncoding.Base64UrlDecode(metaRaw)));
+				throw new FormatException("An ecdh pairing needs a relay");
 			}
-			catch (Exception)
+			if (!hasMeta)
 			{
-				throw new FormatException("Pairing URI has malformed meta");
+				throw new FormatException("An ecdh pairing needs the dApp meta");
 			}
-			result.DappName = (string?)meta["name"];
-			result.DappUrl = (string?)meta["url"];
 		}
 
 		return result;
+	}
+
+	/// <summary>Reads the <c>meta</c> field: the base64url of the UTF-8 JSON of the dApp metadata,
+	/// the <c>dapp</c> object of <c>pha_connect</c> with a string <c>name</c> and <c>url</c>
+	/// (spec §15). Fields of another JSON type never reach a cast that would throw.</summary>
+	private static void ReadMeta(string encoded, LinkPairingParams result)
+	{
+		JObject meta;
+		try
+		{
+			meta = JObject.Parse(Encoding.UTF8.GetString(LinkEncoding.Base64UrlDecode(encoded)));
+		}
+		catch (Exception)
+		{
+			throw new FormatException("Pairing URI has malformed meta");
+		}
+		if (meta["name"]?.Type != JTokenType.String || meta["url"]?.Type != JTokenType.String)
+		{
+			throw new FormatException("Pairing meta needs a name and a url");
+		}
+		result.DappName = (string?)meta["name"];
+		result.DappUrl = (string?)meta["url"];
+		result.DappIcon = meta["icon"]?.Type == JTokenType.String ? (string?)meta["icon"] : null;
 	}
 
 	private static byte[] DecodeKey(string encoded, string field)

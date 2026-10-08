@@ -117,17 +117,11 @@ public sealed class LinkDeeplinkEndpoint
 		//          must answer with its own ephemeral public key, and that hop NEEDS the
 		//          relay AND a dApp name (the one-tap push IS the handshake vehicle - without
 		//          it the dApp could never derive the key, so such a pairing is useless).
+		// The parser already refused a pairing without a way to answer (spec §15).
 		byte[] channelKey;
 		byte[]? walletPublicKey = null;
 		if (pairing.Mode == LinkPairingMode.Sym && pairing.SymKey != null)
 		{
-			// The pairing must offer at least one response path: a deeplink callback or a
-			// relay topic (cross-device QR pairings have no usable callback on this device).
-			if (string.IsNullOrEmpty(pairing.CallbackUrl) && relayUrl == null)
-			{
-				_log?.Invoke($"pair drop {LinkRelayClient.Label(pairing.Topic)} reason=sym-no-return-channel");
-				return;
-			}
 			channelKey = pairing.SymKey;
 		}
 		else if (pairing.Mode == LinkPairingMode.Ecdh && pairing.DappPublicKey != null)
@@ -192,6 +186,7 @@ public sealed class LinkDeeplinkEndpoint
 			{
 				DappName = dappName!,
 				DappUrl = record.DappUrl,
+				DappIcon = pairing.DappIcon ?? "",
 				Origin = record.DappUrl.Length > 0 ? record.DappUrl : null,
 				Transport = relayUrl != null ? LinkTransportKind.Relay : LinkTransportKind.Deeplink,
 			};

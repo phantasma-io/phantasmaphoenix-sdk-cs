@@ -39,28 +39,45 @@ public class LinkPairingChannelTests
 		parsed.Topic.ShouldBe((string)vector["expect"]!["topic"]!);
 		parsed.Mode.ShouldBe(LinkPairingMode.Ecdh);
 		Convert.ToBase64String(parsed.DappPublicKey!).ShouldBe((string)vector["expect"]!["key"]!);
-		parsed.Relay.ShouldBeNull();
-		parsed.DappName.ShouldBeNull();
+		// Spec §15: a custom-scheme pairing carries the relay and the dApp meta.
+		parsed.Relay.ShouldBe((string)vector["expect"]!["relay"]!);
+		parsed.DappName.ShouldBe((string)vector["expect"]!["metaName"]!);
+		parsed.DappIcon.ShouldBe((string)vector["expect"]!["metaIcon"]!);
 	}
 
 	// A valid pairing topic: 32 bytes in base64url, 43 characters (spec §15). Each malformed case
 	// below breaks one rule only, so it fails for the reason its comment names.
 	private const string Topic = "AQwXIi04Q05ZZG96hZCbprG8x9Ld6PP-CRQfKjVAS1Y";
 	private const string Key = "AQQHCg0QExYZHB8iJSgrLjE0Nzo9QENGSUxPUlVYW14";
+	private const string Callback = "&cb=https%3A%2F%2Fdapp.example%2Fplay";
+	private const string Relay = "&relay=wss%3A%2F%2Flink.phantasma.info%2Frelay";
+	// {"name":"Test dApp","url":"https://dapp.example"}
+	private const string Meta = "&meta=eyJuYW1lIjoiVGVzdCBkQXBwIiwidXJsIjoiaHR0cHM6Ly9kYXBwLmV4YW1wbGUifQ";
+	// {"name":"Test dApp"}
+	private const string MetaWithoutUrl = "&meta=eyJuYW1lIjoiVGVzdCBkQXBwIn0";
+	// {"name":7,"url":"https://dapp.example"}
+	private const string MetaWithNumberName = "&meta=eyJuYW1lIjo3LCJ1cmwiOiJodHRwczovL2RhcHAuZXhhbXBsZSJ9";
 
 	[Theory]
 	[InlineData("https://link.phantasma.info/v5/pair", "no fragment")]
-	[InlineData("https://link.phantasma.info/v5/pair#v=4&t=" + Topic + "&sk=" + Key, "version")]
-	[InlineData("https://link.phantasma.info/v5/pair#v=5&sk=" + Key, "missing topic")]
-	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic, "exactly one of sk / pk")]
-	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "&sk=" + Key + "&pk=" + Key, "exactly one of sk / pk")]
-	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "&sk=AAAA", "sk must be 32 bytes")]
-	[InlineData("phantasma://v5/pair#v=5&t=" + Topic + "&pk=%%%", "malformed pk")]
-	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=short&sk=" + Key, "43 characters")]
-	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "x&sk=" + Key, "43 characters")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=4&t=" + Topic + Callback + "&sk=" + Key, "version")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5" + Callback + "&sk=" + Key, "missing topic")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + Callback, "exactly one of sk / pk")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + Callback + "&sk=" + Key + "&pk=" + Key, "exactly one of sk / pk")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + Callback + "&sk=AAAA", "sk must be 32 bytes")]
+	[InlineData("phantasma://v5/pair#v=5&t=" + Topic + Relay + Meta + "&pk=%%%", "malformed pk")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=short" + Callback + "&sk=" + Key, "43 characters")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "x" + Callback + "&sk=" + Key, "43 characters")]
 	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "&relay=ws%3A%2F%2Frelay.example%2Frelay&sk=" + Key, "wss://")]
 	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "&relay=relay.example&sk=" + Key, "wss://")]
-	[InlineData("phantasma://v5/pair#v=5&t=" + Topic + "&sk=" + Key, "symmetric key")]
+	[InlineData("phantasma://v5/pair#v=5&t=" + Topic + Relay + Meta + "&sk=" + Key, "symmetric key")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "&sk=" + Key, "neither a relay nor a callback")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + "&cb=&sk=" + Key, "cb must not be empty")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + Relay + "&cb=&sk=" + Key, "cb must not be empty")]
+	[InlineData("phantasma://v5/pair#v=5&t=" + Topic + Callback + Meta + "&pk=" + Key, "needs a relay")]
+	[InlineData("phantasma://v5/pair#v=5&t=" + Topic + Relay + "&pk=" + Key, "needs the dApp meta")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + Callback + MetaWithoutUrl + "&sk=" + Key, "needs a name and a url")]
+	[InlineData("https://link.phantasma.info/v5/pair#v=5&t=" + Topic + Callback + MetaWithNumberName + "&sk=" + Key, "needs a name and a url")]
 	public void Rejects_malformed_pairing_uris(string uri, string reason)
 	{
 		Should.Throw<FormatException>(() => LinkPairing.Parse(uri)).Message.ShouldContain(reason);

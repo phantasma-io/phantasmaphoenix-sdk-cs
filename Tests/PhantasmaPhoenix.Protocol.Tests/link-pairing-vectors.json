@@ -13,20 +13,23 @@
    }
   },
   {
-   "uri": "phantasma://v5/pair#v=5&t=Ag0YIy45RE9aZXB7hpGcp7K9yNPe6fT_ChUgKzZBTFc&pk=AgcMERYbICUqLzQ5PkNITVJXXGFma3B1en-EiY6TmJ0",
+   "uri": "phantasma://v5/pair#v=5&t=Ag0YIy45RE9aZXB7hpGcp7K9yNPe6fT_ChUgKzZBTFc&relay=wss%3A%2F%2Flink.phantasma.info%2Frelay&pk=AgcMERYbICUqLzQ5PkNITVJXXGFma3B1en-EiY6TmJ0&meta=eyJuYW1lIjoiVGVzdCBkQXBwIiwidXJsIjoiaHR0cHM6Ly9kYXBwLmV4YW1wbGUiLCJpY29uIjoiaHR0cHM6Ly9kYXBwLmV4YW1wbGUvaWNvbi5wbmcifQ",
    "expect": {
     "version": 5,
     "topic": "Ag0YIy45RE9aZXB7hpGcp7K9yNPe6fT_ChUgKzZBTFc",
     "mode": "ecdh",
-    "key": "AgcMERYbICUqLzQ5PkNITVJXXGFma3B1en+EiY6TmJ0="
+    "key": "AgcMERYbICUqLzQ5PkNITVJXXGFma3B1en+EiY6TmJ0=",
+    "relay": "wss://link.phantasma.info/relay",
+    "metaName": "Test dApp",
+    "metaIcon": "https://dapp.example/icon.png"
    }
   }
  ],
  "envelope": {
   "key": "AwoRGB8mLTQ7QklQV15lbHN6gYiPlp2kq7K5wMfO1dw=",
   "frame": {
-   "nonce": "8Dupk0p/SeYGOG5pDzDpvcJN7hoGavrm",
-   "ct": "H73xyZfwhhNWtCp0j1ATnGSxH+zKjqYZokG/nUjkKW6o2YHtj+XUxbLFzDiokTg+kndY/9Uy1vAEUHEB"
+   "nonce": "NHqi1i4EsZTlYPauBsrVLcsWLVEcXBQS",
+   "ct": "IEtn7HYWcC69qX2hUk9H5zJB5PWSwwGjFuFD/oZ+p7YyQHB7mzRqIAxcs1N59r1kSxcNhNqO71mHsEL0"
   },
   "json": "{\"plv\":5,\"id\":\"x1\",\"method\":\"pha_getChains\"}"
  },
