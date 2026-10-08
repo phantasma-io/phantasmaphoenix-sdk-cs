@@ -89,8 +89,8 @@ public class WalletLinkV5
 
 	private readonly IWalletLinkV5Ops _ops;
 	// Authorized sessions (spec §7): persistent when the host provides a durable store, so a
-	// returning dApp resumes without a new prompt. Plaintext loopback uses the session id as the
-	// bearer; encrypted transports (deeplink/relay) add the channel key on top (later phases).
+	// returning dApp resumes without a new prompt. Loopback uses the session id as the bearer,
+	// bound to the page origin; deeplink and relay requests also need the key of their pairing.
 	private readonly ILinkSessionStore _sessions;
 	private readonly WalletLinkV5Options _options;
 	// The ids of the connects that prompt the user, by channel, with the end of their replay window
