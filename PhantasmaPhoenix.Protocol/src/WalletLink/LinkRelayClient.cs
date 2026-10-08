@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -18,8 +20,48 @@ public interface ILinkRelaySocketFactory
 {
 	/// <summary>Open a socket to <paramref name="url"/>. <paramref name="onOpen"/> fires once
 	/// the connection is usable, <paramref name="onText"/> per complete text message, and
-	/// <paramref name="onClosed"/> exactly once when the connection dies (any reason).</summary>
+	/// <paramref name="onClosed"/> exactly once when the connection dies (any reason). The
+	/// callbacks fire after this method returned.</summary>
 	ILinkRelaySocket Connect(string url, Action onOpen, Action<string> onText, Action onClosed);
+}
+
+/// <summary>What the relay refused for a pairing (spec §16).</summary>
+public enum LinkRelayFailureKind
+{
+	/// <summary>The relay refused a frame the wallet published, or did not acknowledge it while it
+	/// would hold it: an answer, an event or the key hop of a pairing did not reach the dApp.</summary>
+	PublishFailed,
+	/// <summary>The relay refused to subscribe the topic of a pairing, so no request of its dApp can
+	/// reach the wallet. The pairing ended with its session.</summary>
+	SubscriptionRefused,
+}
+
+/// <summary>One refusal of the relay for a pairing (spec §16), reported through
+/// <see cref="LinkRelayClient.Failed"/> so that the wallet can tell the user.</summary>
+public sealed class LinkRelayFailure
+{
+	internal LinkRelayFailure(LinkRelayFailureKind kind, string dappName, string code, string message, bool pairingEnded)
+	{
+		Kind = kind;
+		DappName = dappName;
+		Code = code;
+		Message = message;
+		PairingEnded = pairingEnded;
+	}
+
+	public LinkRelayFailureKind Kind { get; }
+
+	/// <summary>The dApp of the pairing as the pairing named it, or empty.</summary>
+	public string DappName { get; }
+
+	/// <summary>The relay's short reason, such as <c>topic_limit</c> or <c>rate_limited</c>, or
+	/// <c>no_ack</c> when the relay acknowledged nothing while it would hold the frame.</summary>
+	public string Code { get; }
+
+	public string Message { get; }
+
+	/// <summary>True when the pairing ended: its dApp must pair again.</summary>
+	public bool PairingEnded { get; }
 }
 
 /// <summary>
@@ -30,10 +72,18 @@ public interface ILinkRelaySocketFactory
 /// <see cref="WalletLinkV5"/>, and publishes the sealed responses back - chunking anything
 /// above the relay frame cap. The relay stays E2E-blind: plaintext never leaves this class.
 ///
-/// Threading: socket callbacks arrive on arbitrary threads; all dispatcher work is run
-/// through the host-provided marshal hook (the wallet posts to its UI thread). Responses
-/// are fire-and-forget (no resend tracking): a response lost to a connection drop is
-/// recovered by the dApp re-sending its request, which the dispatcher answers again.
+/// Delivery: every publish waits for the relay's ack and goes out again after a reconnect,
+/// for as long as the relay would hold it; a dApp drops an answer it already handled
+/// (spec §16). The chunks of a message go out one at a time, each after the relay acknowledged
+/// the one before, also after a reconnect, so that one large answer never meets the relay's rate
+/// limit. An <c>error</c> frame fails the publish or the subscription it names, and the host
+/// hears of it through <see cref="Failed"/>.
+///
+/// Threading: socket callbacks arrive on arbitrary threads; all dispatcher and store work is
+/// run through the host-provided marshal hook (the wallet posts to its UI thread).
+///
+/// The pairing topic is a bearer capability (spec §16): the log names a pairing by a short
+/// label of it only.
 /// </summary>
 public sealed class LinkRelayClient : IDisposable
 {
@@ -59,6 +109,15 @@ public sealed class LinkRelayClient : IDisposable
 	private const int MaxConcurrentPartials = 8;
 	private static readonly TimeSpan PartialStale = TimeSpan.FromSeconds(120);
 
+	/// <summary>How long a publish waits for the relay's ack, sent again after each reconnect: as
+	/// long as the relay holds a frame (spec §16, 300 s). An answer older than that reaches no
+	/// dApp.</summary>
+	private static readonly TimeSpan PublishHold = TimeSpan.FromSeconds(300);
+
+	/// <summary>The relay refuses a ninth topic on one connection (spec §16); the wallet keeps its
+	/// subscriptions below it (spec §7).</summary>
+	private const int RelayTopicLimit = 8;
+
 	private sealed class Partial
 	{
 		public int Total;
@@ -67,14 +126,36 @@ public sealed class LinkRelayClient : IDisposable
 		public DateTime TouchedUtc;
 	}
 
+	/// <summary>What a publish carries. A key hop the relay refuses ends its pairing.</summary>
+	private enum PublishKind
+	{
+		Answer,
+		Event,
+		KeyHop,
+	}
+
+	private sealed class PendingPublish
+	{
+		public long Seq;
+		public string Text = "";
+		public string PairingTopic = "";
+		/// <summary>The id the chunks of one message share, or null for a whole frame.</summary>
+		public string? MessageId;
+		public PublishKind Kind;
+		public DateTime QueuedUtc;
+	}
+
 	private sealed class Connection
 	{
 		public string Url = "";
 		public ILinkRelaySocket? Socket;
+		/// <summary>Counts the dials, so that a late callback of an earlier socket is ignored.</summary>
+		public int Generation;
+		/// <summary>True once the current socket carries the subscriptions and the publishes.</summary>
 		public bool Open;
 		public readonly HashSet<string> Topics = new HashSet<string>();
-		/// <summary>Frames queued while the socket is connecting/reconnecting.</summary>
-		public readonly List<string> Outbox = new List<string>();
+		/// <summary>The publishes the relay has not acknowledged, by publish id.</summary>
+		public readonly Dictionary<string, PendingPublish> Pending = new Dictionary<string, PendingPublish>();
 		public int ReconnectAttempt;
 		public System.Threading.Timer? ReconnectTimer;
 	}
@@ -86,15 +167,17 @@ public sealed class LinkRelayClient : IDisposable
 	private readonly int[] _reconnectDelaysMs;
 	// Spec §7 session-store lifecycle: keep only the N most-recently-used relay sessions
 	// subscribed (LRU eviction by LastSeenUtc), kept BELOW the relay's per-connection topic cap
-	// (§16, default 8) so a fresh pairing always has a slot. Without this the (cap+1)-th
-	// pairing's subscribe is rejected and that dApp hangs.
+	// (§16, 8) so a fresh pairing always has a slot. Without this the (cap+1)-th pairing's
+	// subscribe is refused and that dApp hangs.
 	private readonly int _relaySessionCap;
 	private readonly object _gate = new object();
 	private readonly Dictionary<string, Connection> _connections = new Dictionary<string, Connection>();
 	private readonly Dictionary<string, Partial> _partials = new Dictionary<string, Partial>();
-	private int _publishSeq;
+	private long _publishSeq;
 	private bool _disposed;
 
+	/// <summary><paramref name="relaySessionCap"/> is the most relay pairings kept subscribed, at
+	/// most 7 (below the relay's limit of 8 topics on one connection).</summary>
 	public LinkRelayClient(
 		WalletLinkV5 dispatcher,
 		ILinkPairingStore pairings,
@@ -111,8 +194,7 @@ public sealed class LinkRelayClient : IDisposable
 		// because the dispatcher prompts the user and touches wallet state.
 		_marshal = marshal ?? (action => action());
 		_reconnectDelaysMs = reconnectDelaysMs ?? new[] { 1000, 2000, 5000, 15000, 30000 };
-		// Default 6 sits below the relay's default 8-topic cap.
-		_relaySessionCap = relaySessionCap > 0 ? relaySessionCap : 6;
+		_relaySessionCap = Math.Min(relaySessionCap > 0 ? relaySessionCap : 6, RelayTopicLimit - 1);
 		// Transport visibility: this client absorbs connection failures by silent
 		// reconnection, so without a log sink a host cannot tell a dead relay link from
 		// a quiet one. Hosts wire this to their own logger.
@@ -124,6 +206,10 @@ public sealed class LinkRelayClient : IDisposable
 
 	private readonly Action<string>? _log;
 
+	/// <summary>Raised on the dispatch thread when the relay refused a frame or a subscription of a
+	/// pairing. Spec §16: a client surfaces every error frame and fails what it names.</summary>
+	public event Action<LinkRelayFailure>? Failed;
+
 	/// <summary>Returns the relay topic that the dApp of a pairing publishes to and the wallet
 	/// subscribes to: the pairing topic <c>t</c> and <c>.dapp</c> (spec section 16).</summary>
 	public static string DappTopic(string pairingTopic) => pairingTopic + ".dapp";
@@ -132,12 +218,39 @@ public sealed class LinkRelayClient : IDisposable
 	/// the pairing topic <c>t</c> and <c>.wallet</c> (spec section 16).</summary>
 	public static string WalletTopic(string pairingTopic) => pairingTopic + ".wallet";
 
+	/// <summary>Returns a short label of a pairing for a log: the first 4 bytes of the SHA-256 of
+	/// its topic. The topic is a bearer capability (spec §16) and never goes to a log.</summary>
+	internal static string Label(string pairingTopic)
+	{
+		using var sha = SHA256.Create();
+		var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(pairingTopic));
+		return "pairing " + BitConverter.ToString(hash, 0, 4).Replace("-", "").ToLowerInvariant();
+	}
+
 	/// <summary>Connect and reconcile subscriptions for every stored relay pairing (wallet start,
 	/// /v5/wake). Ends the expired sessions and keeps only the most-recently-used pairings within
-	/// the cap. Safe to call repeatedly: existing connections are reused.</summary>
+	/// the cap. A connection that waits to reconnect dials at once: the wake link brings the
+	/// wallet to the front to read its mailboxes now (spec §6.4, §17). Safe to call
+	/// repeatedly: existing connections are reused.</summary>
 	public void EnsureConnected()
 	{
 		Reconcile(null);
+		lock (_gate)
+		{
+			if (_disposed)
+			{
+				return;
+			}
+			foreach (var conn in _connections.Values)
+			{
+				if (conn.Socket == null)
+				{
+					conn.ReconnectTimer?.Dispose();
+					conn.ReconnectTimer = null;
+					Dial(conn);
+				}
+			}
+		}
 	}
 
 	/// <summary>Track a just-saved pairing: ensure it is subscribed, evicting/pruning other relay
@@ -179,7 +292,7 @@ public sealed class LinkRelayClient : IDisposable
 		}
 
 		// 3) Most-recently-used first (the fresh protected topic forced to the front), then evict
-		//    everything past the cap so the relay never rejects our subscribe with topic_limit.
+		//    everything past the cap so the relay never refuses our subscribe with topic_limit.
 		var ordered = RelayPairings()
 			.OrderByDescending(p => p.Topic == protectTopic)
 			.ThenByDescending(p => p.LastSeenUtc)
@@ -205,7 +318,7 @@ public sealed class LinkRelayClient : IDisposable
 	/// dApp gets <c>pha_sessionDeleted</c> and every transport ends its channel.</summary>
 	private void Evict(LinkPairingRecord pairing, string reason)
 	{
-		_log?.Invoke($"evict pairing reason={reason}");
+		_log?.Invoke($"evict {Label(pairing.Topic)} reason={reason}");
 		if (pairing.SessionId.Length > 0)
 		{
 			_dispatcher.EndSession(pairing.SessionId, LinkSessionEndReason.Evicted);
@@ -233,7 +346,7 @@ public sealed class LinkRelayClient : IDisposable
 		{
 			if (pairing.SessionId == session)
 			{
-				_log?.Invoke($"pairing ended with its session reason={reason}");
+				_log?.Invoke($"{Label(pairing.Topic)} ended with its session reason={reason}");
 				ForgetPairing(pairing);
 			}
 		}
@@ -262,10 +375,10 @@ public sealed class LinkRelayClient : IDisposable
 			{
 				return; // already subscribed
 			}
-			// Only announce on a LIVE socket: OnOpen announces every topic in Topics, so
-			// queueing here would double-subscribe after the connect completes.
+			// Only announce on an open connection: AfterOpen announces every topic of the set, so
+			// sending here as well would subscribe twice.
 			var live = conn.Open && conn.Socket != null;
-			_log?.Invoke($"subscribe topic={pairing.Topic} live={live}");
+			_log?.Invoke($"subscribe {Label(pairing.Topic)} live={live}");
 			if (live)
 			{
 				conn.Socket!.SendText(new JObject { ["op"] = "subscribe", ["topic"] = relayTopic }.ToString(Formatting.None));
@@ -307,21 +420,23 @@ public sealed class LinkRelayClient : IDisposable
 		}
 		var channel = new LinkChannel(pairing.Key);
 		var frame = channel.SealEnvelope(envelopeJson);
+		var id = ReadEnvelopeId(envelopeJson);
 		if ((frame.Length + ChunkChars - 1) / ChunkChars > MaxChunksPerMessage)
 		{
 			// Spec section 11: a payload above the budget gets a clear 5001 with the request id.
 			// Without it the dApp would wait for its own timeout. An event has no id and nobody
 			// waits for an answer to it, so an oversized event is only logged.
-			var id = ReadEnvelopeId(envelopeJson);
 			if (id == null)
 			{
-				_log?.Invoke($"publish DROP topic={pairing.Topic}: {frame.Length} chars exceed the relay budget");
+				_log?.Invoke($"publish drop {Label(pairing.Topic)}: {frame.Length} chars exceed the relay budget");
 				return;
 			}
 			frame = channel.SealEnvelope(_dispatcher.BuildPayloadTooLargeEnvelope(id, WalletLinkV5.MaxTxBytes));
 		}
-		_log?.Invoke($"publish sealed topic={pairing.Topic} bytes={frame.Length}");
+		var kind = id == null ? PublishKind.Event : PublishKind.Answer;
+		_log?.Invoke($"publish {kind} {Label(pairing.Topic)} chars={frame.Length}");
 
+		List<PendingPublish>? stale;
 		lock (_gate)
 		{
 			if (_disposed)
@@ -329,32 +444,36 @@ public sealed class LinkRelayClient : IDisposable
 				return;
 			}
 			var conn = GetOrCreateConnection(pairing.RelayUrl!);
+			stale = TakeStale(conn, DateTime.UtcNow);
 			if (frame.Length <= ChunkChars)
 			{
-				SendOrQueue(conn, BuildPublish(WalletTopic(pairing.Topic), frame));
-				return;
+				Publish(conn, pairing.Topic, frame, kind, null);
 			}
-			// Chunked publish (spec section 18): split the sealed frame TEXT; only the
-			// receiving SDK reassembles - the relay forwards opaque pieces.
-			var total = (frame.Length + ChunkChars - 1) / ChunkChars;
-			var msgId = Guid.NewGuid().ToString("N");
-			for (var seq = 0; seq < total; seq++)
+			else
 			{
-				var start = seq * ChunkChars;
-				var chunk = frame.Substring(start, Math.Min(ChunkChars, frame.Length - start));
-				var payload = new JObject
+				// Chunked publish (spec section 16): split the sealed frame TEXT; only the
+				// receiving SDK reassembles - the relay forwards opaque pieces.
+				var total = (frame.Length + ChunkChars - 1) / ChunkChars;
+				var msgId = Guid.NewGuid().ToString("N");
+				for (var seq = 0; seq < total; seq++)
 				{
-					["msgId"] = msgId,
-					["seq"] = seq,
-					["total"] = total,
-					["chunk"] = chunk,
-				};
-				SendOrQueue(conn, BuildPublish(WalletTopic(pairing.Topic), payload));
+					var start = seq * ChunkChars;
+					var chunk = frame.Substring(start, Math.Min(ChunkChars, frame.Length - start));
+					var payload = new JObject
+					{
+						["msgId"] = msgId,
+						["seq"] = seq,
+						["total"] = total,
+						["chunk"] = chunk,
+					};
+					Publish(conn, pairing.Topic, payload, kind, msgId);
+				}
 			}
 		}
+		ReportFailedPublishes(stale, "no_ack", "The relay did not acknowledge the frame while it would hold it");
 	}
 
-	/// <summary>ecdh pairing key hop (spec section 20.1): publish the wallet's ephemeral
+	/// <summary>ecdh pairing key hop (spec section 15, step 3): publish the wallet's ephemeral
 	/// X25519 PUBLIC key together with the first sealed envelope (the connect result) in
 	/// one payload, so the dApp can derive the channel key and immediately open it. Sent
 	/// once per pairing; small by construction, so it is never chunked.</summary>
@@ -369,8 +488,9 @@ public sealed class LinkRelayClient : IDisposable
 		// sealed fields IN THE CLEAR - it is the very material the peer needs to decrypt.
 		var payload = JObject.Parse(channel.SealEnvelope(envelopeJson));
 		payload["wpk"] = LinkEncoding.Base64UrlEncode(walletPublicKey);
-		_log?.Invoke($"publish handshake topic={pairing.Topic} (one-tap session push)");
+		_log?.Invoke($"publish key hop {Label(pairing.Topic)} (one-tap session push)");
 
+		List<PendingPublish>? stale;
 		lock (_gate)
 		{
 			if (_disposed)
@@ -378,8 +498,10 @@ public sealed class LinkRelayClient : IDisposable
 				return;
 			}
 			var conn = GetOrCreateConnection(pairing.RelayUrl!);
-			SendOrQueue(conn, BuildPublish(WalletTopic(pairing.Topic), payload));
+			stale = TakeStale(conn, DateTime.UtcNow);
+			Publish(conn, pairing.Topic, payload, PublishKind.KeyHop, null);
 		}
+		ReportFailedPublishes(stale, "no_ack", "The relay did not acknowledge the frame while it would hold it");
 	}
 
 	public void Dispose()
@@ -397,6 +519,7 @@ public sealed class LinkRelayClient : IDisposable
 			{
 				conn.ReconnectTimer?.Dispose();
 				conn.Socket?.Close();
+				conn.Pending.Clear();
 			}
 			_connections.Clear();
 			_partials.Clear();
@@ -421,43 +544,67 @@ public sealed class LinkRelayClient : IDisposable
 	{
 		// The factory must not block (hosts call this from their UI thread); its
 		// callbacks re-enter this class on arbitrary threads, hence the gate.
+		var generation = ++conn.Generation;
+		conn.Open = false;
 		conn.Socket = _sockets.Connect(
 			conn.Url,
-			onOpen: () => OnOpen(conn),
+			onOpen: () => _marshal(() => AfterOpen(conn, generation)),
 			onText: text => OnText(conn, text),
-			onClosed: () => OnClosed(conn));
+			onClosed: () => OnClosed(conn, generation));
 	}
 
-	private void OnOpen(Connection conn)
+	/// <summary>Runs on the dispatch thread once a socket is open. Spec §7: after a reconnect only
+	/// live sessions are subscribed, so what ended while the connection was down ends first. Then
+	/// the socket carries every topic of the connection and every publish the relay has not
+	/// acknowledged, in publish order, so that the chunks of a message stay in order.</summary>
+	private void AfterOpen(Connection conn, int generation)
 	{
-		_log?.Invoke($"relay connected: {conn.Url}");
+		Reconcile(null);
+		List<PendingPublish>? stale;
 		lock (_gate)
 		{
-			if (_disposed)
+			var socket = conn.Socket;
+			if (_disposed || conn.Generation != generation || socket == null)
 			{
 				return;
 			}
+			_log?.Invoke($"relay connected: {conn.Url}");
 			conn.Open = true;
 			conn.ReconnectAttempt = 0;
-			// Re-announce every topic, then flush frames queued while offline. The relay
-			// mailbox (TTL) covers what the other side published in between.
-			foreach (var topic in conn.Topics)
+			stale = TakeStale(conn, DateTime.UtcNow);
+			// A send that fails closes the socket, and its close runs on this thread under the same
+			// gate: the loops stop as soon as the socket is no longer this one.
+			foreach (var topic in conn.Topics.ToArray())
 			{
-				conn.Socket?.SendText(new JObject { ["op"] = "subscribe", ["topic"] = topic }.ToString(Formatting.None));
+				if (conn.Socket != socket)
+				{
+					break;
+				}
+				socket.SendText(new JObject { ["op"] = "subscribe", ["topic"] = topic }.ToString(Formatting.None));
 			}
-			foreach (var text in conn.Outbox)
+			// Whole frames, and of each chunked message its first chunk that waits for an ack; the
+			// acks bring the next ones.
+			var messages = new HashSet<string>();
+			foreach (var publish in conn.Pending.Values.OrderBy(p => p.Seq).ToArray())
 			{
-				conn.Socket?.SendText(text);
+				if (conn.Socket != socket)
+				{
+					break;
+				}
+				if (publish.MessageId == null || messages.Add(publish.MessageId))
+				{
+					socket.SendText(publish.Text);
+				}
 			}
-			conn.Outbox.Clear();
 		}
+		ReportFailedPublishes(stale, "no_ack", "The relay did not acknowledge the frame while it would hold it");
 	}
 
-	private void OnClosed(Connection conn)
+	private void OnClosed(Connection conn, int generation)
 	{
 		lock (_gate)
 		{
-			if (_disposed)
+			if (_disposed || conn.Generation != generation)
 			{
 				return;
 			}
@@ -472,7 +619,7 @@ public sealed class LinkRelayClient : IDisposable
 			{
 				lock (_gate)
 				{
-					if (!_disposed && !conn.Open)
+					if (!_disposed && conn.Socket == null)
 					{
 						Dial(conn);
 					}
@@ -481,28 +628,129 @@ public sealed class LinkRelayClient : IDisposable
 		}
 	}
 
-	private void SendOrQueue(Connection conn, string text)
+	/// <summary>Called under the gate: keeps a publish until the relay acknowledges it, and sends it
+	/// now when the connection is open (AfterOpen sends it otherwise). A chunk goes out only when no
+	/// earlier chunk of its message waits for an ack: the ack of that one sends it
+	/// (<see cref="SendNextChunk"/>).</summary>
+	private void Publish(Connection conn, string pairingTopic, JToken payload, PublishKind kind, string? messageId)
 	{
-		if (conn.Open && conn.Socket != null)
-		{
-			conn.Socket.SendText(text);
-		}
-		else
-		{
-			conn.Outbox.Add(text);
-		}
-	}
-
-	private string BuildPublish(string topic, JToken payload)
-	{
-		var id = "w" + System.Threading.Interlocked.Increment(ref _publishSeq);
-		return new JObject
+		var seq = ++_publishSeq;
+		var id = "w" + seq;
+		var text = new JObject
 		{
 			["op"] = "publish",
-			["topic"] = topic,
+			["topic"] = WalletTopic(pairingTopic),
 			["id"] = id,
 			["payload"] = payload,
 		}.ToString(Formatting.None);
+		conn.Pending[id] = new PendingPublish
+		{
+			Seq = seq,
+			Text = text,
+			PairingTopic = pairingTopic,
+			MessageId = messageId,
+			Kind = kind,
+			QueuedUtc = DateTime.UtcNow,
+		};
+		var waits = messageId != null && conn.Pending.Values.Any(p => p.MessageId == messageId && p.Seq < seq);
+		if (conn.Open && conn.Socket != null && !waits)
+		{
+			conn.Socket.SendText(text);
+		}
+	}
+
+	/// <summary>Called under the gate when the relay acknowledged a chunk of a message: sends the
+	/// next chunk of that message that waits, if the connection is open.</summary>
+	private static void SendNextChunk(Connection conn, string messageId)
+	{
+		var next = conn.Pending.Values.Where(p => p.MessageId == messageId).OrderBy(p => p.Seq).FirstOrDefault();
+		if (next != null && conn.Open && conn.Socket != null)
+		{
+			conn.Socket.SendText(next.Text);
+		}
+	}
+
+	/// <summary>Called under the gate: removes and returns the publishes that waited for an ack
+	/// longer than the relay would hold them.</summary>
+	private static List<PendingPublish>? TakeStale(Connection conn, DateTime now)
+	{
+		List<PendingPublish>? stale = null;
+		foreach (var entry in conn.Pending.Where(e => now - e.Value.QueuedUtc > PublishHold).ToArray())
+		{
+			conn.Pending.Remove(entry.Key);
+			(stale ??= new List<PendingPublish>()).Add(entry.Value);
+		}
+		return stale;
+	}
+
+	/// <summary>Called under the gate: removes the publish <paramref name="id"/> and the other
+	/// chunks of its message, which can no longer be put together.</summary>
+	private static List<PendingPublish> TakeMessage(Connection conn, string id)
+	{
+		var taken = new List<PendingPublish>();
+		if (!conn.Pending.TryGetValue(id, out var refused))
+		{
+			return taken;
+		}
+		foreach (var entry in conn.Pending.ToArray())
+		{
+			if (entry.Key == id || (refused.MessageId != null && entry.Value.MessageId == refused.MessageId))
+			{
+				conn.Pending.Remove(entry.Key);
+				taken.Add(entry.Value);
+			}
+		}
+		return taken;
+	}
+
+	private void ReportFailedPublishes(List<PendingPublish>? failed, string code, string message)
+	{
+		if (failed == null || failed.Count == 0)
+		{
+			return;
+		}
+		_marshal(() => OnPublishesFailed(failed, code, message));
+	}
+
+	/// <summary>Runs on the dispatch thread: tells the host about each message that did not reach
+	/// its dApp, once per message. A failed key hop ends its pairing: without it the dApp never
+	/// learns the channel key (spec §15).</summary>
+	private void OnPublishesFailed(List<PendingPublish> failed, string code, string message)
+	{
+		foreach (var publish in failed.GroupBy(p => p.MessageId ?? ("w" + p.Seq)).Select(g => g.First()))
+		{
+			var pairing = _pairings.Get(publish.PairingTopic);
+			_log?.Invoke($"publish failed {Label(publish.PairingTopic)} {publish.Kind} code={code}");
+			var ended = false;
+			if (publish.Kind == PublishKind.KeyHop && pairing != null)
+			{
+				Evict(pairing, "key hop refused");
+				ended = true;
+			}
+			Failed?.Invoke(new LinkRelayFailure(LinkRelayFailureKind.PublishFailed, pairing?.DappName ?? "", code, message, ended));
+		}
+	}
+
+	/// <summary>Runs on the dispatch thread: the relay refused to subscribe a topic (spec §16). No
+	/// request of that pairing can reach the wallet, so the pairing ends with its session.</summary>
+	private void OnSubscriptionRefused(Connection conn, string relayTopic, string code, string message)
+	{
+		lock (_gate)
+		{
+			conn.Topics.Remove(relayTopic);
+		}
+		if (!relayTopic.EndsWith(".dapp", StringComparison.Ordinal))
+		{
+			return;
+		}
+		var pairing = _pairings.Get(relayTopic.Substring(0, relayTopic.Length - ".dapp".Length));
+		if (pairing == null)
+		{
+			return;
+		}
+		_log?.Invoke($"subscription refused {Label(pairing.Topic)} code={code}");
+		Evict(pairing, "subscription refused");
+		Failed?.Invoke(new LinkRelayFailure(LinkRelayFailureKind.SubscriptionRefused, pairing.DappName, code, message, true));
 	}
 
 	// --- incoming ------------------------------------------------------------------------
@@ -539,15 +787,30 @@ public sealed class LinkRelayClient : IDisposable
 		}
 
 		var op = TextOf(frame["op"]);
-		// Surface relay errors instead of swallowing them (spec §16): a refused subscribe
-		// (topic_limit) MUST be visible - silently dropping it makes the wallet believe it is
-		// listening while the relay routes nothing to it, so every request on that topic hangs.
-		if (op == "error")
+		if (op == "ack")
 		{
-			_log?.Invoke($"relay error: code={TextOf(frame["code"])} {TextOf(frame["message"])} topic={TextOf(frame["topic"])}");
+			var acked = TextOf(frame["id"]);
+			if (acked != null)
+			{
+				lock (_gate)
+				{
+					if (conn.Pending.TryGetValue(acked, out var done))
+					{
+						conn.Pending.Remove(acked);
+						if (done.MessageId != null)
+						{
+							SendNextChunk(conn, done.MessageId);
+						}
+					}
+				}
+			}
 			return;
 		}
-		// acks confirm our own publishes; only deliver frames carry dApp requests.
+		if (op == "error")
+		{
+			OnError(conn, frame);
+			return;
+		}
 		if (op != "deliver")
 		{
 			return;
@@ -566,7 +829,7 @@ public sealed class LinkRelayClient : IDisposable
 			}
 		}
 		var topic = relayTopic.Substring(0, relayTopic.Length - ".dapp".Length);
-		_log?.Invoke($"deliver recv topic={topic}");
+		_log?.Invoke($"deliver {Label(topic)}");
 
 		// Chunk reassembly only needs the gate; everything touching the pairing store or
 		// the dispatcher must run on the wallet's dispatch thread (the store contract is
@@ -593,22 +856,56 @@ public sealed class LinkRelayClient : IDisposable
 		_marshal(() => ProcessSealedFrame(topic!, sealedFrame));
 	}
 
+	/// <summary>
+	/// Spec §16: an error frame is never ignored. One that names a publish fails that message, one
+	/// that names a topic refuses the subscription of that topic, and any other fails every
+	/// publish the connection still waits for, since sending them again would meet the same
+	/// refusal.
+	/// </summary>
+	private void OnError(Connection conn, JObject frame)
+	{
+		var code = TextOf(frame["code"]) ?? "";
+		var message = TextOf(frame["message"]) ?? "";
+		var id = TextOf(frame["id"]);
+		var topic = TextOf(frame["topic"]);
+		_log?.Invoke($"relay error code={code} publish={(id != null ? "yes" : "no")} subscription={(topic != null ? "yes" : "no")}");
+		if (id == null && topic != null)
+		{
+			_marshal(() => OnSubscriptionRefused(conn, topic, code, message));
+			return;
+		}
+		List<PendingPublish> failed;
+		lock (_gate)
+		{
+			if (id != null)
+			{
+				failed = TakeMessage(conn, id);
+			}
+			else
+			{
+				failed = conn.Pending.Values.ToList();
+				conn.Pending.Clear();
+			}
+		}
+		ReportFailedPublishes(failed, code, message);
+	}
+
 	/// <summary>Runs on the dispatch thread: resolve the pairing, unseal, dispatch, answer.</summary>
 	private void ProcessSealedFrame(string topic, string frameText)
 	{
 		var pairing = _pairings.Get(topic);
 		if (pairing == null)
 		{
-			_log?.Invoke($"deliver DROP topic={topic}: no pairing in store");
+			_log?.Invoke($"deliver drop {Label(topic)}: no pairing in store");
 			return; // unknown channel; no key, nothing to say
 		}
 		var channel = new LinkChannel(pairing.Key);
 		if (!channel.TryOpenEnvelope(frameText, out var envelopeJson))
 		{
-			_log?.Invoke($"deliver DROP topic={topic}: unseal failed (wrong key/forged)");
+			_log?.Invoke($"deliver drop {Label(topic)}: unseal failed (wrong key/forged)");
 			return; // forged or wrong-key frame: drop silently, never answer plaintext
 		}
-		_log?.Invoke($"deliver OK topic={topic}: dispatching to wallet");
+		_log?.Invoke($"deliver {Label(topic)}: dispatching to wallet");
 		pairing.LastSeenUtc = DateTime.UtcNow;
 		_pairings.Save(pairing);
 		_dispatcher.HandleMessage(envelopeJson, response => PublishSealed(pairing, response),
@@ -688,7 +985,7 @@ public sealed class LinkRelayClient : IDisposable
 			return null;
 		}
 		_partials.Remove(partialKey);
-		var builder = new System.Text.StringBuilder(partial.Chars);
+		var builder = new StringBuilder(partial.Chars);
 		for (var i = 0; i < total; i++)
 		{
 			builder.Append(partial.Received[i]);

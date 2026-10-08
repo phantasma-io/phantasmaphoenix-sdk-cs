@@ -20,8 +20,9 @@ public sealed class LinkDeeplinkEndpoint
 	private readonly LinkRelayClient? _relay;
 	// Lifecycle log (mirrors LinkRelayClient's): without it the deeplink path is a blind spot in a
 	// user's Player.log while the relay path is fully traced. SECURITY: this sink must NEVER receive
-	// a secret - not the symKey, the channel key, or any sealed ciphertext. Only non-sensitive
-	// metadata is logged (type, topic, pairing mode, has-relay/has-callback flags, callback host).
+	// a secret - not the symKey, the channel key, any sealed ciphertext, or the pairing topic, a
+	// bearer capability (spec §16). Only non-sensitive metadata is logged (type, a short label of
+	// the pairing, pairing mode, has-relay/has-callback flags, callback host).
 	private readonly Action<string>? _log;
 
 	/// <summary><paramref name="relay"/> is optional: without it, relay-enabled pairings
@@ -45,7 +46,7 @@ public sealed class LinkDeeplinkEndpoint
 		{
 			if (pairing.SessionId == session && (_relay == null || string.IsNullOrEmpty(pairing.RelayUrl)))
 			{
-				_log?.Invoke($"pairing ended with its session reason={reason}");
+				_log?.Invoke($"{LinkRelayClient.Label(pairing.Topic)} ended with its session reason={reason}");
 				_pairings.Remove(pairing.Topic);
 			}
 		}
@@ -82,7 +83,7 @@ public sealed class LinkDeeplinkEndpoint
 			return true;
 		}
 
-		// Spec section 19: /v5/wake carries no payload - it only foregrounds the wallet so
+		// Spec section 17: /v5/wake carries no payload - it only foregrounds the wallet so
 		// it (re)connects to the relay and drains the topic mailboxes of its pairings.
 		if (IsPath(url, "/v5/wake"))
 		{
@@ -108,7 +109,7 @@ public sealed class LinkDeeplinkEndpoint
 		}
 
 		var relayUrl = pairing.Relay;
-		_log?.Invoke($"pair topic={pairing.Topic} mode={pairing.Mode} relay={(relayUrl != null ? "yes" : "no")} callback={(!string.IsNullOrEmpty(pairing.CallbackUrl) ? "yes" : "no")}");
+		_log?.Invoke($"pair {LinkRelayClient.Label(pairing.Topic)} mode={pairing.Mode} relay={(relayUrl != null ? "yes" : "no")} callback={(!string.IsNullOrEmpty(pairing.CallbackUrl) ? "yes" : "no")}");
 
 		// Channel-key material decides the mode (spec §18.1):
 		//   sym  - the key came in the URI (safe channel); responses go via callback or relay.
@@ -124,7 +125,7 @@ public sealed class LinkDeeplinkEndpoint
 			// relay topic (cross-device QR pairings have no usable callback on this device).
 			if (string.IsNullOrEmpty(pairing.CallbackUrl) && relayUrl == null)
 			{
-				_log?.Invoke($"pair drop topic={pairing.Topic} reason=sym-no-return-channel");
+				_log?.Invoke($"pair drop {LinkRelayClient.Label(pairing.Topic)} reason=sym-no-return-channel");
 				return;
 			}
 			channelKey = pairing.SymKey;
@@ -133,7 +134,7 @@ public sealed class LinkDeeplinkEndpoint
 		{
 			if (relayUrl == null || _relay == null || string.IsNullOrEmpty(pairing.DappName))
 			{
-				_log?.Invoke($"pair drop topic={pairing.Topic} reason=ecdh-needs-relay-and-name");
+				_log?.Invoke($"pair drop {LinkRelayClient.Label(pairing.Topic)} reason=ecdh-needs-relay-and-name");
 				return;
 			}
 			var (publicKey, secretKey) = PhantasmaPhoenix.Cryptography.NaCl.GenerateKeyPair();
@@ -142,7 +143,7 @@ public sealed class LinkDeeplinkEndpoint
 		}
 		else
 		{
-			_log?.Invoke($"pair drop topic={pairing.Topic} reason=bad-mode-material");
+			_log?.Invoke($"pair drop {LinkRelayClient.Label(pairing.Topic)} reason=bad-mode-material");
 			return; // malformed mode/material combination
 		}
 
@@ -150,10 +151,10 @@ public sealed class LinkDeeplinkEndpoint
 		{
 			if (!decision.Approved)
 			{
-				_log?.Invoke($"pair consent declined topic={pairing.Topic}");
+				_log?.Invoke($"pair consent declined {LinkRelayClient.Label(pairing.Topic)}");
 				return;
 			}
-			_log?.Invoke($"pair consent approved topic={pairing.Topic}");
+			_log?.Invoke($"pair consent approved {LinkRelayClient.Label(pairing.Topic)}");
 			var now = DateTime.UtcNow;
 			var record = new LinkPairingRecord
 			{
@@ -184,7 +185,7 @@ public sealed class LinkDeeplinkEndpoint
 			var dappName = pairing.DappName;
 			if (string.IsNullOrEmpty(dappName))
 			{
-				_log?.Invoke($"pair topic={pairing.Topic}: no dapp name, deferring to explicit pha_connect");
+				_log?.Invoke($"pair {LinkRelayClient.Label(pairing.Topic)}: no dapp name, deferring to explicit pha_connect");
 				return;
 			}
 			var caller = new LinkCaller
@@ -213,17 +214,17 @@ public sealed class LinkDeeplinkEndpoint
 				// callback. Exactly one path is used per pairing.
 				if (walletPublicKey != null && _relay != null)
 				{
-					_log?.Invoke($"response via relay handshake topic={record.Topic}");
+					_log?.Invoke($"response via relay handshake {LinkRelayClient.Label(record.Topic)}");
 					_relay.PublishHandshake(record, walletPublicKey, eventJson);
 				}
 				else if (relayUrl != null && _relay != null)
 				{
-					_log?.Invoke($"response via relay sealed topic={record.Topic}");
+					_log?.Invoke($"response via relay sealed {LinkRelayClient.Label(record.Topic)}");
 					_relay.PublishSealed(record, eventJson);
 				}
 				else if (!string.IsNullOrEmpty(pairing.CallbackUrl))
 				{
-					_log?.Invoke($"response via callback host={CallbackHost(pairing.CallbackUrl!)} topic={record.Topic}");
+					_log?.Invoke($"response via callback host={CallbackHost(pairing.CallbackUrl!)} {LinkRelayClient.Label(record.Topic)}");
 					var channel = new LinkChannel(channelKey);
 					openUrl(BuildResponseUrl(pairing.CallbackUrl!, pairing.Topic, channel.SealEnvelope(eventJson)));
 				}
@@ -242,24 +243,24 @@ public sealed class LinkDeeplinkEndpoint
 		var pairing = _pairings.Get(topic);
 		if (pairing == null)
 		{
-			_log?.Invoke($"req drop topic={topic} reason=no-pairing");
+			_log?.Invoke($"req drop {LinkRelayClient.Label(topic)} reason=no-pairing");
 			return; // unknown channel; no key to answer with
 		}
 
 		var channel = new LinkChannel(pairing.Key);
 		if (!channel.TryOpenEnvelope(frameJson, out var envelopeJson))
 		{
-			_log?.Invoke($"req drop topic={topic} reason=unseal-failed");
+			_log?.Invoke($"req drop {LinkRelayClient.Label(topic)} reason=unseal-failed");
 			return; // forged or corrupted frame
 		}
 
-		_log?.Invoke($"req topic={topic}: dispatching to wallet");
+		_log?.Invoke($"req {LinkRelayClient.Label(topic)}: dispatching to wallet");
 		pairing.LastSeenUtc = DateTime.UtcNow;
 		_pairings.Save(pairing);
 
 		_dispatcher.HandleMessage(envelopeJson, responseJson =>
 		{
-			_log?.Invoke($"req response via callback host={CallbackHost(pairing.CallbackUrl)} topic={topic}");
+			_log?.Invoke($"req response via callback host={CallbackHost(pairing.CallbackUrl)} {LinkRelayClient.Label(topic)}");
 			var responseFrame = channel.SealEnvelope(responseJson);
 			openUrl(BuildResponseUrl(pairing.CallbackUrl, topic, responseFrame));
 		}, pairing.RequestContext(LinkTransportKind.Deeplink, _pairings));
