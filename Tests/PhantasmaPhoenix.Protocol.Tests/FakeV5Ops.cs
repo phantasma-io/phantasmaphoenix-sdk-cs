@@ -86,12 +86,16 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	}
 
 	/// <summary>Override for the invoke result rows (e.g. a huge payload for chunking tests).</summary>
-	public string[]? InvokeResults;
+	public byte[][]? InvokeResults;
+
+	/// <summary>How many times the node was asked to run a script.</summary>
+	public int InvokeCalls;
 
 	public void InvokeScript(string chain, byte[] script, Action<LinkInvokeResult> done)
 	{
+		InvokeCalls++;
 		if (FailInvoke != LinkFailure.None) { done(LinkInvokeResult.Fail(FailInvoke, "invoke failed")); return; }
-		done(LinkInvokeResult.Ok(InvokeResults ?? new[] { "AABB" }));
+		done(LinkInvokeResult.Ok(InvokeResults ?? new[] { new byte[] { 0xAA, 0xBB } }));
 	}
 
 	// Sign-operation controls.

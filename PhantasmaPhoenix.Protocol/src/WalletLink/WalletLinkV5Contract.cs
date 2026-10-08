@@ -145,9 +145,11 @@ public sealed class LinkInvokeResult
 {
 	public LinkFailure Failure { get; set; }
 	public string? Message { get; set; }
-	public string[] Results { get; set; } = Array.Empty<string>();
+	/// <summary>One VM result object per element, serialized as the chain serializes it. The
+	/// dispatcher sends each element in base64 (spec §9.5).</summary>
+	public byte[][] Results { get; set; } = Array.Empty<byte[]>();
 
-	public static LinkInvokeResult Ok(string[] results) => new LinkInvokeResult { Results = results };
+	public static LinkInvokeResult Ok(byte[][] results) => new LinkInvokeResult { Results = results };
 	public static LinkInvokeResult Fail(LinkFailure failure, string? message) =>
 		new LinkInvokeResult { Failure = failure, Message = message };
 }

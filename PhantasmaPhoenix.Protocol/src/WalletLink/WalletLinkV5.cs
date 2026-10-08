@@ -591,16 +591,33 @@ public class WalletLinkV5
 
 	private void HandleInvokeScript(JToken? id, JObject prms, Action<string> respond)
 	{
-		if (!TryReadText(prms, "chain", out var chainText) || !TryReadText(prms, "script", out var scriptText))
+		if (!TryReadText(prms, "chain", out var chain) || !TryReadText(prms, "script", out var scriptText))
 		{
 			respond(BuildError(id, ErrInvalidParams, "params.chain and params.script must be strings"));
 			return;
 		}
-		var chain = chainText ?? "main";
+		// Spec §9.5: both are required. `chain` names a chain of the nexus, for example "main".
+		if (chain is null || chain.Length == 0)
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.chain is required"));
+			return;
+		}
+		if (scriptText is null || scriptText.Length == 0)
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.script is required (base64)"));
+			return;
+		}
+		// The same ceiling as a transaction: the guard refuses hostile input before decoding it.
+		if (scriptText.Length > MaxTxBase64Chars)
+		{
+			respond(BuildError(id, ErrPayloadTooLarge, "Script exceeds the maximum size",
+				new JObject { ["maxPayloadBytes"] = MaxTxBytes }));
+			return;
+		}
 		byte[] script;
 		try
 		{
-			script = Convert.FromBase64String(scriptText ?? "");
+			script = Convert.FromBase64String(scriptText);
 		}
 		catch
 		{
@@ -615,7 +632,12 @@ public class WalletLinkV5
 				respond(BuildError(id, MapFailure(result.Failure), result.Message ?? "Invoke failed"));
 				return;
 			}
-			respond(BuildResult(id, new JObject { ["results"] = new JArray(result.Results) }));
+			var results = new JArray();
+			foreach (var item in result.Results)
+			{
+				results.Add(Convert.ToBase64String(item));
+			}
+			respond(BuildResult(id, new JObject { ["results"] = results }));
 		});
 	}
 	#endregion

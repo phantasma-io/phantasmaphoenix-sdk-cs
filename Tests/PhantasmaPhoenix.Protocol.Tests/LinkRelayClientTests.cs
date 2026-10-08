@@ -187,7 +187,7 @@ public class LinkRelayClientTests
 		var (endpoint, ops, _, _, sockets) = Build();
 		// Make the wallet's answer far exceed the 900k chunk budget so the response MUST
 		// leave as a chunked publish series.
-		ops.InvokeResults = new[] { new string('A', 2_000_000) };
+		ops.InvokeResults = new[] { new byte[1_500_000] };
 		var key = new byte[32];
 		key[9] = 9;
 		var channel = new LinkChannel(key);
@@ -226,7 +226,7 @@ public class LinkRelayClientTests
 		}
 		var response = OpenSealedPayload(channel, string.Concat(assembled));
 		((string)response["id"]!).ShouldBe("r2");
-		((string)response["result"]!["results"]![0]!).ShouldBe(ops.InvokeResults[0]);
+		((string)response["result"]!["results"]![0]!).ShouldBe(Convert.ToBase64String(ops.InvokeResults[0]));
 	}
 
 	[Fact]

@@ -407,14 +407,53 @@ public class WalletLinkV5Tests
 		var link = new WalletLinkV5(ops);
 		var session = Connect(link, out _);
 
+		// Spec §9.5: each result is one VM object as the chain serializes it, in base64.
 		var ok = Send(link,
 			$"{{\"plv\":5,\"id\":\"i1\",\"session\":\"{session}\",\"method\":\"pha_invokeScript\",\"params\":{{\"chain\":\"main\",\"script\":\"AA==\"}}}}");
-		((JArray)ok["result"]!["results"]!).Single().Value<string>().ShouldBe("AABB");
+		((JArray)ok["result"]!["results"]!).Single().Value<string>().ShouldBe(Convert.ToBase64String(new byte[] { 0xAA, 0xBB }));
 
 		ops.FailInvoke = LinkFailure.Internal;
 		var fail = Send(link,
 			$"{{\"plv\":5,\"id\":\"i2\",\"session\":\"{session}\",\"method\":\"pha_invokeScript\",\"params\":{{\"chain\":\"main\",\"script\":\"AA==\"}}}}");
 		((int)fail["error"]!["code"]!).ShouldBe(-32603);
+	}
+
+	// Spec §9.5: `chain` and `script` are required, and a script above the chain's maximum size is
+	// refused with 5001 before it is decoded. None of these reaches the wallet's node.
+	[Theory]
+	[InlineData("{\"script\":\"AA==\"}", -32602)]
+	[InlineData("{\"chain\":\"\",\"script\":\"AA==\"}", -32602)]
+	[InlineData("{\"chain\":\"main\"}", -32602)]
+	[InlineData("{\"chain\":\"main\",\"script\":\"\"}", -32602)]
+	[InlineData("{\"chain\":\"main\",\"script\":\"%%%\"}", -32602)]
+	public void InvokeScript_requires_the_chain_and_a_base64_script(string prms, int code)
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+
+		var response = Send(link,
+			$"{{\"plv\":5,\"id\":\"i3\",\"session\":\"{session}\",\"method\":\"pha_invokeScript\",\"params\":{prms}}}");
+
+		((int)response["error"]!["code"]!).ShouldBe(code);
+		ops.InvokeCalls.ShouldBe(0);
+	}
+
+	[Fact]
+	public void InvokeScript_refuses_a_script_above_the_maximum_size()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+		// One base64 group beyond the base64 length of the chain's 32 MiB maximum.
+		var huge = new string('A', (32 * 1024 * 1024 + 2) / 3 * 4 + 4);
+
+		var response = Send(link,
+			$"{{\"plv\":5,\"id\":\"i4\",\"session\":\"{session}\",\"method\":\"pha_invokeScript\",\"params\":{{\"chain\":\"main\",\"script\":\"{huge}\"}}}}");
+
+		((int)response["error"]!["code"]!).ShouldBe(5001);
+		((int)response["error"]!["data"]!["maxPayloadBytes"]!).ShouldBe(32 * 1024 * 1024);
+		ops.InvokeCalls.ShouldBe(0);
 	}
 
 	// Spec §4: requests are independent by id, and there is no global single-in-flight flag. A
