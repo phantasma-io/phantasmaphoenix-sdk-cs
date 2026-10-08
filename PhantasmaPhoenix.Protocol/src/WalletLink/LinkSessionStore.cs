@@ -21,6 +21,14 @@ public sealed class LinkSessionRecord
 	public string? Origin { get; set; }
 	/// <summary>The account the session was authorized for; resume requires the same account.</summary>
 	public string Address { get; set; } = "";
+	/// <summary>The networks granted to the session, as CAIP-2 ids (spec §5). Null for a session
+	/// stored before the grants were kept: it gets every network the wallet serves.</summary>
+	public string[]? Chains { get; set; }
+	/// <summary>The methods granted to the session (spec §5). Null for a session stored before the
+	/// grants were kept: it gets every method the wallet serves.</summary>
+	public string[]? Methods { get; set; }
+	/// <summary>The features granted to the session (spec §5); this version defines none.</summary>
+	public string[]? Features { get; set; }
 	public DateTime CreatedUtc { get; set; }
 	public DateTime LastSeenUtc { get; set; }
 }

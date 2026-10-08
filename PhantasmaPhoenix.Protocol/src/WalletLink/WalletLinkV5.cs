@@ -34,6 +34,7 @@ public class WalletLinkV5
 	private const int ErrUserRejected = 4001;
 	private const int ErrUnauthorized = 4100;
 	private const int ErrDisconnected = 4900;
+	private const int ErrUnsupportedChain = 4902;
 	private const int ErrPayloadTooLarge = 5001;
 	private const int ErrNexusMismatch = 5002;
 	private const int ErrUnsupportedSignatureKind = 5003;
@@ -64,11 +65,13 @@ public class WalletLinkV5
 	// returning dApp resumes without a new prompt. Plaintext loopback uses the session id as the
 	// bearer; encrypted transports (deeplink/relay) add the channel key on top (later phases).
 	private readonly ILinkSessionStore _sessions;
+	private readonly WalletLinkV5Options _options;
 
-	public WalletLinkV5(IWalletLinkV5Ops ops, ILinkSessionStore? sessions = null)
+	public WalletLinkV5(IWalletLinkV5Ops ops, ILinkSessionStore? sessions = null, WalletLinkV5Options? options = null)
 	{
 		_ops = ops;
 		_sessions = sessions ?? new InMemoryLinkSessionStore();
+		_options = options ?? new WalletLinkV5Options();
 	}
 
 	/// <summary>
@@ -213,7 +216,7 @@ public class WalletLinkV5
 
 		if (method == "pha_connect")
 		{
-			HandleConnect(id, prms, context, respond);
+			HandleConnect(id, session, prms, context, respond);
 			return;
 		}
 
@@ -245,7 +248,7 @@ public class WalletLinkV5
 			case "pha_disconnect": HandleDisconnect(id, session, respond); break;
 			case "pha_getAccounts": HandleGetAccounts(id, respond); break;
 			case "pha_getChains": HandleGetChains(id, respond); break;
-			case "pha_getWalletInfo": HandleGetWalletInfo(id, respond); break;
+			case "pha_getWalletInfo": HandleGetWalletInfo(id, record, respond); break;
 			case "pha_sendTransaction": HandleSendTransaction(id, prms, caller, respond); break;
 			case "pha_signTransaction": HandleSignTransaction(id, prms, caller, respond); break;
 			case "pha_signMessage": HandleSignMessage(id, prms, caller, respond); break;
@@ -276,31 +279,83 @@ public class WalletLinkV5
 	}
 
 	#region Handlers
-	private void HandleConnect(JToken? id, JObject prms, LinkRequestContext context, Action<string> respond)
+	private void HandleConnect(JToken? id, string? session, JObject prms, LinkRequestContext context, Action<string> respond)
 	{
 		if (!TryReadDapp(prms, out var caller))
 		{
 			respond(BuildError(id, ErrInvalidParams, "params.dapp needs a name and a url"));
 			return;
 		}
+		if (!TryReadNames(prms, "chains", out var chains) || !TryReadNames(prms, "methods", out var methods)
+			|| !TryReadNames(prms, "features", out _))
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.chains, params.methods and params.features must be arrays of strings"));
+			return;
+		}
 		caller.Origin = context.Origin;
 		caller.Transport = context.Transport;
 
-		// Resume (spec §7): a dApp presenting a known session id for the SAME dApp identity gets
-		// reconnected without a prompt - but only if the wallet still serves the same account.
-		// Any mismatch falls back to the full consent flow below (one round-trip, fresh session).
-		var resumeId = TextOf(prms["session"]);
-		if (resumeId != null)
+		// Resume (spec §4, §9.5): the session to resume rides in the envelope `session` field. A
+		// known session of the SAME dApp identity gets reconnected without a prompt - but only if
+		// the wallet still serves the same account. Any mismatch falls back to the full consent
+		// flow below (one round-trip, fresh session).
+		if (session != null)
 		{
-			var record = _sessions.Get(resumeId);
+			var record = _sessions.Get(session);
 			if (record != null && record.Dapp == caller.DappName && _ops.Status == WalletStatus.Ready && OriginMatches(record, context.Origin))
 			{
-				TryResume(id, caller, record, context, respond);
+				TryResume(id, record, context, respond, () => ConnectNew(id, caller, chains, methods, context, respond));
 				return;
 			}
 		}
 
-		PromptConnect(id, caller, context, respond);
+		ConnectNew(id, caller, chains, methods, context, respond);
+	}
+
+	/// <summary>Reads an optional array of strings: the requested chains, methods or features of a
+	/// connect (spec §5). Returns false when it holds another JSON type or a value that is no string.</summary>
+	private static bool TryReadNames(JObject prms, string name, out string[] names)
+	{
+		names = Array.Empty<string>();
+		var token = prms[name];
+		if (token == null || token.Type == JTokenType.Null)
+		{
+			return true;
+		}
+		if (!(token is JArray array) || array.Any(item => item.Type != JTokenType.String))
+		{
+			return false;
+		}
+		names = array.Select(item => (string)item!).ToArray();
+		return true;
+	}
+
+	/// <summary>Returns the networks the wallet serves: the one of its current nexus, as a CAIP-2
+	/// id (spec §2, §5).</summary>
+	private static string[] ServedChains(string nexus)
+	{
+		return new[] { "phantasma:" + nexus };
+	}
+
+	/// <summary>A new session (spec §5, §9.5): grants the requested networks and methods that the
+	/// wallet serves, all of them when the dApp names none, then asks the user. This version
+	/// defines no feature, so none is granted. A dApp that asks only for networks the wallet does
+	/// not serve gets 4902 without a prompt (spec §10).</summary>
+	private void ConnectNew(JToken? id, LinkCaller caller, string[] chains, string[] methods, LinkRequestContext context, Action<string> respond)
+	{
+		_ops.GetChains(current =>
+		{
+			var served = ServedChains(current.Nexus);
+			var grantedChains = chains.Length == 0 ? served : chains.Where(served.Contains).Distinct().ToArray();
+			if (grantedChains.Length == 0)
+			{
+				respond(BuildError(id, ErrUnsupportedChain, "The wallet serves none of the requested networks"));
+				return;
+			}
+			// A copy: the record is the host's, and the served list must not change through it.
+			var grantedMethods = methods.Length == 0 ? ServedMethods.ToArray() : methods.Where(ServedMethods.Contains).Distinct().ToArray();
+			PromptConnect(id, caller, grantedChains, grantedMethods, context, respond);
+		});
 	}
 
 	/// <summary>Reads the <c>dapp</c> param of a connect (spec §9.5): a non-empty <c>name</c> and
@@ -321,15 +376,17 @@ public class WalletLinkV5
 		return true;
 	}
 
-	/// <summary>Promptless reconnect for an already-authorized session.</summary>
-	private void TryResume(JToken? id, LinkCaller caller, LinkSessionRecord record, LinkRequestContext context, Action<string> respond)
+	/// <summary>Promptless reconnect for an already-authorized session. The answer carries the
+	/// capabilities granted to it. <paramref name="connectAgain"/> runs the consent flow when the
+	/// wallet no longer serves the session's account.</summary>
+	private void TryResume(JToken? id, LinkSessionRecord record, LinkRequestContext context, Action<string> respond, Action connectAgain)
 	{
 		_ops.GetAccount(result =>
 		{
 			if (result.Failure != LinkFailure.None || result.Account == null || result.Account.Address != record.Address)
 			{
 				// Session no longer matches the wallet state (e.g. account switched): re-consent.
-				PromptConnect(id, caller, context, respond);
+				connectAgain();
 				return;
 			}
 
@@ -340,14 +397,14 @@ public class WalletLinkV5
 					record.LastSeenUtc = DateTime.UtcNow;
 					_sessions.Save(record);
 					context.OnSession?.Invoke(record.Id);
-					respond(BuildResult(id, BuildConnectResponse(record.Id, info.Name, info.Version, chains.Nexus, account)));
+					respond(BuildResult(id, BuildConnectResponse(record, info.Name, info.Version, chains.Nexus, account)));
 				}));
 		});
 	}
 
 	/// <summary>The full consent flow: prompt the user, then persist a fresh session bound to the
-	/// dApp and the origin of the request.</summary>
-	private void PromptConnect(JToken? id, LinkCaller caller, LinkRequestContext context, Action<string> respond)
+	/// dApp and the origin of the request, with the networks and methods granted to it.</summary>
+	private void PromptConnect(JToken? id, LinkCaller caller, string[] grantedChains, string[] grantedMethods, LinkRequestContext context, Action<string> respond)
 	{
 		// The dispatcher OWNS the session id: it mints the token, hands it to the dApp as the
 		// session id, and persists the record below. The op only grants consent (no token passed in).
@@ -361,7 +418,7 @@ public class WalletLinkV5
 			}
 
 			var now = DateTime.UtcNow;
-			_sessions.Save(new LinkSessionRecord
+			var record = new LinkSessionRecord
 			{
 				Id = token,
 				Dapp = caller.DappName,
@@ -369,22 +426,29 @@ public class WalletLinkV5
 				DappIcon = caller.DappIcon,
 				Origin = context.Origin,
 				Address = result.Account.Address,
+				Chains = grantedChains,
+				Methods = grantedMethods,
+				Features = Array.Empty<string>(),
 				CreatedUtc = now,
 				LastSeenUtc = now,
-			});
+			};
+			_sessions.Save(record);
 			context.OnSession?.Invoke(token);
-			respond(BuildResult(id, BuildConnectResponse(token, result.WalletName, result.WalletVersion, result.Nexus, result.Account)));
+			respond(BuildResult(id, BuildConnectResponse(record, result.WalletName, result.WalletVersion, result.Nexus, result.Account)));
 		});
 	}
 
-	private static JObject BuildConnectResponse(string sessionId, string walletName, string walletVersion, string nexus, LinkAccount account)
+	/// <summary>Returns the <c>pha_connect</c> result of a session (spec §5): the wallet, the
+	/// capabilities granted to the session, the account and the session with its end.</summary>
+	private JObject BuildConnectResponse(LinkSessionRecord record, string walletName, string walletVersion, string nexus, LinkAccount account)
 	{
 		return new JObject
 		{
 			["wallet"] = new JObject { ["name"] = walletName, ["version"] = walletVersion },
-			["capabilities"] = BuildCapabilities(nexus),
+			["capabilities"] = BuildCapabilities(record, nexus),
 			["account"] = BuildAccount(account),
-			["session"] = new JObject { ["id"] = sessionId },
+			// No lifetime with a fixed end exists yet, so `expiresAt` is null (spec §5).
+			["session"] = new JObject { ["id"] = record.Id, ["expiresAt"] = JValue.CreateNull() },
 		};
 	}
 
@@ -418,7 +482,9 @@ public class WalletLinkV5
 					// session is indistinguishable downstream (resume, disconnect, request auth).
 					var token = Guid.NewGuid().ToString("N");
 					var now = DateTime.UtcNow;
-					_sessions.Save(new LinkSessionRecord
+					// The pairing asked for nothing in particular: the session gets every network
+					// and method the wallet serves.
+					var record = new LinkSessionRecord
 					{
 						Id = token,
 						Dapp = caller.DappName,
@@ -426,11 +492,15 @@ public class WalletLinkV5
 						DappIcon = caller.DappIcon,
 						Origin = caller.Origin,
 						Address = account.Address,
+						Chains = ServedChains(chains.Nexus),
+						Methods = ServedMethods.ToArray(),
+						Features = Array.Empty<string>(),
 						CreatedUtc = now,
 						LastSeenUtc = now,
-					});
+					};
+					_sessions.Save(record);
 					deliver(BuildEvent(SessionEstablishedEvent, token,
-						BuildConnectResponse(token, info.Name, info.Version, chains.Nexus, account)));
+						BuildConnectResponse(record, info.Name, info.Version, chains.Nexus, account)));
 				}));
 		});
 	}
@@ -471,10 +541,10 @@ public class WalletLinkV5
 		});
 	}
 
-	private void HandleGetWalletInfo(JToken? id, Action<string> respond)
+	private void HandleGetWalletInfo(JToken? id, LinkSessionRecord record, Action<string> respond)
 	{
-		// Spec section 9.5: the wallet info carries the same capabilities object as the connect
-		// result. Its chain list needs the current nexus.
+		// Spec section 9.5: the wallet info carries the capabilities granted to this session, the
+		// same object as in the connect result.
 		_ops.GetWalletInfo(info =>
 			_ops.GetChains(chains =>
 				respond(BuildResult(id, new JObject
@@ -482,7 +552,7 @@ public class WalletLinkV5
 					["name"] = info.Name,
 					["version"] = info.Version,
 					["rpc"] = info.Rpc,
-					["capabilities"] = BuildCapabilities(chains.Nexus),
+					["capabilities"] = BuildCapabilities(record, chains.Nexus),
 				}))));
 	}
 
@@ -718,23 +788,32 @@ public class WalletLinkV5
 		}
 	}
 
-	private static JObject BuildCapabilities(string nexus)
+	/// <summary>Returns the capabilities granted to a session (spec §5, §9.5). A session stored
+	/// before the grants were kept gets every network and method the wallet serves.</summary>
+	private JObject BuildCapabilities(LinkSessionRecord record, string nexus)
 	{
+		// One size per transport the host serves (spec sections 5 and 11). The relay chunking
+		// carries the chain maximum, like loopback.
+		var maxPayloadBytes = new JObject();
+		foreach (var transport in _options.ServedTransports)
+		{
+			switch (transport)
+			{
+				case LinkTransportKind.Loopback: maxPayloadBytes["loopback"] = MaxTxBytes; break;
+				case LinkTransportKind.Relay: maxPayloadBytes["relay"] = MaxTxBytes; break;
+				case LinkTransportKind.Deeplink: maxPayloadBytes["deeplink"] = DeeplinkMaxPayloadBytes; break;
+			}
+		}
 		return new JObject
 		{
 			["plvVersions"] = new JArray { ProtocolVersion },
-			["methods"] = new JArray(ServedMethods),
-			["chains"] = new JArray { "phantasma:" + nexus },
+			["methods"] = new JArray(record.Methods ?? ServedMethods),
+			["chains"] = new JArray(record.Chains ?? ServedChains(nexus)),
 			["txFormats"] = new JArray { "script", "carbon" },
 			["signatureKinds"] = new JArray { "Ed25519", "ECDSA" },
-			// One size per transport this side serves (spec sections 5 and 11). The relay
-			// chunking carries the chain maximum, like loopback.
-			["maxPayloadBytes"] = new JObject
-			{
-				["loopback"] = MaxTxBytes,
-				["relay"] = MaxTxBytes,
-				["deeplink"] = DeeplinkMaxPayloadBytes,
-			},
+			// This version defines no feature value, so the list is empty (spec §5).
+			["features"] = new JArray(),
+			["maxPayloadBytes"] = maxPayloadBytes,
 		};
 	}
 

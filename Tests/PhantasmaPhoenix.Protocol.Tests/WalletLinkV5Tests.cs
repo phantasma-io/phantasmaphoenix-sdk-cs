@@ -293,6 +293,90 @@ public class WalletLinkV5Tests
 	}
 
 	[Fact]
+	public void Capabilities_list_the_size_limit_of_the_served_transports_only()
+	{
+		// Spec section 11: a wallet lists only the transports it serves.
+		var options = new WalletLinkV5Options { ServedTransports = new[] { LinkTransportKind.Loopback } };
+		var link = new WalletLinkV5(new FakeV5Ops(), null, options);
+		Connect(link, out var response);
+
+		var sizes = (JObject)response["result"]!["capabilities"]!["maxPayloadBytes"]!;
+		sizes.Properties().Select(p => p.Name).ShouldBe(new[] { "loopback" });
+	}
+
+	[Fact]
+	public void Connect_result_has_no_feature_and_a_session_without_a_fixed_end()
+	{
+		// Spec section 5: `features` and `session.expiresAt` are required. This version defines no
+		// feature, and a session lasts until the user ends it, so `expiresAt` is null.
+		var link = new WalletLinkV5(new FakeV5Ops());
+		Connect(link, out var response);
+
+		var features = response["result"]!["capabilities"]!["features"];
+		features.ShouldBeOfType<JArray>();
+		((JArray)features!).Count.ShouldBe(0);
+		var session = (JObject)response["result"]!["session"]!;
+		session.ContainsKey("expiresAt").ShouldBeTrue();
+		session["expiresAt"]!.Type.ShouldBe(JTokenType.Null);
+	}
+
+	[Fact]
+	public void Connect_grants_the_requested_networks_and_methods_the_wallet_serves()
+	{
+		// Spec section 9.5: the wallet returns the granted capabilities, which may be a subset of
+		// what was requested, and keeps them with the session: the resume and pha_getWalletInfo
+		// return the same.
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+
+		var connect = Send(link,
+			"{\"plv\":5,\"id\":\"g1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://t.example\"},"
+			+ "\"chains\":[\"phantasma:mainnet\",\"phantasma:localnet\"],\"methods\":[\"pha_signMessage\",\"pha_unknown\"],\"features\":[\"x\"]}}");
+		var session = (string)connect["result"]!["session"]!["id"]!;
+		var resumed = Send(link,
+			$"{{\"plv\":5,\"id\":\"g2\",\"session\":\"{session}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}}}}");
+		var info = Send(link, $"{{\"plv\":5,\"id\":\"g3\",\"session\":\"{session}\",\"method\":\"pha_getWalletInfo\"}}");
+
+		foreach (var capabilities in new[] { connect["result"]!["capabilities"]!, resumed["result"]!["capabilities"]!, info["result"]!["capabilities"]! })
+		{
+			((JArray)capabilities["chains"]!).Select(t => (string)t!).ShouldBe(new[] { "phantasma:localnet" });
+			((JArray)capabilities["methods"]!).Select(t => (string)t!).ShouldBe(new[] { "pha_signMessage" });
+			((JArray)capabilities["features"]!).Count.ShouldBe(0);
+		}
+		ops.ConnectCalls.ShouldBe(1);
+	}
+
+	[Fact]
+	public void A_connect_for_networks_the_wallet_does_not_serve_gets_4902_without_a_prompt()
+	{
+		// Spec section 10: 4902 when the wallet serves none of the requested networks.
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+
+		var response = Send(link,
+			"{\"plv\":5,\"id\":\"u1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://t.example\"},\"chains\":[\"phantasma:mainnet\"]}}");
+
+		((int)response["error"]!["code"]!).ShouldBe(4902);
+		ops.ConnectCalls.ShouldBe(0);
+	}
+
+	[Fact]
+	public void A_session_stored_without_grants_gets_everything_the_wallet_serves()
+	{
+		// A session stored by an older version has no grants: it keeps every network and method
+		// the wallet serves.
+		var store = new InMemoryLinkSessionStore();
+		store.Save(new LinkSessionRecord { Id = "old", Dapp = "testdapp", DappUrl = "https://t.example", Address = "P2KTest" });
+		var link = new WalletLinkV5(new FakeV5Ops(), store);
+
+		var info = Send(link, "{\"plv\":5,\"id\":\"o1\",\"session\":\"old\",\"method\":\"pha_getWalletInfo\"}");
+
+		var capabilities = info["result"]!["capabilities"]!;
+		((JArray)capabilities["chains"]!).Select(t => (string)t!).ShouldBe(new[] { "phantasma:localnet" });
+		((JArray)capabilities["methods"]!).Select(t => (string)t!).ShouldContain("pha_sendTransaction");
+	}
+
+	[Fact]
 	public void GetWalletInfo_returns_the_capabilities_of_the_connect_result()
 	{
 		// Spec section 9.5: pha_getWalletInfo returns { name, version, capabilities, rpc }, and
@@ -634,6 +718,9 @@ public class WalletLinkV5Tests
 	[InlineData("pha_connect", "{\"dapp\":{\"name\":\"d\",\"url\":\"\"}}")]
 	[InlineData("pha_connect", "{\"dapp\":{\"name\":\"d\",\"url\":7}}")]
 	[InlineData("pha_connect", "{\"dapp\":{\"name\":\"d\",\"url\":\"https://d.example\",\"icon\":{}}}")]
+	[InlineData("pha_connect", "{\"dapp\":{\"name\":\"d\",\"url\":\"https://d.example\"},\"chains\":\"phantasma:localnet\"}")]
+	[InlineData("pha_connect", "{\"dapp\":{\"name\":\"d\",\"url\":\"https://d.example\"},\"methods\":[1]}")]
+	[InlineData("pha_connect", "{\"dapp\":{\"name\":\"d\",\"url\":\"https://d.example\"},\"features\":{}}")]
 	[InlineData("pha_sendTransaction", "{\"format\":7,\"tx\":\"AAEC\"}")]
 	[InlineData("pha_sendTransaction", "{\"format\":\"carbon\",\"tx\":{}}")]
 	[InlineData("pha_sendTransaction", "{\"format\":\"carbon\",\"tx\":\"AAEC\",\"signatureKind\":1}")]
@@ -698,12 +785,27 @@ public class WalletLinkV5Tests
 		ops.ConnectCalls.ShouldBe(1);
 
 		var resumed = Send(link,
-			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"}},\"session\":\"{session}\"}}}}");
+			$"{{\"plv\":5,\"id\":\"r1\",\"session\":\"{session}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"}}}}}}");
 
 		ops.ConnectCalls.ShouldBe(1); // NO second prompt
 		((string)resumed["result"]!["session"]!["id"]!).ShouldBe(session); // same session id
 		((string)resumed["result"]!["account"]!["address"]!).ShouldBe("P2KTest");
 		((string)resumed["result"]!["wallet"]!["name"]!).ShouldBe("FakeWallet");
+	}
+
+	[Fact]
+	public void A_session_id_in_the_params_is_not_a_resume()
+	{
+		// Spec section 9.5: the session to resume rides in the envelope; the params carry none.
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+
+		var response = Send(link,
+			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://t.example\"}},\"session\":\"{session}\"}}}}");
+
+		ops.ConnectCalls.ShouldBe(2);
+		((string)response["result"]!["session"]!["id"]!).ShouldNotBe(session);
 	}
 
 	[Fact]
@@ -713,7 +815,7 @@ public class WalletLinkV5Tests
 		var link = new WalletLinkV5(ops);
 
 		var response = Send(link,
-			"{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"},\"session\":\"nope\"}}");
+			"{\"plv\":5,\"id\":\"r1\",\"session\":\"nope\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"}}}");
 
 		ops.ConnectCalls.ShouldBe(1); // prompted
 		((string)response["result"]!["session"]!["id"]!).ShouldNotBe("nope"); // fresh session
@@ -728,7 +830,7 @@ public class WalletLinkV5Tests
 		var session = Connect(link, out _);
 
 		var response = Send(link,
-			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"OTHER\",\"url\":\"https://other.example\"}},\"session\":\"{session}\"}}}}");
+			$"{{\"plv\":5,\"id\":\"r1\",\"session\":\"{session}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"OTHER\",\"url\":\"https://other.example\"}}}}}}");
 
 		ops.ConnectCalls.ShouldBe(2); // re-consent for the other dApp
 		((string)response["result"]!["session"]!["id"]!).ShouldNotBe(session);
@@ -744,7 +846,7 @@ public class WalletLinkV5Tests
 
 		ops.AccountAddress = "P2KOther";
 		var response = Send(link,
-			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"}},\"session\":\"{session}\"}}}}");
+			$"{{\"plv\":5,\"id\":\"r1\",\"session\":\"{session}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"}}}}}}");
 
 		ops.ConnectCalls.ShouldBe(2);
 		((string)response["result"]!["session"]!["id"]!).ShouldNotBe(session);
@@ -765,7 +867,7 @@ public class WalletLinkV5Tests
 
 		var second = new WalletLinkV5(ops, store); // "restarted" wallet
 		var resumed = Send(second,
-			$"{{\"plv\":5,\"id\":\"r1\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"}},\"session\":\"{session}\"}}}}");
+			$"{{\"plv\":5,\"id\":\"r1\",\"session\":\"{session}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://testdapp.example\"}}}}}}");
 
 		ops.ConnectCalls.ShouldBe(1); // still no second prompt
 		((string)resumed["result"]!["session"]!["id"]!).ShouldBe(session);
