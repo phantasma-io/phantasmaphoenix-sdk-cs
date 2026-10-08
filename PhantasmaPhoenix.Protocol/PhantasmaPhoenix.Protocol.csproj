@@ -29,4 +29,8 @@
   <ItemGroup>
     <ProjectReference Include="..\PhantasmaPhoenix.Cryptography\PhantasmaPhoenix.Cryptography.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- The loopback server answers 5001 with the dispatcher's envelope, which hosts never build. -->
+    <InternalsVisibleTo Include="PhantasmaPhoenix.Link" />
+  </ItemGroup>
 </Project>

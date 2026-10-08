@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using Newtonsoft.Json.Linq;
@@ -40,10 +42,16 @@ public class LinkServerV5Tests
 	{
 		private static readonly LinkAccount Account = new LinkAccount { Address = "P2KTest", Name = "tester" };
 
+		/// <summary>The caller of the last connect.</summary>
+		public LinkCaller? LastCaller;
+
 		public WalletStatus Status => WalletStatus.Ready;
 		public string? SelectedAddress => Account.Address;
-		public void Connect(LinkCaller caller, Action<LinkConnectResult> done) =>
+		public void Connect(LinkCaller caller, Action<LinkConnectResult> done)
+		{
+			LastCaller = caller;
 			done(LinkConnectResult.Ok(Account, "TestWallet", "1.0.0", "localnet"));
+		}
 		public void GetAccount(Action<LinkAccountResult> done) => done(LinkAccountResult.Ok(Account));
 		public void GetChains(Action<LinkChains> done) => done(new LinkChains { Nexus = "localnet" });
 		public void GetWalletInfo(Action<LinkWalletInfo> done) =>
@@ -61,9 +69,11 @@ public class LinkServerV5Tests
 
 	private static readonly TimeSpan Wait = TimeSpan.FromSeconds(10);
 
-	private static (LinkServer server, WalletLinkV5 link) StartServer()
+	private static (LinkServer server, WalletLinkV5 link) StartServer() => StartServer(new ApprovingWallet());
+
+	private static (LinkServer server, WalletLinkV5 link) StartServer(ApprovingWallet wallet)
 	{
-		var link = new WalletLinkV5(new ApprovingWallet());
+		var link = new WalletLinkV5(wallet);
 		var server = new LinkServer(new UnusedLegacyWallet(), link, port: 0);
 		// The requests run on the connection thread; a wallet posts them to its UI thread.
 		server.OnUI = action => action();
@@ -71,18 +81,30 @@ public class LinkServerV5Tests
 		return (server, link);
 	}
 
-	private static async Task<ClientWebSocket> Open(LinkServer server)
+	/// <summary>Opens a connection as a page of <paramref name="origin"/> does, or as a client
+	/// without an origin.</summary>
+	private static async Task<ClientWebSocket> Open(LinkServer server, string? origin = null)
 	{
 		var client = new ClientWebSocket();
+		if (origin != null)
+		{
+			client.Options.SetRequestHeader("Origin", origin);
+		}
 		using var timeout = new CancellationTokenSource(Wait);
 		await client.ConnectAsync(new Uri($"ws://127.0.0.1:{server.Port}/phantasma/v5"), timeout.Token);
 		return client;
 	}
 
-	private static async Task Send(ClientWebSocket client, string text)
+	private static async Task Send(ClientWebSocket client, string text, bool endOfMessage = true)
 	{
 		using var timeout = new CancellationTokenSource(Wait);
-		await client.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes(text)), WebSocketMessageType.Text, true, timeout.Token);
+		await client.SendAsync(new ArraySegment<byte>(Encoding.UTF8.GetBytes(text)), WebSocketMessageType.Text, endOfMessage, timeout.Token);
+	}
+
+	private static async Task<string> ConnectSession(ClientWebSocket client)
+	{
+		await Send(client, ConnectRequest);
+		return (string)(await Receive(client, Wait))!["result"]!["session"]!["id"]!;
 	}
 
 	/// <summary>Returns the next message, or null when none comes within <paramref name="wait"/>.</summary>
@@ -112,6 +134,28 @@ public class LinkServerV5Tests
 	private const string ConnectRequest =
 		"{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"page\",\"url\":\"https://page.example\"}}}";
 
+	// Spec §18.2: a connect of a caller without an origin is remembered with its connection. Two
+	// pages without an origin that pick the same id each get their own answer.
+	[Fact]
+	public async Task Connects_of_two_connections_without_an_origin_are_two_requests()
+	{
+		var (server, _) = StartServer();
+		try
+		{
+			using var first = await Open(server);
+			using var second = await Open(server);
+
+			var one = await ConnectSession(first);
+			var two = await ConnectSession(second);
+
+			one.ShouldNotBe(two);
+		}
+		finally
+		{
+			server.Stop();
+		}
+	}
+
 	[Fact]
 	public async Task The_events_of_a_session_reach_the_connection_that_holds_it_only()
 	{
@@ -134,6 +178,183 @@ public class LinkServerV5Tests
 			((string)deleted!["event"]!).ShouldBe("pha_sessionDeleted");
 			((string)deleted["data"]!["session"]!).ShouldBe(session);
 			(await Receive(other, TimeSpan.FromMilliseconds(300))).ShouldBeNull();
+		}
+		finally
+		{
+			server.Stop();
+		}
+	}
+
+	[Fact]
+	public async Task A_request_with_the_largest_transaction_fits_one_message()
+	{
+		// Spec §11: loopback takes a 32 MiB transaction, which is about 44.7 million characters in
+		// base64; a browser sends the whole message as one frame.
+		var (server, _) = StartServer();
+		try
+		{
+			using var client = await Open(server);
+			var session = await ConnectSession(client);
+			var script = Convert.ToBase64String(new byte[WalletLinkV5.MaxTxBytes]);
+
+			await Send(client, $"{{\"plv\":5,\"id\":\"big\",\"session\":\"{session}\",\"method\":\"pha_invokeScript\",\"params\":{{\"chain\":\"main\",\"script\":\"{script}\"}}}}");
+			var answer = await Receive(client, TimeSpan.FromSeconds(60));
+
+			((string)answer!["id"]!).ShouldBe("big");
+			answer["result"].ShouldNotBeNull();
+		}
+		finally
+		{
+			server.Stop();
+		}
+	}
+
+	[Fact]
+	public async Task A_message_in_several_frames_is_one_request()
+	{
+		var (server, _) = StartServer();
+		try
+		{
+			using var client = await Open(server);
+
+			await Send(client, ConnectRequest.Substring(0, 20), endOfMessage: false);
+			await Send(client, ConnectRequest.Substring(20, 30), endOfMessage: false);
+			await Send(client, ConnectRequest.Substring(50), endOfMessage: true);
+			var answer = await Receive(client, Wait);
+
+			((string)answer!["id"]!).ShouldBe("c1");
+			answer["result"]!["session"]!["id"].ShouldNotBeNull();
+			(await Receive(client, TimeSpan.FromMilliseconds(300))).ShouldBeNull();
+		}
+		finally
+		{
+			server.Stop();
+		}
+	}
+
+	[Fact]
+	public async Task A_message_above_the_limit_gets_5001_with_its_id_and_the_connection_stays()
+	{
+		// Spec §10, §11: a clear 5001 instead of a silent failure. The message comes in frames,
+		// each below the frame limit; together they pass the message limit.
+		var (server, _) = StartServer();
+		try
+		{
+			using var client = await Open(server);
+			await Send(client, "{\"plv\":5,\"id\":\"huge\",\"method\":\"pha_invokeScript\",\"params\":{\"chain\":\"main\",\"script\":\"", endOfMessage: false);
+			var part = new string('A', 10 * 1024 * 1024);
+			for (var i = 0; i < 5; i++)
+			{
+				await Send(client, part, endOfMessage: false);
+			}
+			await Send(client, "\"}}", endOfMessage: true);
+
+			var answer = await Receive(client, TimeSpan.FromSeconds(60));
+			((string)answer!["id"]!).ShouldBe("huge");
+			((int)answer["error"]!["code"]!).ShouldBe(5001);
+			((int)answer["error"]!["data"]!["maxPayloadBytes"]!).ShouldBe(WalletLinkV5.MaxTxBytes);
+
+			await Send(client, ConnectRequest);
+			((string)(await Receive(client, Wait))!["id"]!).ShouldBe("c1");
+		}
+		finally
+		{
+			server.Stop();
+		}
+	}
+
+	// Spec §4: an answer never repeats an id longer than 128 characters, also the 5001 of a message
+	// above the limit, which then gets no answer; the connection stays.
+	[Fact]
+	public async Task A_message_above_the_limit_with_a_long_id_gets_no_answer()
+	{
+		var (server, _) = StartServer();
+		try
+		{
+			using var client = await Open(server);
+			var longId = new string('i', 129);
+			await Send(client, "{\"plv\":5,\"id\":\"" + longId + "\",\"method\":\"pha_invokeScript\",\"params\":{\"chain\":\"main\",\"script\":\"", endOfMessage: false);
+			var part = new string('A', 10 * 1024 * 1024);
+			for (var i = 0; i < 5; i++)
+			{
+				await Send(client, part, endOfMessage: false);
+			}
+			await Send(client, "\"}}", endOfMessage: true);
+
+			await Send(client, ConnectRequest);
+			((string)(await Receive(client, TimeSpan.FromSeconds(60)))!["id"]!).ShouldBe("c1");
+		}
+		finally
+		{
+			server.Stop();
+		}
+	}
+
+	[Fact]
+	public async Task A_frame_above_the_limit_closes_with_1009_and_no_exception_text()
+	{
+		// RFC 6455: a close frame holds 125 bytes at most. Exception text would also leak internals.
+		var (server, _) = StartServer();
+		try
+		{
+			using var tcp = new TcpClient();
+			await tcp.ConnectAsync(IPAddress.Loopback, server.Port);
+			var stream = tcp.GetStream();
+			stream.ReadTimeout = (int)Wait.TotalMilliseconds;
+			var handshake = $"GET /phantasma/v5 HTTP/1.1\r\nHost: 127.0.0.1:{server.Port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+				+ $"Sec-WebSocket-Key: {Convert.ToBase64String(new byte[16])}\r\nSec-WebSocket-Version: 13\r\n\r\n";
+			var request = Encoding.ASCII.GetBytes(handshake);
+			stream.Write(request, 0, request.Length);
+			var head = new StringBuilder();
+			while (!head.ToString().EndsWith("\r\n\r\n"))
+			{
+				head.Append((char)stream.ReadByte());
+			}
+			head.ToString().ShouldStartWith("HTTP/1.1 101");
+
+			// A masked text frame that announces 100 000 000 bytes; the server refuses it at once.
+			var frameHead = new byte[] { 0x81, 0x80 | 127, 0, 0, 0, 0, 0x05, 0xF5, 0xE1, 0x00 };
+			stream.Write(frameHead, 0, frameHead.Length);
+
+			var close = new List<byte>();
+			int next;
+			while ((next = stream.ReadByte()) >= 0)
+			{
+				close.Add((byte)next);
+			}
+			close[0].ShouldBe((byte)0x88);
+			var length = close[1];
+			length.ShouldBeLessThanOrEqualTo((byte)125);
+			((close[2] << 8) | close[3]).ShouldBe(1009);
+			var reason = Encoding.UTF8.GetString(close.Skip(4).Take(length - 2).ToArray());
+			reason.ShouldNotContain("Exception");
+		}
+		finally
+		{
+			server.Stop();
+		}
+	}
+
+	[Fact]
+	public async Task The_page_origin_reaches_the_wallet_and_binds_the_session()
+	{
+		// Spec §6.2: the wallet binds the session to the requesting browser origin, and a caller
+		// without one is unverified.
+		var wallet = new ApprovingWallet();
+		var (server, _) = StartServer(wallet);
+		try
+		{
+			using var page = await Open(server, "http://localhost:3000");
+			var session = await ConnectSession(page);
+			wallet.LastCaller!.Origin.ShouldBe("http://localhost:3000");
+
+			using var other = await Open(server, "http://other.example");
+			await Send(other, $"{{\"plv\":5,\"id\":\"g1\",\"session\":\"{session}\",\"method\":\"pha_getChains\"}}");
+			((int)(await Receive(other, Wait))!["error"]!["code"]!).ShouldBe(4100);
+
+			using var app = await Open(server);
+			await ConnectSession(app);
+			wallet.LastCaller!.Origin.ShouldBeNull();
 		}
 		finally
 		{

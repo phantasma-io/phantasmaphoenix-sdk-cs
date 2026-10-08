@@ -86,10 +86,25 @@ public class WebSocketLargeFrameTests
 	}
 
 	[Fact]
+	public void A_frame_with_the_largest_v5_message_is_received()
+	{
+		// A browser sends a whole v5 message as one frame; the largest one carries a 32 MiB
+		// transaction in base64 (spec §11).
+		var payload = new byte[LinkServer.MaxV5MessageBytes];
+		using var stream = new MemoryStream(BuildMaskedTextFrame(payload));
+		var socket = BuildServerSocket(stream);
+
+		var result = socket.Receive();
+
+		result.EndOfMessage.ShouldBeTrue();
+		result.Count.ShouldBe(LinkServer.MaxV5MessageBytes);
+	}
+
+	[Fact]
 	public void Frames_above_the_ceiling_are_rejected_not_buffered()
 	{
-		// The 32 MiB ceiling must hold (memory-exhaustion guard): a 33 MiB frame is refused.
-		var payload = new byte[33 * 1024 * 1024];
+		// The ceiling must hold (memory-exhaustion guard): a frame one byte above it is refused.
+		var payload = new byte[LinkServer.MaxV5MessageBytes + 1];
 		using var stream = new MemoryStream(BuildMaskedTextFrame(payload));
 		var socket = BuildServerSocket(stream);
 

@@ -122,10 +122,14 @@ public class WebSocket
 	private string? _closeStatusDescription;
 
 	// Starts small and is grown by the frame reader when a peer sends a bigger single frame
-	// (capped by MAX_FRAME_BYTES). 32 MiB matches the Phantasma Link v5 loopback payload
-	// budget, which itself mirrors the chain's max transaction size.
+	// (capped by MAX_FRAME_BYTES). A browser sends a whole Phantasma Link v5 message as one frame,
+	// so the cap is the largest v5 loopback message: a request with the chain's largest
+	// transaction in base64.
 	private ArraySegment<byte> _receiveBuffer = new ArraySegment<byte>(new byte[1024 * 64]);
-	private const int MAX_FRAME_BYTES = 32 * 1024 * 1024;
+	private const int MAX_FRAME_BYTES = LinkServer.MaxV5MessageBytes;
+	// Frames are written whole: the receive thread answers pings and closes while another thread
+	// sends answers.
+	private readonly object _sendGate = new object();
 
 	public WebSocket(Func<MemoryStream> recycledStreamFactory, Stream stream, int keepAliveInterval, string? secWebSocketExtensions, bool includeExceptionInCloseResponse, bool isClient, string? subProtocol)
 	{
@@ -424,7 +428,13 @@ public class WebSocket
 		}
 		else
 		{
+			// A control frame holds 125 bytes at most (RFC 6455 section 5.5): the status code and
+			// up to 123 bytes of reason.
 			byte[] descBuffer = Encoding.UTF8.GetBytes(statusDescription);
+			if (descBuffer.Length > 123)
+			{
+				Array.Resize(ref descBuffer, 123);
+			}
 			byte[] payload = new byte[statusBuffer.Length + descBuffer.Length];
 			Buffer.BlockCopy(statusBuffer, 0, payload, 0, statusBuffer.Length);
 			Buffer.BlockCopy(descBuffer, 0, payload, statusBuffer.Length, descBuffer.Length);
@@ -524,7 +534,10 @@ public class WebSocket
 			throw new InvalidOperationException("buffer.Array is null");
 		}
 
-		_stream.Write(buffer.Array, buffer.Offset, buffer.Count);
+		lock (_sendGate)
+		{
+			_stream.Write(buffer.Array, buffer.Offset, buffer.Count);
+		}
 	}
 
 	/// Turns a spec websocket frame opcode into a WebSocketMessageType

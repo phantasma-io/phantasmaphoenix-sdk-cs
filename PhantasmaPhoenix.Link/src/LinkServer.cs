@@ -22,14 +22,20 @@ public class LinkServer
 	public Action<string>? OnUserMessage;
 	public Action<string>? OnMessageBack;
 
-	private Dictionary<string, Action<WebSocket>> _websocketsHandlers = new Dictionary<string, Action<WebSocket>>();
+	private Dictionary<string, Action<WebSocket, HTTPRequest>> _websocketsHandlers = new Dictionary<string, Action<WebSocket, HTTPRequest>>();
 	private List<WebSocket> _activeWebsockets = new List<WebSocket>();
+	/// <summary>The longest request id an answer repeats (spec §4).</summary>
+	private const int MaxRequestIdChars = 128;
 	// The v5 sessions each loopback connection carries, so that the events of a session reach the
 	// page that holds it (spec §9.5).
 	private readonly Dictionary<WebSocket, HashSet<string>> _v5Sessions = new Dictionary<WebSocket, HashSet<string>>();
 	private Func<MemoryStream>? _bufferFactory;
 	private BufferPool? _bufferPool;
 	private readonly int _port;
+
+	/// <summary>The largest v5 message the loopback socket takes (spec §11): the largest
+	/// transaction in base64 inside the envelope, with room for the other envelope fields.</summary>
+	public const int MaxV5MessageBytes = (WalletLinkV5.MaxTxBytes + 2) / 3 * 4 + 64 * 1024;
 
 	public DateTime StartTime { get; private set; }
 
@@ -134,65 +140,7 @@ public class LinkServer
 			v5.SessionEnded -= OnV5SessionEnded;
 			v5.SessionEvent += OnV5SessionEvent;
 			v5.SessionEnded += OnV5SessionEnded;
-			this.WebSocket("/phantasma/v5", (socket) =>
-			{
-				var sessions = new HashSet<string>();
-				lock (_v5Sessions)
-				{
-					_v5Sessions[socket] = sessions;
-				}
-				try
-				{
-					while (socket.IsOpen)
-					{
-						var msg = socket.Receive();
-
-						if (msg.CloseStatus == WebSocketCloseStatus.None)
-						{
-							if (msg.Bytes == null)
-							{
-								throw new InvalidOperationException("Received WebSocket message with null payload.");
-							}
-
-							var str = Encoding.UTF8.GetString(msg.Bytes);
-
-							OnUI?.Invoke(() =>
-							{
-								v5.HandleMessage(str, (json) =>
-								{
-									try
-									{
-										socket.Send(json);
-										OnMessageBack?.Invoke(json);
-									}
-									catch (Exception e)
-									{
-										System.Diagnostics.Debug.WriteLine("websocket send failure (v5), while answering phantasma link request: " + str + "\nException: " + e.Message);
-									}
-								}, new LinkRequestContext
-								{
-									Transport = LinkTransportKind.Loopback,
-									// The connection carries every session it connected or used.
-									OnSession = session =>
-									{
-										lock (_v5Sessions)
-										{
-											sessions.Add(session);
-										}
-									},
-								});
-							});
-						}
-					}
-				}
-				finally
-				{
-					lock (_v5Sessions)
-					{
-						_v5Sessions.Remove(socket);
-					}
-				}
-			});
+			MapWebSocket("/phantasma/v5", (socket, request) => ServeV5(v5, socket, request));
 		}
 
 		try
@@ -219,6 +167,149 @@ public class LinkServer
 		var current = listener;
 		listener = null;
 		current?.Close();
+	}
+
+	/// <summary>
+	/// Serves one v5 loopback connection (spec §6.2): assembles each text message from its frames,
+	/// hands it to the dispatcher with the page origin of the connection, and keeps the sessions
+	/// the connection carries for their events. A message above <see cref="MaxV5MessageBytes"/> is
+	/// answered with 5001 when its id can be read from its start; a binary message is dropped, since
+	/// v5 messages are text (spec §4).
+	/// </summary>
+	private void ServeV5(WalletLinkV5 v5, WebSocket socket, HTTPRequest request)
+	{
+		var origin = OriginOf(request);
+		// Names this connection for the dispatcher: a connect of a caller without an origin is
+		// remembered with its connection (spec §18.2).
+		var channel = "loopback " + Guid.NewGuid().ToString("N");
+		var sessions = new HashSet<string>();
+		lock (_v5Sessions)
+		{
+			_v5Sessions[socket] = sessions;
+		}
+		try
+		{
+			var message = new MemoryStream();
+			var binary = false;
+			var tooLarge = false;
+			while (socket.IsOpen)
+			{
+				var frame = socket.Receive();
+				if (frame.CloseStatus != WebSocketCloseStatus.None || frame.Bytes == null)
+				{
+					continue;
+				}
+				if (frame.MessageType == WebSocketMessageType.Binary)
+				{
+					binary = true;
+				}
+				else if (!binary && !tooLarge)
+				{
+					if (message.Length + frame.Count > MaxV5MessageBytes)
+					{
+						tooLarge = true;
+					}
+					else
+					{
+						message.Write(frame.Bytes, 0, frame.Count);
+					}
+				}
+				if (!frame.EndOfMessage)
+				{
+					continue;
+				}
+
+				if (tooLarge)
+				{
+					var id = ReadRequestId(message.GetBuffer(), (int)message.Length);
+					if (id != null)
+					{
+						SendV5(socket, v5.BuildPayloadTooLargeEnvelope(id, WalletLinkV5.MaxTxBytes));
+					}
+				}
+				else if (!binary)
+				{
+					var text = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
+					OnUI?.Invoke(() => v5.HandleMessage(text, json => SendV5(socket, json), new LinkRequestContext
+					{
+						Transport = LinkTransportKind.Loopback,
+						Origin = origin,
+						Channel = channel,
+						// The connection carries every session it connected or used.
+						OnSession = session =>
+						{
+							lock (_v5Sessions)
+							{
+								sessions.Add(session);
+							}
+						},
+					}));
+				}
+				message = new MemoryStream();
+				binary = false;
+				tooLarge = false;
+			}
+		}
+		finally
+		{
+			lock (_v5Sessions)
+			{
+				_v5Sessions.Remove(socket);
+			}
+		}
+	}
+
+	private void SendV5(WebSocket socket, string json)
+	{
+		try
+		{
+			socket.Send(json);
+			OnMessageBack?.Invoke(json);
+		}
+		catch (Exception e)
+		{
+			System.Diagnostics.Debug.WriteLine("websocket send failure (v5): " + e.Message);
+		}
+	}
+
+	/// <summary>Returns the page origin of a loopback connection from its <c>Origin</c> header, as
+	/// scheme, host and port, or null when there is none or it is opaque (<c>null</c>): such a
+	/// caller is unverified, and its prompts say so (spec §6.2).</summary>
+	private static string? OriginOf(HTTPRequest request)
+	{
+		if (!request.headers.TryGetValue("Origin", out var header)
+			|| !Uri.TryCreate(header, UriKind.Absolute, out var uri)
+			|| uri.Host.Length == 0)
+		{
+			return null;
+		}
+		return uri.GetLeftPart(UriPartial.Authority);
+	}
+
+	/// <summary>Returns the id of a request from the start of its text, or null when that start
+	/// holds none or an id longer than 128 characters, which no answer repeats (spec §4). A message
+	/// above the limit is never parsed whole, so the reader stops where the text was cut.</summary>
+	private static JToken? ReadRequestId(byte[] buffer, int length)
+	{
+		try
+		{
+			using var reader = new JsonTextReader(new StreamReader(new MemoryStream(buffer, 0, length), Encoding.UTF8));
+			while (reader.Read())
+			{
+				if (reader.TokenType == JsonToken.PropertyName && reader.Depth == 1 && (string?)reader.Value == "id")
+				{
+					return reader.Read() && reader.TokenType == JsonToken.String
+						&& ((string?)reader.Value)?.Length is > 0 and <= MaxRequestIdChars
+						? new JValue((string)reader.Value!)
+						: null;
+				}
+			}
+		}
+		catch (JsonException)
+		{
+			// The text ends where the message went past the limit.
+		}
+		return null;
 	}
 
 	/// <summary>Delivers an event of a v5 session to the connections that carry the session (spec
@@ -382,11 +473,13 @@ public class LinkServer
 								{
 									for (int i = 1; i < lines.Count; i++)
 									{
-										var temp = lines[i].Split(':');
-										if (temp.Length >= 2)
+										// A value may hold colons, as an origin with a port does: split at the first
+										// one only.
+										var colon = lines[i].IndexOf(':');
+										if (colon > 0)
 										{
-											var key = temp[0];
-											var val = temp[1].TrimStart();
+											var key = lines[i].Substring(0, colon).Trim();
+											var val = lines[i].Substring(colon + 1).Trim();
 
 											request.headers[key] = val;
 
@@ -431,7 +524,7 @@ public class LinkServer
 
 										if (isWebSocket)
 										{
-											Action<WebSocket>? handler = null;
+											Action<WebSocket, HTTPRequest>? handler = null;
 											string? targetProtocol = null;
 
 											var protocolHeader = "Sec-WebSocket-Protocol";
@@ -481,7 +574,9 @@ public class LinkServer
 
 												string? secWebSocketExtensions = null;
 												var keepAliveInterval = 5000;
-												var includeExceptionInCloseResponse = true;
+												// A close frame never carries exception text: it would leak internals, and a
+												// control frame holds 125 bytes at most.
+												var includeExceptionInCloseResponse = false;
 
 												if (_bufferFactory == null)
 												{
@@ -493,7 +588,7 @@ public class LinkServer
 												{
 													_activeWebsockets.Add(webSocket);
 												}
-												handler(webSocket);
+												handler(webSocket, request);
 												lock (_activeWebsockets)
 												{
 													_activeWebsockets.Remove(webSocket);
@@ -565,6 +660,13 @@ public class LinkServer
 	}
 
 	public void WebSocket(string path, Action<WebSocket> handler, params string[] protocols)
+	{
+		MapWebSocket(path, (socket, _) => handler(socket), protocols);
+	}
+
+	/// <summary>Serves <paramref name="path"/> with a handler that also gets the opening request,
+	/// for its headers.</summary>
+	private void MapWebSocket(string path, Action<WebSocket, HTTPRequest> handler, params string[] protocols)
 	{
 		if (protocols == null || protocols.Length == 0)
 		{

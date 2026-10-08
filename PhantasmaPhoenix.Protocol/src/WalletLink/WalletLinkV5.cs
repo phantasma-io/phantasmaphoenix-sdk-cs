@@ -62,10 +62,10 @@ public class WalletLinkV5
 		"pha_signMessage", "pha_signTransaction", "pha_sendTransaction", "pha_invokeScript",
 	};
 
-	/// <summary>Per-transaction byte ceiling = the chain's max transaction size; the guard
-	/// rejects oversized base64 BEFORE decoding or parsing (fast structured 5001 instead of
-	/// an expensive parse failure).</summary>
-	internal const int MaxTxBytes = 32 * 1024 * 1024;
+	/// <summary>The largest serialized transaction a request may carry over loopback and the relay
+	/// (spec §11): the chain's maximum. The guard rejects oversized base64 BEFORE decoding or
+	/// parsing (fast structured 5001 instead of an expensive parse failure).</summary>
+	public const int MaxTxBytes = 32 * 1024 * 1024;
 	internal const long MaxTxBase64Chars = ((long)MaxTxBytes + 2) / 3 * 4;
 
 	/// <summary>The largest transaction this side accepts over a deeplink, in bytes (spec sections
