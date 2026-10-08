@@ -115,6 +115,23 @@ public class WalletLinkV5Tests
 		ops.SentFormat.ShouldBeNull(); // the wallet op was never called
 	}
 
+	// Spec 1.2 has no `pow`: the wallet signs the transaction exactly as the dApp built it. A dApp
+	// that still sends the field gets its transaction signed, because a receiver ignores a field it
+	// does not know (spec §4).
+	[Fact]
+	public void A_pow_param_from_an_older_dApp_is_ignored()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+
+		var response = Send(link,
+			$"{{\"plv\":5,\"id\":\"w1\",\"session\":\"{session}\",\"method\":\"pha_signTransaction\",\"params\":{{\"format\":\"script\",\"tx\":\"AAEC\",\"pow\":{{}}}}}}");
+
+		response["error"].ShouldBeNull();
+		Convert.FromBase64String((string)response["result"]!["signedTx"]!).Length.ShouldBe(4);
+	}
+
 	// Spec §9.7: only "Ed25519" and "ECDSA" are signature kinds, written exactly so; any other value
 	// is a bad param. A missing kind means Ed25519.
 	[Theory]
@@ -513,7 +530,6 @@ public class WalletLinkV5Tests
 	[InlineData("pha_sendTransaction", "{\"format\":7,\"tx\":\"AAEC\"}")]
 	[InlineData("pha_sendTransaction", "{\"format\":\"carbon\",\"tx\":{}}")]
 	[InlineData("pha_sendTransaction", "{\"format\":\"carbon\",\"tx\":\"AAEC\",\"signatureKind\":1}")]
-	[InlineData("pha_signTransaction", "{\"format\":\"script\",\"tx\":\"AAEC\",\"pow\":{}}")]
 	[InlineData("pha_signMessage", "{\"message\":{}}")]
 	[InlineData("pha_signMessage", "{\"message\":\"AAEC\",\"display\":[]}")]
 	[InlineData("pha_invokeScript", "{\"chain\":{},\"script\":\"AA==\"}")]

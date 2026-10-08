@@ -425,12 +425,11 @@ public class WalletLinkV5
 	}
 
 	/// <summary>Shared parsing for the two transaction methods: format + size-guarded base64
-	/// tx + signature kind + pow. Returns false after responding with the structured error.</summary>
-	private bool TryParseTxParams(JToken? id, JObject prms, Action<string> respond, out byte[] txBytes, out LinkTxFormat format, out SignatureKind kind, out ProofOfWork pow)
+	/// tx + signature kind. Returns false after responding with the structured error.</summary>
+	private bool TryParseTxParams(JToken? id, JObject prms, Action<string> respond, out byte[] txBytes, out LinkTxFormat format, out SignatureKind kind)
 	{
 		txBytes = Array.Empty<byte>();
 		kind = SignatureKind.Ed25519;
-		pow = ProofOfWork.None;
 		format = LinkTxFormat.Carbon;
 
 		if (!TryReadText(prms, "format", out var formatText))
@@ -492,23 +491,17 @@ public class WalletLinkV5
 			respond(BuildError(id, ErrUnsupportedSignatureKind, "A Carbon transaction is signed with the Ed25519 key only"));
 			return false;
 		}
-		if (!TryReadText(prms, "pow", out var powText))
-		{
-			respond(BuildError(id, ErrInvalidParams, "params.pow must be a string"));
-			return false;
-		}
-		pow = ParseProofOfWork(powText);
 		return true;
 	}
 
 	private void HandleSendTransaction(JToken? id, JObject prms, Action<string> respond)
 	{
-		if (!TryParseTxParams(id, prms, respond, out var txBytes, out var format, out var kind, out var pow))
+		if (!TryParseTxParams(id, prms, respond, out var txBytes, out var format, out var kind))
 		{
 			return;
 		}
 
-		_ops.SendTransaction(txBytes, format, kind, pow, result =>
+		_ops.SendTransaction(txBytes, format, kind, result =>
 		{
 			if (result.Failure != LinkFailure.None || result.Hash == Hash.Null)
 			{
@@ -521,12 +514,12 @@ public class WalletLinkV5
 
 	private void HandleSignTransaction(JToken? id, JObject prms, Action<string> respond)
 	{
-		if (!TryParseTxParams(id, prms, respond, out var txBytes, out var format, out var kind, out var pow))
+		if (!TryParseTxParams(id, prms, respond, out var txBytes, out var format, out var kind))
 		{
 			return;
 		}
 
-		_ops.SignTransaction(txBytes, format, kind, pow, result =>
+		_ops.SignTransaction(txBytes, format, kind, result =>
 		{
 			if (result.Failure != LinkFailure.None || result.SignedTx == null)
 			{
@@ -705,15 +698,6 @@ public class WalletLinkV5
 				kind = SignatureKind.None;
 				return false;
 		}
-	}
-
-	private static ProofOfWork ParseProofOfWork(string? value)
-	{
-		if (!string.IsNullOrEmpty(value) && Enum.TryParse<ProofOfWork>(value, true, out var pow))
-		{
-			return pow;
-		}
-		return ProofOfWork.None;
 	}
 
 	/// <summary>Returns the text of a JSON string, or null for a missing value or any other JSON

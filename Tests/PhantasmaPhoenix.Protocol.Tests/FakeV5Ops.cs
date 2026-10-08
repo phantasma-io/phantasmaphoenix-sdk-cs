@@ -75,7 +75,7 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	public void GetWalletInfo(Action<LinkWalletInfo> done) =>
 		done(new LinkWalletInfo { Name = "FakeWallet", Version = "9.9.9", Rpc = "http://localhost:7077/rpc" });
 
-	public void SendTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, ProofOfWork pow, Action<LinkSendResult> done)
+	public void SendTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSendResult> done)
 	{
 		SentFormat = format;
 		SentTx = serializedTx;
@@ -115,7 +115,7 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 		done(LinkSignMessageResult.Ok(signature, random));
 	}
 
-	public void SignTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, ProofOfWork pow, Action<LinkSignTransactionResult> done)
+	public void SignTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSignTransactionResult> done)
 	{
 		SignTxFormat = format;
 		SignTxKind = kind;

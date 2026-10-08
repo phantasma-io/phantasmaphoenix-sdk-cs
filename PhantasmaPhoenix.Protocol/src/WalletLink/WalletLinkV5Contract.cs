@@ -179,8 +179,9 @@ public interface IWalletLinkV5Ops
 	/// <summary>Return wallet identity + node info (no prompt).</summary>
 	void GetWalletInfo(Action<LinkWalletInfo> done);
 
-	/// <summary>Sign and broadcast a serialized transaction; prompts the user for consent.</summary>
-	void SendTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, ProofOfWork pow, Action<LinkSendResult> done);
+	/// <summary>Sign and broadcast a serialized transaction; prompts the user for consent. The
+	/// wallet signs the transaction exactly as the dApp built it (spec §9.5).</summary>
+	void SendTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSendResult> done);
 
 	/// <summary>Sign EXACTLY the spec §8 payload built from <paramref name="message"/> (the op
 	/// itself runs <see cref="LinkSignMessage.BuildPayload"/> with a fresh CSPRNG random);
@@ -188,8 +189,9 @@ public interface IWalletLinkV5Ops
 	void SignMessage(byte[] message, string? display, Action<LinkSignMessageResult> done);
 
 	/// <summary>Sign a serialized transaction WITHOUT broadcasting; prompts the user for
-	/// consent with a human-readable description.</summary>
-	void SignTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, ProofOfWork pow, Action<LinkSignTransactionResult> done);
+	/// consent with a human-readable description. The wallet signs the transaction exactly as the
+	/// dApp built it (spec §9.5).</summary>
+	void SignTransaction(byte[] serializedTx, LinkTxFormat format, SignatureKind kind, Action<LinkSignTransactionResult> done);
 
 	/// <summary>
 	/// Ask the user to approve a deeplink/relay pairing (spec §15): "pair with dApp X?".
