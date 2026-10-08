@@ -104,11 +104,78 @@ public class WalletLinkV5Tests
 			$"{{\"plv\":5,\"id\":\"e2\",\"session\":\"{session}\",\"method\":\"pha_sendTransaction\",\"params\":{{\"format\":\"carbon\",\"tx\":\"!!!\"}}}}");
 		((int)garbage["error"]!["code"]!).ShouldBe(-32602);
 
+		// Spec §9.4: a format the wallet does not support gets 5004, a missing one -32602.
 		var badFormat = Send(link,
 			$"{{\"plv\":5,\"id\":\"e3\",\"session\":\"{session}\",\"method\":\"pha_sendTransaction\",\"params\":{{\"format\":\"bogus\",\"tx\":\"AA==\"}}}}");
-		((int)badFormat["error"]!["code"]!).ShouldBe(-32602);
+		((int)badFormat["error"]!["code"]!).ShouldBe(5004);
+		var noFormat = Send(link,
+			$"{{\"plv\":5,\"id\":\"e4\",\"session\":\"{session}\",\"method\":\"pha_sendTransaction\",\"params\":{{\"tx\":\"AA==\"}}}}");
+		((int)noFormat["error"]!["code"]!).ShouldBe(-32602);
 
 		ops.SentFormat.ShouldBeNull(); // the wallet op was never called
+	}
+
+	// Spec §9.7: only "Ed25519" and "ECDSA" are signature kinds, written exactly so; any other value
+	// is a bad param. A missing kind means Ed25519.
+	[Theory]
+	[InlineData("pha_sendTransaction", "\"ecdsa\"")]
+	[InlineData("pha_sendTransaction", "\"None\"")]
+	[InlineData("pha_signTransaction", "\"1\"")]
+	[InlineData("pha_signTransaction", "\"\"")]
+	public void An_unknown_signature_kind_gets_invalid_params(string method, string kind)
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+
+		var response = Send(link,
+			$"{{\"plv\":5,\"id\":\"k1\",\"session\":\"{session}\",\"method\":\"{method}\",\"params\":{{\"format\":\"script\",\"tx\":\"AAEC\",\"signatureKind\":{kind}}}}}");
+
+		((int)response["error"]!["code"]!).ShouldBe(-32602);
+		ops.SentFormat.ShouldBeNull();
+		ops.SignTxFormat.ShouldBeNull();
+	}
+
+	// Spec §9.5: Carbon witnesses are Ed25519 only, so ECDSA with the carbon format gets 5003 before
+	// the wallet is asked; with the script format the kind reaches the wallet.
+	[Fact]
+	public void ECDSA_is_refused_for_a_carbon_transaction_and_passed_on_for_a_script_one()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+
+		var carbon = Send(link,
+			$"{{\"plv\":5,\"id\":\"k2\",\"session\":\"{session}\",\"method\":\"pha_signTransaction\",\"params\":{{\"format\":\"carbon\",\"tx\":\"AAEC\",\"signatureKind\":\"ECDSA\"}}}}");
+		((int)carbon["error"]!["code"]!).ShouldBe(5003);
+		ops.SignTxFormat.ShouldBeNull();
+
+		var script = Send(link,
+			$"{{\"plv\":5,\"id\":\"k3\",\"session\":\"{session}\",\"method\":\"pha_signTransaction\",\"params\":{{\"format\":\"script\",\"tx\":\"AAEC\",\"signatureKind\":\"ECDSA\"}}}}");
+		script["error"].ShouldBeNull();
+		ops.SignTxKind.ShouldBe(SignatureKind.ECDSA);
+	}
+
+	// Spec §9.5: a wallet signs messages with the Ed25519 key only. "ECDSA" gets 5003, any other
+	// value -32602, and "Ed25519" is accepted.
+	[Theory]
+	[InlineData("\"ECDSA\"", 5003)]
+	[InlineData("\"RSA\"", -32602)]
+	[InlineData("\"ed25519\"", -32602)]
+	public void A_message_is_signed_with_the_Ed25519_key_only(string kind, int code)
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+
+		var refused = Send(link,
+			$"{{\"plv\":5,\"id\":\"s1\",\"session\":\"{session}\",\"method\":\"pha_signMessage\",\"params\":{{\"message\":\"AA==\",\"signatureKind\":{kind}}}}}");
+		((int)refused["error"]!["code"]!).ShouldBe(code);
+		ops.SignedMessage.ShouldBeNull();
+
+		var accepted = Send(link,
+			$"{{\"plv\":5,\"id\":\"s2\",\"session\":\"{session}\",\"method\":\"pha_signMessage\",\"params\":{{\"message\":\"AA==\",\"signatureKind\":\"Ed25519\"}}}}");
+		accepted["error"].ShouldBeNull();
 	}
 
 	[Fact]

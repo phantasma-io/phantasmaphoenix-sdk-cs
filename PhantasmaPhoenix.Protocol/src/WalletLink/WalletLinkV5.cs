@@ -37,6 +37,7 @@ public class WalletLinkV5
 	private const int ErrPayloadTooLarge = 5001;
 	private const int ErrNexusMismatch = 5002;
 	private const int ErrUnsupportedSignatureKind = 5003;
+	private const int ErrCapabilityNotSupported = 5004;
 
 	/// <summary>The methods this dispatcher serves (spec §9.2), in the order the capabilities list
 	/// them (spec §5).</summary>
@@ -441,8 +442,12 @@ public class WalletLinkV5
 		{
 			case "script": format = LinkTxFormat.Script; break;
 			case "carbon": format = LinkTxFormat.Carbon; break;
+			case null:
+				respond(BuildError(id, ErrInvalidParams, "params.format is required"));
+				return false;
 			default:
-				respond(BuildError(id, ErrInvalidParams, "params.format must be \"script\" or \"carbon\""));
+				// Spec §9.4: a format that the wallet does not support gets 5004.
+				respond(BuildError(id, ErrCapabilityNotSupported, $"Unsupported transaction format: {formatText}"));
 				return false;
 		}
 
@@ -476,12 +481,22 @@ public class WalletLinkV5
 			return false;
 		}
 
-		if (!TryReadText(prms, "signatureKind", out var kindText) || !TryReadText(prms, "pow", out var powText))
+		if (!TryReadText(prms, "signatureKind", out var kindText) || !TryParseSignatureKind(kindText, out kind))
 		{
-			respond(BuildError(id, ErrInvalidParams, "params.signatureKind and params.pow must be strings"));
+			respond(BuildError(id, ErrInvalidParams, "params.signatureKind must be \"Ed25519\" or \"ECDSA\""));
 			return false;
 		}
-		kind = ParseSignatureKind(kindText);
+		// Spec §9.5: Carbon witnesses are Ed25519 only.
+		if (format == LinkTxFormat.Carbon && kind != SignatureKind.Ed25519)
+		{
+			respond(BuildError(id, ErrUnsupportedSignatureKind, "A Carbon transaction is signed with the Ed25519 key only"));
+			return false;
+		}
+		if (!TryReadText(prms, "pow", out var powText))
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.pow must be a string"));
+			return false;
+		}
 		pow = ParseProofOfWork(powText);
 		return true;
 	}
@@ -527,6 +542,18 @@ public class WalletLinkV5
 		if (!TryReadText(prms, "message", out var messageValue) || !TryReadText(prms, "display", out var display))
 		{
 			respond(BuildError(id, ErrInvalidParams, "params.message and params.display must be strings"));
+			return;
+		}
+		// Spec §9.5: the wallet signs messages with the account's Ed25519 key only, and an unknown
+		// kind is a bad param, as on every method (§9.7).
+		if (!TryReadText(prms, "signatureKind", out var kindText) || !TryParseSignatureKind(kindText, out var kind))
+		{
+			respond(BuildError(id, ErrInvalidParams, "params.signatureKind must be \"Ed25519\" or \"ECDSA\""));
+			return;
+		}
+		if (kind != SignatureKind.Ed25519)
+		{
+			respond(BuildError(id, ErrUnsupportedSignatureKind, "Messages are signed with the Ed25519 key only"));
 			return;
 		}
 		var messageText = messageValue ?? "";
@@ -661,13 +688,23 @@ public class WalletLinkV5
 		};
 	}
 
-	private static SignatureKind ParseSignatureKind(string? value)
+	/// <summary>Reads a <c>signatureKind</c> param (spec §9.7): a missing one means Ed25519, and only
+	/// the exact names "Ed25519" and "ECDSA" are kinds. Returns false for any other value.</summary>
+	private static bool TryParseSignatureKind(string? value, out SignatureKind kind)
 	{
-		if (!string.IsNullOrEmpty(value) && Enum.TryParse<SignatureKind>(value, true, out var kind))
+		switch (value)
 		{
-			return kind;
+			case null:
+			case "Ed25519":
+				kind = SignatureKind.Ed25519;
+				return true;
+			case "ECDSA":
+				kind = SignatureKind.ECDSA;
+				return true;
+			default:
+				kind = SignatureKind.None;
+				return false;
 		}
-		return SignatureKind.Ed25519;
 	}
 
 	private static ProofOfWork ParseProofOfWork(string? value)
