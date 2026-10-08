@@ -1,3 +1,4 @@
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using PhantasmaPhoenix.Cryptography;
 using Shouldly;
@@ -15,10 +16,15 @@ public class WalletLinkV5Tests
 		return response!;
 	}
 
-	private static string Connect(WalletLinkV5 link, out JObject connectResponse)
+	private static int _connects;
+
+	/// <summary>Connects a new session. Each connect has its own request id: the wallet drops a copy
+	/// of a connect it saw on the channel (spec §18.2).</summary>
+	private static string Connect(WalletLinkV5 link, out JObject connectResponse, string? id = null)
 	{
+		id ??= "c" + System.Threading.Interlocked.Increment(ref _connects);
 		connectResponse = Send(link,
-			"{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}");
+			$"{{\"plv\":5,\"id\":\"{id}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}}}}");
 		return (string)connectResponse["result"]!["session"]!["id"]!;
 	}
 
@@ -28,7 +34,7 @@ public class WalletLinkV5Tests
 		var ops = new FakeV5Ops();
 		var link = new WalletLinkV5(ops);
 
-		var session = Connect(link, out var response);
+		var session = Connect(link, out var response, "c1");
 
 		((int)response["plv"]!).ShouldBe(5);
 		((string)response["id"]!).ShouldBe("c1");
@@ -936,6 +942,23 @@ public class WalletLinkV5Tests
 		link.IsSessionLive(session).ShouldBeTrue();
 	}
 
+	// Spec §18.2: the connect that made a session of a pairing joins the ids of that session, so a
+	// copy of it that the relay hands over again resumes nothing and gets no second answer.
+	[Fact]
+	public void A_copy_of_the_first_connect_of_a_pairing_gets_no_second_answer()
+	{
+		var link = new WalletLinkV5(new FakeV5Ops());
+		var connect = "{\"plv\":5,\"id\":\"c-first\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}";
+		var answers = new List<string>();
+		link.HandleMessage(connect, answers.Add, new LinkRequestContext { Transport = LinkTransportKind.Relay, Channel = "pairing p" });
+		var session = (string)JObject.Parse(answers.Single())["result"]!["session"]!["id"]!;
+
+		link.HandleMessage(connect, answers.Add,
+			new LinkRequestContext { Transport = LinkTransportKind.Relay, PairingSession = session, Channel = "pairing p" });
+
+		answers.Count.ShouldBe(1);
+	}
+
 	[Fact]
 	public void A_resume_over_loopback_of_an_expired_session_runs_the_approval_again()
 	{
@@ -970,6 +993,200 @@ public class WalletLinkV5Tests
 		ended.ShouldBe(new[] { (oldest, LinkSessionEndReason.Evicted) });
 		link.IsSessionLive(second).ShouldBeTrue();
 		link.IsSessionLive(third).ShouldBeTrue();
+	}
+
+	/// <summary>A session store that keeps each record as JSON, as the durable store of a wallet
+	/// does: what the dispatcher keeps with a session must survive a write and a read.</summary>
+	private sealed class JsonSessionStore : ILinkSessionStore
+	{
+		private readonly Dictionary<string, string> _json = new Dictionary<string, string>();
+
+		public LinkSessionRecord? Get(string id) =>
+			_json.TryGetValue(id, out var json) ? JsonConvert.DeserializeObject<LinkSessionRecord>(json) : null;
+		public void Save(LinkSessionRecord record) => _json[record.Id] = JsonConvert.SerializeObject(record);
+		public void Remove(string id) => _json.Remove(id);
+		public LinkSessionRecord[] List() =>
+			_json.Values.Select(json => JsonConvert.DeserializeObject<LinkSessionRecord>(json)!).ToArray();
+	}
+
+	private static string InvokeRequest(string session, string id) =>
+		$"{{\"plv\":5,\"id\":\"{id}\",\"session\":\"{session}\",\"method\":\"pha_invokeScript\",\"params\":{{\"chain\":\"main\",\"script\":\"AA==\"}}}}";
+
+	// Spec §18.2: the wallet handles each request id of a session once. A copy gets no answer,
+	// because the first copy gets it.
+	[Fact]
+	public void A_copy_of_a_request_in_a_session_is_dropped_without_an_answer()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+		var answers = new List<string>();
+
+		link.HandleMessage(InvokeRequest(session, "q1"), answers.Add);
+		link.HandleMessage(InvokeRequest(session, "q1"), answers.Add);
+
+		answers.Count.ShouldBe(1);
+		ops.InvokeCalls.ShouldBe(1);
+	}
+
+	[Fact]
+	public void A_request_id_is_kept_for_10_minutes()
+	{
+		var sessions = new InMemoryLinkSessionStore();
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops, sessions);
+		var session = Connect(link, out _);
+		Send(link, InvokeRequest(session, "q1"));
+		// The connect that made the session is among its ids too (spec §18.2).
+		var seen = sessions.Get(session)!.SeenRequests.Single(request => request.Id == "q1");
+		seen.UntilUtc.ShouldBeGreaterThan(DateTime.UtcNow.AddMinutes(9));
+
+		seen.UntilUtc = DateTime.UtcNow.AddSeconds(-1);
+		var again = Send(link, InvokeRequest(session, "q1"));
+
+		again["result"].ShouldNotBeNull();
+		ops.InvokeCalls.ShouldBe(2);
+	}
+
+	[Fact]
+	public void The_id_memory_and_the_session_survive_a_restart_of_the_wallet()
+	{
+		// Spec §18.2: the relay hands the messages it holds to the first subscription after a
+		// restart, so the ids are stored with the session.
+		var store = new JsonSessionStore();
+		var ops = new FakeV5Ops { ConnectLifetime = LinkSessionLifetime.OneDay };
+		var session = Connect(new WalletLinkV5(ops, store), out _);
+		Send(new WalletLinkV5(ops, store), InvokeRequest(session, "q1"));
+
+		var answers = 0;
+		new WalletLinkV5(ops, store).HandleMessage(InvokeRequest(session, "q1"), _ => answers++);
+
+		answers.ShouldBe(0);
+		ops.InvokeCalls.ShouldBe(1);
+		var record = store.Get(session)!;
+		record.Lifetime.ShouldBe(LinkSessionLifetime.OneDay);
+		record.ExpiresUtc.ShouldNotBeNull();
+		record.Chains.ShouldBe(new[] { "phantasma:localnet" });
+	}
+
+	[Fact]
+	public void A_session_that_holds_the_most_ids_gets_its_new_requests_refused()
+	{
+		// Spec §18.2: a wallet never forgets an id early because it holds many.
+		var sessions = new InMemoryLinkSessionStore();
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops, sessions);
+		var session = Connect(link, out _);
+		var record = sessions.Get(session)!;
+		for (var i = 0; i < 1024; i++)
+		{
+			record.SeenRequests.Add(new LinkSeenRequest { Id = "old" + i, UntilUtc = DateTime.UtcNow.AddMinutes(5) });
+		}
+
+		var response = Send(link, InvokeRequest(session, "new1"));
+
+		((int)response["error"]!["code"]!).ShouldBe(-32603);
+		ops.InvokeCalls.ShouldBe(0);
+		var answers = 0;
+		link.HandleMessage(InvokeRequest(session, "old0"), _ => answers++);
+		answers.ShouldBe(0);
+	}
+
+	[Fact]
+	public void A_copy_of_a_resume_is_dropped()
+	{
+		var link = new WalletLinkV5(new FakeV5Ops());
+		var session = Connect(link, out _);
+		var resume = $"{{\"plv\":5,\"id\":\"r9\",\"session\":\"{session}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}}}}";
+		var answers = new List<string>();
+
+		link.HandleMessage(resume, answers.Add);
+		link.HandleMessage(resume, answers.Add);
+
+		answers.Count.ShouldBe(1);
+	}
+
+	[Fact]
+	public void A_copy_of_a_connect_that_waits_for_the_user_is_dropped()
+	{
+		// A connect without a session has no id memory yet. A relay re-send of it must not open a
+		// second prompt and a second session.
+		var ops = new FakeV5Ops { DeferConnect = true };
+		var link = new WalletLinkV5(ops);
+		var connect = "{\"plv\":5,\"id\":\"c7\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}";
+		var answers = new List<string>();
+
+		link.HandleMessage(connect, answers.Add);
+		link.HandleMessage(connect, answers.Add);
+		ops.ConnectCalls.ShouldBe(1);
+		ops.PendingConnects.Single()(LinkConnectResult.Ok(new LinkAccount { Address = "P2KTest" }, "FakeWallet", "9.9.9", "localnet"));
+
+		answers.Count.ShouldBe(1);
+	}
+
+	// A wallet operation that throws on a connect still gets the dApp an answer, -32603, also when
+	// the dispatcher reached it from a later callback of the wallet, where no caller would catch it.
+	// A callback that comes after the throw stores no session.
+	[Fact]
+	public void A_connect_whose_wallet_operation_throws_gets_an_internal_error()
+	{
+		foreach (var deferChains in new[] { false, true })
+		{
+			var ops = new FakeV5Ops { ThrowOnConnect = true, DeferChains = deferChains };
+			var sessions = new InMemoryLinkSessionStore();
+			var link = new WalletLinkV5(ops, sessions);
+			var answers = new List<string>();
+
+			link.HandleMessage("{\"plv\":5,\"id\":\"c9\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}", answers.Add);
+			if (deferChains)
+			{
+				ops.PendingChains.Single()();
+			}
+
+			answers.Count.ShouldBe(1);
+			((int)JObject.Parse(answers[0])["error"]!["code"]!).ShouldBe(-32603);
+			ops.PendingConnects.Single()(LinkConnectResult.Ok(new LinkAccount { Address = "P2KTest" }, "FakeWallet", "9.9.9", "localnet"));
+			answers.Count.ShouldBe(1);
+			sessions.List().ShouldBeEmpty();
+		}
+	}
+
+	// Spec §18.2: the channel keeps the id of a connect after the answer too. A relay re-send of a
+	// connect the user rejected prompts no second time; the same id on another channel is another
+	// request.
+	[Fact]
+	public void A_copy_of_an_answered_connect_is_dropped_on_its_channel()
+	{
+		var ops = new FakeV5Ops { RejectConnect = true };
+		var link = new WalletLinkV5(ops);
+		var connect = "{\"plv\":5,\"id\":\"c8\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}";
+		var pairing = new LinkRequestContext { Transport = LinkTransportKind.Relay, Channel = "pairing a" };
+		var answers = new List<string>();
+
+		link.HandleMessage(connect, answers.Add, pairing);
+		link.HandleMessage(connect, answers.Add, new LinkRequestContext { Transport = LinkTransportKind.Relay, Channel = "pairing a" });
+		answers.Count.ShouldBe(1);
+		((int)JObject.Parse(answers[0])["error"]!["code"]!).ShouldBe(4001);
+		ops.ConnectCalls.ShouldBe(1);
+
+		link.HandleMessage(connect, answers.Add, new LinkRequestContext { Transport = LinkTransportKind.Relay, Channel = "pairing b" });
+		answers.Count.ShouldBe(2);
+		ops.ConnectCalls.ShouldBe(2);
+	}
+
+	// Spec §4: an id holds at most 128 characters. A longer one is refused, and the answer does not
+	// repeat it.
+	[Fact]
+	public void A_request_id_longer_than_128_characters_gets_invalid_request()
+	{
+		var link = new WalletLinkV5(new FakeV5Ops());
+		var longest = new string('i', 128);
+
+		var kept = Send(link, $"{{\"plv\":5,\"id\":\"{longest}\",\"method\":\"pha_getChains\"}}");
+		((string)kept["id"]!).ShouldBe(longest);
+		var refused = Send(link, $"{{\"plv\":5,\"id\":\"{longest}i\",\"method\":\"pha_getChains\"}}");
+		((int)refused["error"]!["code"]!).ShouldBe(-32600);
+		refused["id"]!.Type.ShouldBe(JTokenType.Null);
 	}
 
 	[Fact]

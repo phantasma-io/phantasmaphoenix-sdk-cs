@@ -48,11 +48,15 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 		},
 	};
 
+	/// <summary>Connect keeps its callback and throws, as faulty wallet code would.</summary>
+	public bool ThrowOnConnect;
+
 	public void Connect(LinkCaller caller, Action<LinkConnectResult> done)
 	{
 		ConnectCalls++;
 		LastConnectDapp = caller.DappName;
 		LastCaller = caller;
+		if (ThrowOnConnect) { PendingConnects.Add(done); throw new InvalidOperationException("wallet failure"); }
 		if (DeferConnect) { PendingConnects.Add(done); return; }
 		if (RejectConnect) { done(LinkConnectResult.Fail(LinkFailure.UserRejected, "rejected")); return; }
 		if (FailConnect != LinkFailure.None) { done(LinkConnectResult.Fail(FailConnect, FailConnectMessage)); return; }
@@ -70,9 +74,15 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	/// <summary>GetChains calls its callback twice, as faulty wallet code would.</summary>
 	public bool AnswerTwice;
 
+	/// <summary>GetChains keeps its callback for the test to run later, as a wallet that asks its
+	/// node would.</summary>
+	public bool DeferChains;
+	public readonly List<Action> PendingChains = new List<Action>();
+
 	public void GetChains(Action<LinkChains> done)
 	{
 		if (ThrowOnGetChains) { throw new InvalidOperationException("wallet failure"); }
+		if (DeferChains) { PendingChains.Add(() => done(new LinkChains { Nexus = "localnet" })); return; }
 		done(new LinkChains { Nexus = "localnet" });
 		if (AnswerTwice) { done(new LinkChains { Nexus = "localnet" }); }
 	}

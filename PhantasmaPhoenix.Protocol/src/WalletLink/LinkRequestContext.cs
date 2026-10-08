@@ -29,6 +29,12 @@ public sealed class LinkRequestContext
 	/// null before its first session. A <c>pha_connect</c> without a session resumes it (spec §9.5).</summary>
 	public string? PairingSession { get; set; }
 
+	/// <summary>Names the channel the request came on, unique within the wallet: a pairing, or a
+	/// loopback connection. A <c>pha_connect</c> that prompts has no session yet, so the wallet
+	/// remembers its id with the channel and drops a copy (spec §18.2); over loopback the page origin
+	/// names the channel when there is one.</summary>
+	public string? Channel { get; set; }
+
 	/// <summary>Called with the id of the session that the dispatcher accepted a request of, or
 	/// created for it. A transport keeps it as the session its channel carries, to deliver that
 	/// session's events and to end the channel with the session.</summary>

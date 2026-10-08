@@ -650,6 +650,21 @@ public class LinkRelayClientTests
 	}
 
 	[Fact]
+	public void A_replayed_frame_gets_no_second_answer()
+	{
+		// Spec §18.2: a replayed frame repeats its request id, so the id memory stops it.
+		var paired = PairOverRelay("replay");
+		var request = $"{{\"plv\":5,\"id\":\"p1\",\"session\":\"{paired.SessionId}\",\"method\":\"pha_getChains\"}}";
+		var deliver = new JObject { ["op"] = "deliver", ["topic"] = paired.Topic + ".dapp", ["payload"] = paired.Channel.SealEnvelope(request) }.ToString();
+		var before = paired.Socket.Sent.Count;
+
+		paired.Socket.Deliver(deliver);
+		paired.Socket.Deliver(deliver);
+
+		paired.Published(paired.Socket.SentFrames().Skip(before)).Length.ShouldBe(1);
+	}
+
+	[Fact]
 	public void A_pairing_whose_session_the_wallet_no_longer_keeps_ends_on_reconnect()
 	{
 		// Spec §18.3: a pairing lives as long as its session. A session that went without its

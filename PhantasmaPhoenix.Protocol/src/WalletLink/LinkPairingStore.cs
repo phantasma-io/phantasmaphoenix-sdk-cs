@@ -38,6 +38,7 @@ public sealed class LinkPairingRecord
 			Transport = transport,
 			Origin = DappUrl.Length > 0 ? DappUrl : null,
 			PairingSession = SessionId.Length > 0 ? SessionId : null,
+			Channel = "pairing " + Topic,
 			OnSession = session =>
 			{
 				// A pairing that ended while its request waited for the user stays ended: saving it

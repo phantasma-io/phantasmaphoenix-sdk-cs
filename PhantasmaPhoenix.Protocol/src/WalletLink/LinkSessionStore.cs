@@ -68,6 +68,16 @@ public sealed class LinkSessionRecord
 	public DateTime CreatedUtc { get; set; }
 	/// <summary>The last request in the session; the inactivity limit counts from it (spec §7).</summary>
 	public DateTime LastSeenUtc { get; set; }
+	/// <summary>The request ids the session handled within the replay window (spec §18.2). They are
+	/// stored with the session, so that a copy of a request is dropped after a restart too.</summary>
+	public List<LinkSeenRequest> SeenRequests { get; set; } = new List<LinkSeenRequest>();
+}
+
+/// <summary>A request id that a session handled, and until when the wallet keeps it (spec §18.2).</summary>
+public sealed class LinkSeenRequest
+{
+	public string Id { get; set; } = "";
+	public DateTime UntilUtc { get; set; }
 }
 
 /// <summary>

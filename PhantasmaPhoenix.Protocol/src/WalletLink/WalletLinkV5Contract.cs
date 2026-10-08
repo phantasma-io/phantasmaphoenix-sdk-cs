@@ -186,7 +186,9 @@ public interface IWalletLinkV5Ops
 	/// Run the connect handshake for <paramref name="caller"/>: prompt the user for consent, showing
 	/// the dApp and its origin, then gather account + wallet version + nexus. The v5 session id is
 	/// owned and issued by the dispatcher (<see cref="WalletLinkV5"/>); this op only grants consent
-	/// and returns account data, and must never touch a legacy per-dapp token ledger.
+	/// and returns account data, and must never touch a legacy per-dapp token ledger. Call
+	/// <paramref name="done"/> once on every outcome, a failure included: until then the dispatcher
+	/// holds the id of the request, and a copy of the request gets no answer (spec §18.2).
 	/// </summary>
 	void Connect(LinkCaller caller, Action<LinkConnectResult> done);
 

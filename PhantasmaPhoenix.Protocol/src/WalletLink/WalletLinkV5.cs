@@ -65,12 +65,29 @@ public class WalletLinkV5
 	/// 8192-character URL budget. A larger request goes through the relay.</summary>
 	private const int DeeplinkMaxPayloadBytes = 3072;
 
+	/// <summary>How long the wallet keeps the id of a request in a session (spec §18.2): at least
+	/// 10 minutes.</summary>
+	private static readonly TimeSpan ReplayWindow = TimeSpan.FromMinutes(10);
+
+	/// <summary>The most request ids a session keeps at once. A session that sends more within the
+	/// replay window gets its new requests refused, because an id is never forgotten early
+	/// (spec §18.2).</summary>
+	private const int MaxSeenRequests = 1024;
+
+	/// <summary>The longest request id (spec §4). The wallet keeps the ids it saw, so an id of any
+	/// length would let a dApp fill its memory.</summary>
+	private const int MaxIdChars = 128;
+
 	private readonly IWalletLinkV5Ops _ops;
 	// Authorized sessions (spec §7): persistent when the host provides a durable store, so a
 	// returning dApp resumes without a new prompt. Plaintext loopback uses the session id as the
 	// bearer; encrypted transports (deeplink/relay) add the channel key on top (later phases).
 	private readonly ILinkSessionStore _sessions;
 	private readonly WalletLinkV5Options _options;
+	// The ids of the connects that prompt the user, by channel, with the end of their replay window
+	// (spec §18.2). Such a connect has no session to keep its id, so its channel keeps it, while the
+	// prompt is open and after the answer: a copy of it (a relay re-send) prompts no second time.
+	private readonly Dictionary<string, Dictionary<string, DateTime>> _connectIds = new Dictionary<string, Dictionary<string, DateTime>>();
 
 	public WalletLinkV5(IWalletLinkV5Ops ops, ILinkSessionStore? sessions = null, WalletLinkV5Options? options = null)
 	{
@@ -92,10 +109,12 @@ public class WalletLinkV5
 	public TimeSpan SessionIdleTimeout => _options.SessionIdleTimeout;
 
 	/// <summary>
-	/// Handle one incoming envelope string and deliver exactly one response string via
-	/// <paramref name="respond"/>. The wallet host is expected to marshal this onto its UI thread
-	/// (operations prompt the user); responses may arrive asynchronously from those prompts. The
-	/// method never throws: a malformed request gets an error answer (spec §4).
+	/// Handle one incoming envelope string and deliver at most one response string via
+	/// <paramref name="respond"/>: a copy of a request that the session already handled gets
+	/// none, because the first copy gets the answer (spec §18.2). The wallet host is expected to
+	/// marshal this onto its UI thread (operations prompt the user); responses may arrive
+	/// asynchronously from those prompts. The method never throws: a malformed request gets an
+	/// error answer (spec §4).
 	/// <paramref name="context"/> describes the channel; without it the request counts as a
 	/// loopback request of unknown origin.
 	/// </summary>
@@ -169,6 +188,12 @@ public class WalletLinkV5
 		// correlate an answer; any other value is answered with a null id.
 		var idToken = root["id"];
 		var hasId = idToken != null && idToken.Type == JTokenType.String && ((string?)idToken)!.Length > 0;
+		// Spec §4: a longer id is refused, and the answer does not repeat it.
+		if (hasId && ((string?)idToken)!.Length > MaxIdChars)
+		{
+			refusal = BuildError(null, ErrInvalidRequest, $"Request id is longer than {MaxIdChars} characters");
+			return false;
+		}
 		var id = hasId ? idToken! : JValue.CreateNull();
 
 		var plv = root["plv"];
@@ -244,19 +269,16 @@ public class WalletLinkV5
 			return;
 		}
 
-		// Everything else requires a Ready wallet and a live session.
-		if (_ops.Status != WalletStatus.Ready)
-		{
-			respond(BuildError(id, ErrDisconnected, $"Wallet is {_ops.Status}"));
-			return;
-		}
+		// Everything else requires a live session and a Ready wallet. The session comes first, so
+		// that a copy of a request is dropped whatever the state of the wallet.
 		var record = session == null ? null : _sessions.Get(session);
 		if (record == null)
 		{
 			respond(BuildError(id, ErrUnauthorized, "Invalid or missing session"));
 			return;
 		}
-		// Spec §6.2, §7: a session is bound to the origin it was approved from.
+		// Spec §6.2, §7: a session is bound to the origin it was approved from. This comes before
+		// the id memory, so that another origin cannot fill it.
 		if (!OriginMatches(record, context.Origin))
 		{
 			respond(BuildError(id, ErrUnauthorized, "Origin mismatch"));
@@ -271,9 +293,15 @@ public class WalletLinkV5
 			respond(BuildError(id, ErrSessionExpired, "Session expired"));
 			return;
 		}
-		// Every request moves the inactivity end of the session (spec §7).
-		record.LastSeenUtc = now;
-		_sessions.Save(record);
+		if (!Remember(record, id, now, respond))
+		{
+			return;
+		}
+		if (_ops.Status != WalletStatus.Ready)
+		{
+			respond(BuildError(id, ErrDisconnected, $"Wallet is {_ops.Status}"));
+			return;
+		}
 		context.OnSession?.Invoke(record.Id);
 		var caller = CallerOf(record, context);
 
@@ -296,6 +324,42 @@ public class WalletLinkV5
 	private static bool OriginMatches(LinkSessionRecord record, string? origin)
 	{
 		return record.Origin == null || origin == null || record.Origin == origin;
+	}
+
+	/// <summary>
+	/// Spec §18.2: the wallet handles each request id of a session once. Returns false when the
+	/// request goes no further: a copy of a handled request is dropped without an answer, because
+	/// the first copy gets it, and a session that holds the most ids the wallet keeps gets -32603.
+	/// Otherwise the id is kept for the replay window with the session, so that the memory survives
+	/// a restart, and the request moves the inactivity end of the session (spec §7).
+	/// </summary>
+	private bool Remember(LinkSessionRecord record, JToken id, DateTime now, Action<string> respond)
+	{
+		var requestId = (string)id!;
+		record.SeenRequests ??= new List<LinkSeenRequest>();
+		var pruned = record.SeenRequests.RemoveAll(seen => AsUtc(seen.UntilUtc) <= now) > 0;
+		if (record.SeenRequests.Any(seen => seen.Id == requestId))
+		{
+			if (pruned)
+			{
+				_sessions.Save(record);
+			}
+			return false;
+		}
+		// An id is never forgotten early: a copy of its request would then be handled again.
+		if (record.SeenRequests.Count >= MaxSeenRequests)
+		{
+			if (pruned)
+			{
+				_sessions.Save(record);
+			}
+			respond(BuildError(id, ErrInternal, "Too many requests in the session"));
+			return false;
+		}
+		record.SeenRequests.Add(new LinkSeenRequest { Id = requestId, UntilUtc = now + ReplayWindow });
+		record.LastSeenUtc = now;
+		_sessions.Save(record);
+		return true;
 	}
 
 	/// <summary>Returns the caller of a request in the session <paramref name="record"/>: the
@@ -453,6 +517,10 @@ public class WalletLinkV5
 			}
 			if (record != null && record.Dapp == caller.DappName && OriginMatches(record, context.Origin))
 			{
+				if (!Remember(record, id!, DateTime.UtcNow, respond))
+				{
+					return;
+				}
 				if (_ops.Status == WalletStatus.Ready)
 				{
 					Action connectAgain = paired
@@ -569,24 +637,130 @@ public class WalletLinkV5
 	/// lifetime the user picked.</summary>
 	private void PromptConnect(JToken? id, LinkCaller caller, string[] grantedChains, string[] grantedMethods, LinkRequestContext context, Action<string> respond)
 	{
-		_ops.Connect(caller, result =>
+		// A copy of a connect is dropped, while its prompt is open and after the answer: the first
+		// copy gets the answer (spec §18.2).
+		if (!RememberConnect(id, context, DateTime.UtcNow, respond))
 		{
-			if (result.Failure != LinkFailure.None || result.Account == null)
+			return;
+		}
+		// A wallet callback that fires twice must not store a second session.
+		var finished = 0;
+		try
+		{
+			_ops.Connect(caller, result =>
 			{
-				respond(BuildError(id, MapFailure(result.Failure), result.Message ?? "Connect failed"));
-				return;
+				if (System.Threading.Interlocked.Exchange(ref finished, 1) != 0)
+				{
+					return;
+				}
+				FinishConnect(id, caller, grantedChains, grantedMethods, context, respond, result);
+			});
+		}
+		catch (Exception)
+		{
+			// The wallet's operation failed. This may run in a callback of the wallet, where no caller
+			// answers for it: the dApp gets -32603 here, unless the operation answered before it threw,
+			// and a late callback stores nothing. No prompt is open now, so the id keeps the window of
+			// an answer.
+			HoldConnect(id, context);
+			if (System.Threading.Interlocked.Exchange(ref finished, 1) == 0)
+			{
+				respond(BuildError(id, ErrInternal, "Request failed"));
 			}
+		}
+	}
 
-			var record = SaveNewSession(caller, result.Account.Address, grantedChains, grantedMethods, result.Lifetime);
-			context.OnSession?.Invoke(record.Id);
-			respond(BuildResult(id, BuildConnectResponse(record, result.WalletName, result.WalletVersion, result.Nexus, result.Account)));
-		});
+	/// <summary>
+	/// Spec §18.2: a connect that prompts the user has no session yet, so the wallet remembers its id
+	/// with the channel it came on for the replay window: the page origin over loopback, or else the
+	/// channel the transport names (a pairing, or a loopback connection without an origin). Returns
+	/// false when the request goes no further: a copy is dropped without an answer, and a channel
+	/// that holds the most ids the wallet keeps gets -32603.
+	/// </summary>
+	private bool RememberConnect(JToken? id, LinkRequestContext context, DateTime now, Action<string> respond)
+	{
+		var channel = ConnectChannel(context);
+		lock (_connectIds)
+		{
+			foreach (var entry in _connectIds.ToArray())
+			{
+				foreach (var seen in entry.Value.Where(seen => seen.Value <= now).ToArray())
+				{
+					entry.Value.Remove(seen.Key);
+				}
+				if (entry.Value.Count == 0)
+				{
+					_connectIds.Remove(entry.Key);
+				}
+			}
+			if (!_connectIds.TryGetValue(channel, out var ids))
+			{
+				ids = new Dictionary<string, DateTime>();
+				_connectIds[channel] = ids;
+			}
+			var requestId = (string)id!;
+			if (ids.ContainsKey(requestId))
+			{
+				return false;
+			}
+			if (ids.Count >= MaxSeenRequests)
+			{
+				respond(BuildError(id, ErrInternal, "Too many requests on the channel"));
+				return false;
+			}
+			// Held while the prompt is open, however long; HoldConnect starts the window at the
+			// answer.
+			ids[requestId] = DateTime.MaxValue;
+			return true;
+		}
+	}
+
+	/// <summary>The channel whose connect ids a connect without a session joins (spec §18.2): the
+	/// page origin over loopback, or else the channel the transport names.</summary>
+	private static string ConnectChannel(LinkRequestContext context)
+	{
+		return context.Transport == LinkTransportKind.Loopback && context.Origin != null
+			? "origin " + context.Origin
+			: context.Channel ?? "";
+	}
+
+	/// <summary>Keeps the id of an answered connect for the replay window from the answer on, however
+	/// long its prompt was open (spec §18.2).</summary>
+	private void HoldConnect(JToken? id, LinkRequestContext context)
+	{
+		var channel = ConnectChannel(context);
+		lock (_connectIds)
+		{
+			if (!_connectIds.TryGetValue(channel, out var ids))
+			{
+				ids = new Dictionary<string, DateTime>();
+				_connectIds[channel] = ids;
+			}
+			ids[(string)id!] = DateTime.UtcNow + ReplayWindow;
+		}
+	}
+
+	/// <summary>Stores the session of an approved connect and answers it.</summary>
+	private void FinishConnect(JToken? id, LinkCaller caller, string[] grantedChains, string[] grantedMethods, LinkRequestContext context, Action<string> respond, LinkConnectResult result)
+	{
+		HoldConnect(id, context);
+		if (result.Failure != LinkFailure.None || result.Account == null)
+		{
+			respond(BuildError(id, MapFailure(result.Failure), result.Message ?? "Connect failed"));
+			return;
+		}
+
+		// The connect's id joins the ids of its session: over a pairing a copy of it resumes the
+		// session, and is dropped there as a request the session already handled (spec §18.2).
+		var record = SaveNewSession(caller, result.Account.Address, grantedChains, grantedMethods, result.Lifetime, (string)id!);
+		context.OnSession?.Invoke(record.Id);
+		respond(BuildResult(id, BuildConnectResponse(record, result.WalletName, result.WalletVersion, result.Nexus, result.Account)));
 	}
 
 	/// <summary>Stores a new session and keeps the store bounded: the expired sessions end first,
 	/// then the least recently used ones past the limit (spec §7). The dispatcher OWNS the session
 	/// id: it mints it here, and the ops only grant consent.</summary>
-	private LinkSessionRecord SaveNewSession(LinkCaller caller, string address, string[] chains, string[] methods, LinkSessionLifetime lifetime)
+	private LinkSessionRecord SaveNewSession(LinkCaller caller, string address, string[] chains, string[] methods, LinkSessionLifetime lifetime, string? connectId = null)
 	{
 		ExpireSessions();
 		var now = DateTime.UtcNow;
@@ -606,6 +780,10 @@ public class WalletLinkV5
 			CreatedUtc = now,
 			LastSeenUtc = now,
 		};
+		if (connectId != null)
+		{
+			record.SeenRequests.Add(new LinkSeenRequest { Id = connectId, UntilUtc = now + ReplayWindow });
+		}
 		_sessions.Save(record);
 		EvictBeyondLimit(record.Id);
 		return record;
