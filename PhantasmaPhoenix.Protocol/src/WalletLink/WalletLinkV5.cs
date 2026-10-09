@@ -931,7 +931,9 @@ public class WalletLinkV5
 		{
 			["wallet"] = new JObject { ["name"] = walletName, ["version"] = walletVersion },
 			["capabilities"] = BuildCapabilities(record, nexus),
-			["account"] = BuildAccount(account),
+			// Spec §9.5: without the NFT ids, so that the result fits the way back of a deeplink;
+			// pha_getAccounts returns them.
+			["account"] = BuildAccount(account, false),
 			// The end of the lifetime in Unix milliseconds, or null without a fixed end (spec §5).
 			["session"] = new JObject
 			{
@@ -1340,7 +1342,9 @@ public class WalletLinkV5
 		};
 	}
 
-	private static JObject BuildAccount(LinkAccount account)
+	/// <summary>Returns the account object of spec §9.5, with the NFT ids of its balances when
+	/// <paramref name="withIds"/> is set.</summary>
+	private static JObject BuildAccount(LinkAccount account, bool withIds = true)
 	{
 		var balances = new JArray();
 		foreach (var b in account.Balances)
@@ -1351,7 +1355,7 @@ public class WalletLinkV5
 				["value"] = b.Value,
 				["decimals"] = b.Decimals,
 			};
-			if (b.Ids != null && b.Ids.Length > 0)
+			if (withIds && b.Ids != null && b.Ids.Length > 0)
 			{
 				entry["ids"] = new JArray(b.Ids);
 			}

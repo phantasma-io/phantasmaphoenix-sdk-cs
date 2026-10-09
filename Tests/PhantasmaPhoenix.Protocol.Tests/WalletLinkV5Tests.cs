@@ -49,6 +49,24 @@ public class WalletLinkV5Tests
 		((string)response["result"]!["capabilities"]!["chains"]![0]!).ShouldBe("phantasma:localnet");
 	}
 
+	// Spec §9.5: the connect result carries the balances without the NFT ids, so that it fits the
+	// way back of a deeplink; pha_getAccounts returns them.
+	[Fact]
+	public void The_connect_result_leaves_the_nft_ids_out()
+	{
+		var ops = new FakeV5Ops { NftIds = new[] { "1", "2", "3" } };
+		var link = new WalletLinkV5(ops);
+
+		var session = Connect(link, out var response);
+
+		var crown = response["result"]!["account"]!["balances"]!.Single(b => (string?)b["symbol"] == "CROWN");
+		crown["ids"].ShouldBeNull();
+		((string)crown["value"]!).ShouldBe("3");
+		var accounts = Send(link, $"{{\"plv\":5,\"id\":\"a1\",\"session\":\"{session}\",\"method\":\"pha_getAccounts\"}}");
+		accounts["result"]!["accounts"]![0]!["balances"]!.Single(b => (string?)b["symbol"] == "CROWN")["ids"]!
+			.Select(id => (string)id!).ShouldBe(new[] { "1", "2", "3" });
+	}
+
 	[Fact]
 	public void Requests_without_a_session_are_unauthorized()
 	{

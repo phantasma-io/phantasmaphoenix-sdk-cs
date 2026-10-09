@@ -35,6 +35,9 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	public LinkTxFormat? SentFormat;
 	public byte[]? SentTx;
 
+	/// <summary>The NFT ids of an NFT balance of the account, when set.</summary>
+	public string[]? NftIds;
+
 	public WalletStatus Status => StatusValue;
 	public string? SelectedAddress => StatusValue == WalletStatus.Ready ? AccountAddress : null;
 
@@ -43,10 +46,13 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 		Address = AccountAddress,
 		Name = "tester",
 		Avatar = "",
-		Balances = new[]
-		{
-			new LinkBalance { Symbol = "SOUL", Value = "1", Decimals = 8 },
-		},
+		Balances = NftIds == null
+			? new[] { new LinkBalance { Symbol = "SOUL", Value = "1", Decimals = 8 } }
+			: new[]
+			{
+				new LinkBalance { Symbol = "SOUL", Value = "1", Decimals = 8 },
+				new LinkBalance { Symbol = "CROWN", Value = NftIds.Length.ToString(), Decimals = 0, Ids = NftIds },
+			},
 	};
 
 	/// <summary>Connect keeps its callback and throws, as faulty wallet code would.</summary>
