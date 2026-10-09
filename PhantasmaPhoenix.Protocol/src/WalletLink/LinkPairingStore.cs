@@ -23,6 +23,10 @@ public sealed class LinkPairingRecord
 	public string DappUrl { get; set; } = "";
 	public DateTime CreatedUtc { get; set; }
 	public DateTime LastSeenUtc { get; set; }
+	/// <summary>For a custom-scheme (ecdh) pairing, the wallet's X25519 public key, never the private
+	/// one: a session pushed again goes with it, so that a dApp that missed the first key hop can
+	/// derive the key (spec §15, §18.3). Null for a sym pairing. A store keeps it with the record.</summary>
+	public byte[]? WalletPublicKey { get; set; }
 	/// <summary>The v5 session id (§7) this channel carries. The pairing ends with this session
 	/// (spec §18.3), and the session's events go over this channel. Empty until the first session
 	/// of the pairing.</summary>
@@ -55,7 +59,8 @@ public sealed class LinkPairingRecord
 
 /// <summary>
 /// Wallet-side pairing storage. All calls happen on the wallet's dispatch thread, so
-/// implementations need no locking.
+/// implementations need no locking. It keeps every property of a record, such as
+/// <see cref="LinkPairingRecord.WalletPublicKey"/>.
 /// </summary>
 public interface ILinkPairingStore
 {

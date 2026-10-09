@@ -475,9 +475,19 @@ public sealed class LinkRelayClient : IDisposable
 
 	/// <summary>ecdh pairing key hop (spec section 15, step 3): publish the wallet's ephemeral
 	/// X25519 PUBLIC key together with the first sealed envelope (the connect result) in
-	/// one payload, so the dApp can derive the channel key and immediately open it. Sent
-	/// once per pairing; small by construction, so it is never chunked.</summary>
+	/// one payload, so the dApp can derive the channel key and immediately open it. Small by
+	/// construction, so it is never chunked. A refused hop ends its pairing: the dApp never learns
+	/// the channel key.</summary>
 	public void PublishHandshake(LinkPairingRecord pairing, byte[] walletPublicKey, string envelopeJson)
+	{
+		PublishHandshake(pairing, walletPublicKey, envelopeJson, false);
+	}
+
+	/// <summary>The key hop of <see cref="PublishHandshake(LinkPairingRecord, byte[], string)"/>,
+	/// or with <paramref name="again"/> the same hop with the same key when a live session is
+	/// pushed again (spec §15): a dApp that holds the key ignores it. A push again that fails is
+	/// only reported, because the pairing and its session still serve the dApp.</summary>
+	internal void PublishHandshake(LinkPairingRecord pairing, byte[] walletPublicKey, string envelopeJson, bool again)
 	{
 		if (string.IsNullOrEmpty(pairing.RelayUrl))
 		{
@@ -499,7 +509,7 @@ public sealed class LinkRelayClient : IDisposable
 			}
 			var conn = GetOrCreateConnection(pairing.RelayUrl!);
 			stale = TakeStale(conn, DateTime.UtcNow);
-			Publish(conn, pairing.Topic, payload, PublishKind.KeyHop, null);
+			Publish(conn, pairing.Topic, payload, again ? PublishKind.Event : PublishKind.KeyHop, null);
 		}
 		ReportFailedPublishes(stale, "no_ack", "The relay did not acknowledge the frame while it would hold it");
 	}

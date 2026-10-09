@@ -525,6 +525,72 @@ public class LinkRelayClientTests
 		((string)response["result"]!["nexus"]!).ShouldBe("localnet");
 	}
 
+	// Spec §15: a custom-scheme pairing link opened again pushes the live session again as the key
+	// hop, with the same wallet key, so a dApp that missed the first hop can still derive the key.
+	[Fact]
+	public void An_ecdh_pairing_link_opened_again_sends_the_key_hop_again()
+	{
+		var (endpoint, ops, _, _, sockets) = Build();
+		var (dappPublic, dappSecret) = PhantasmaPhoenix.Cryptography.NaCl.GenerateKeyPair();
+		var pk = Convert.ToBase64String(dappPublic).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+		var metaJson = "{\"name\":\"ecdh-dapp\",\"url\":\"https://dapp.example\"}";
+		var meta = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(metaJson)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+		var uri = $"phantasma://v5/pair#v=5&t={LinkTestTopics.Of("top-e2")}&relay={Uri.EscapeDataString(Relay)}&pk={pk}&meta={meta}";
+
+		endpoint.TryHandle(uri, _ => { }).ShouldBeTrue();
+		var socket = sockets.Sockets[0];
+		socket.Open();
+		endpoint.TryHandle(uri, _ => { }).ShouldBeTrue();
+
+		ops.ConfirmPairingCalls.ShouldBe(1);
+		var hops = socket.SentFrames().Where(frame => (string?)frame["op"] == "publish").Select(frame => (JObject)frame["payload"]!).ToArray();
+		hops.Length.ShouldBe(2);
+		var wpk = (string)hops[0]["wpk"]!;
+		((string)hops[1]["wpk"]!).ShouldBe(wpk);
+		var walletPublic = Convert.FromBase64String(wpk.Replace('-', '+').Replace('_', '/').PadRight((wpk.Length + 3) / 4 * 4, '='));
+		var channel = new LinkChannel(PhantasmaPhoenix.Cryptography.NaCl.DeriveSessionKey(walletPublic, dappSecret));
+		var sessions = hops.Select(hop =>
+		{
+			channel.TryOpenEnvelope(new JObject { ["nonce"] = hop["nonce"], ["ct"] = hop["ct"] }.ToString(), out var json).ShouldBeTrue();
+			return (string)JObject.Parse(json)["session"]!;
+		}).ToArray();
+		sessions[1].ShouldBe(sessions[0]);
+	}
+
+	// Spec §15: a push again goes to a dApp that may hold the key already. A refusal of it is
+	// reported, and the pairing and its session stay.
+	[Fact]
+	public void A_refused_push_again_keeps_the_pairing_and_its_session()
+	{
+		var ops = new FakeV5Ops();
+		var dispatcher = new WalletLinkV5(ops);
+		var pairings = new InMemoryLinkPairingStore();
+		var sockets = new FakeRelaySocketFactory();
+		var relay = new LinkRelayClient(dispatcher, pairings, sockets, action => action());
+		var endpoint = new LinkDeeplinkEndpoint(dispatcher, ops, pairings, relay);
+		var failures = new List<LinkRelayFailure>();
+		relay.Failed += failures.Add;
+		var (dappPublic, _) = PhantasmaPhoenix.Cryptography.NaCl.GenerateKeyPair();
+		var pk = Convert.ToBase64String(dappPublic).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+		var meta = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("{\"name\":\"again-dapp\",\"url\":\"https://dapp.example\"}")).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+		var topic = LinkTestTopics.Of("refused-again");
+		var uri = $"phantasma://v5/pair#v=5&t={topic}&relay={Uri.EscapeDataString(Relay)}&pk={pk}&meta={meta}";
+		endpoint.TryHandle(uri, _ => { }).ShouldBeTrue();
+		var socket = sockets.Sockets[0];
+		socket.Open();
+		socket.AckUntilQuiet();
+
+		endpoint.TryHandle(uri, _ => { }).ShouldBeTrue();
+		var again = socket.SentFrames().Last(frame => (string?)frame["op"] == "publish");
+		((JObject)again["payload"]!).ContainsKey("wpk").ShouldBeTrue();
+		socket.Deliver(new JObject { ["op"] = "error", ["code"] = "rate_limited", ["message"] = "slow down", ["id"] = again["id"] }.ToString());
+
+		failures.Single().PairingEnded.ShouldBeFalse();
+		var pairing = pairings.Get(topic);
+		pairing.ShouldNotBeNull();
+		dispatcher.IsSessionLive(pairing!.SessionId).ShouldBeTrue();
+	}
+
 	[Fact]
 	public void Wake_deeplinks_reconnect_stored_relay_pairings()
 	{

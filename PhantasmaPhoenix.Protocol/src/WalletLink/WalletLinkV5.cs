@@ -983,6 +983,34 @@ public class WalletLinkV5
 		});
 	}
 
+	/// <summary>
+	/// Delivers the live session <paramref name="sessionId"/> again as an unsolicited
+	/// <see cref="SessionEstablishedEvent"/> envelope (spec §15): a pairing link opened again opens no
+	/// second session, and its dApp gets the session it may have missed. Delivers nothing when the
+	/// session is not live, or the wallet is not Ready with the session's account selected.
+	/// </summary>
+	internal void PushSessionAgain(string sessionId, Action<string> deliver)
+	{
+		var record = _sessions.Get(sessionId);
+		if (record == null || IsExpired(record, DateTime.UtcNow) || _ops.Status != WalletStatus.Ready
+			|| _ops.SelectedAddress != record.Address)
+		{
+			return;
+		}
+		_ops.GetAccount(result =>
+		{
+			if (result.Failure != LinkFailure.None || result.Account == null || result.Account.Address != record.Address)
+			{
+				return;
+			}
+			var account = result.Account;
+			_ops.GetWalletInfo(info =>
+				_ops.GetChains(chains =>
+					deliver(BuildEvent(SessionEstablishedEvent, record.Id,
+						BuildConnectResponse(record, info.Name, info.Version, chains.Nexus, account)))));
+		});
+	}
+
 	private void HandleDisconnect(JToken? id, string? session, LinkRequestContext context, Action<string> respond)
 	{
 		// A live session of another channel is left alone, and the request gets 4100: its id alone

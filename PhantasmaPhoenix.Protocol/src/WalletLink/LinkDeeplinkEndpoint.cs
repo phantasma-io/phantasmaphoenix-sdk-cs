@@ -111,6 +111,17 @@ public sealed class LinkDeeplinkEndpoint
 		var relayUrl = pairing.Relay;
 		_log?.Invoke($"pair {LinkRelayClient.Label(pairing.Topic)} mode={pairing.Mode} relay={(relayUrl != null ? "yes" : "no")} callback={(!string.IsNullOrEmpty(pairing.CallbackUrl) ? "yes" : "no")}");
 
+		// Spec §15: a pairing URI for a topic with a live pairing opens no second session, for
+		// example when the user opens the same link again. The pairing keeps its key and its
+		// session, and the live session goes to the dApp again.
+		var existing = _pairings.Get(pairing.Topic);
+		if (existing != null && existing.SessionId.Length > 0 && _dispatcher.IsSessionLive(existing.SessionId))
+		{
+			_log?.Invoke($"pair {LinkRelayClient.Label(pairing.Topic)}: live pairing, pushing its session again");
+			_dispatcher.PushSessionAgain(existing.SessionId, eventJson => PushSession(existing, eventJson, openUrl, true));
+			return;
+		}
+
 		// Channel-key material decides the mode (spec §18.1):
 		//   sym  - the key came in the URI (safe channel); responses go via callback or relay.
 		//   ecdh - only the dApp's PUBLIC key came (hijackable custom scheme); the wallet
@@ -158,6 +169,7 @@ public sealed class LinkDeeplinkEndpoint
 				RelayUrl = relayUrl,
 				DappName = pairing.DappName ?? "",
 				DappUrl = pairing.DappUrl ?? "",
+				WalletPublicKey = walletPublicKey,
 				CreatedUtc = now,
 				LastSeenUtc = now,
 			};
@@ -203,28 +215,43 @@ public sealed class LinkDeeplinkEndpoint
 				{
 					// A malformed event must not break pairing; we just lose the notify-on-evict id.
 				}
-				// Route the push where the dApp can actually receive it. ecdh always goes via
-				// the relay carrying the wallet's public key (the dApp derives the channel key
-				// from it); sym prefers the relay when the pairing has one, else the deeplink
-				// callback. Exactly one path is used per pairing.
-				if (walletPublicKey != null && _relay != null)
-				{
-					_log?.Invoke($"response via relay handshake {LinkRelayClient.Label(record.Topic)}");
-					_relay.PublishHandshake(record, walletPublicKey, eventJson);
-				}
-				else if (relayUrl != null && _relay != null)
-				{
-					_log?.Invoke($"response via relay sealed {LinkRelayClient.Label(record.Topic)}");
-					_relay.PublishSealed(record, eventJson);
-				}
-				else if (!string.IsNullOrEmpty(pairing.CallbackUrl))
-				{
-					_log?.Invoke($"response via callback host={CallbackHost(pairing.CallbackUrl!)} {LinkRelayClient.Label(record.Topic)}");
-					var channel = new LinkChannel(channelKey);
-					openUrl(BuildResponseUrl(pairing.CallbackUrl!, pairing.Topic, channel.SealEnvelope(eventJson)));
-				}
+				PushSession(record, eventJson, openUrl, false);
 			});
 		});
+	}
+
+	/// <summary>Sends the session of a pairing to its dApp (spec §15 step 3) where the dApp can
+	/// receive it. ecdh goes via the relay with the wallet's public key, from which the dApp derives
+	/// the channel key, also when the session is pushed <paramref name="again"/>; sym prefers the
+	/// relay when the pairing has one, else the deeplink callback. Exactly one path is used per
+	/// pairing.</summary>
+	private void PushSession(LinkPairingRecord record, string eventJson, Action<string> openUrl, bool again)
+	{
+		if (record.WalletPublicKey != null && _relay != null)
+		{
+			_log?.Invoke($"response via relay handshake {LinkRelayClient.Label(record.Topic)}");
+			_relay.PublishHandshake(record, record.WalletPublicKey, eventJson, again);
+		}
+		else
+		{
+			DeliverToPairing(record, eventJson, openUrl);
+		}
+	}
+
+	/// <summary>Sends a sealed envelope to the dApp of a pairing: over the relay when the pairing has
+	/// one, else by opening its callback.</summary>
+	private void DeliverToPairing(LinkPairingRecord record, string envelopeJson, Action<string> openUrl)
+	{
+		if (!string.IsNullOrEmpty(record.RelayUrl) && _relay != null)
+		{
+			_log?.Invoke($"response via relay sealed {LinkRelayClient.Label(record.Topic)}");
+			_relay.PublishSealed(record, envelopeJson);
+		}
+		else if (record.CallbackUrl.Length > 0)
+		{
+			_log?.Invoke($"response via callback host={CallbackHost(record.CallbackUrl)} {LinkRelayClient.Label(record.Topic)}");
+			openUrl(BuildResponseUrl(record.CallbackUrl, record.Topic, new LinkChannel(record.Key).SealEnvelope(envelopeJson)));
+		}
 	}
 
 	private void HandleRequest(string url, Action<string> openUrl)

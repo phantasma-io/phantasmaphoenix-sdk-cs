@@ -203,6 +203,31 @@ public class LinkDeeplinkEndpointTests
 		((string)chains["result"]!["nexus"]!).ShouldBe("localnet");
 	}
 
+	// Spec §15: opening the same pairing link again opens no second session. The wallet asks
+	// nothing, keeps the pairing with its key, and pushes the live session again.
+	[Fact]
+	public void A_pairing_link_opened_again_pushes_the_live_session_again()
+	{
+		var (endpoint, ops, pairings, dispatcher) = Build();
+		var key = new byte[32];
+		key[5] = 4;
+		var channel = new LinkChannel(key);
+		var uri = SymPairingUri(key, LinkTestTopics.Of("top-again"), "https://dapp.example/app", dappName: "again-dapp");
+		var opened = new List<string>();
+		endpoint.TryHandle(uri, opened.Add).ShouldBeTrue();
+		var sessionId = (string)JObject.Parse(OpenResponseFrame(channel, opened.Single()))["session"]!;
+
+		endpoint.TryHandle(uri, opened.Add).ShouldBeTrue();
+
+		ops.ConfirmPairingCalls.ShouldBe(1);
+		opened.Count.ShouldBe(2);
+		var again = JObject.Parse(OpenResponseFrame(channel, opened[1]));
+		((string)again["event"]!).ShouldBe(WalletLinkV5.SessionEstablishedEvent);
+		((string)again["session"]!).ShouldBe(sessionId);
+		pairings.List().Single().SessionId.ShouldBe(sessionId);
+		dispatcher.IsSessionLive(sessionId).ShouldBeTrue();
+	}
+
 	[Fact]
 	public void A_pairing_gives_its_session_the_lifetime_the_user_picked()
 	{
