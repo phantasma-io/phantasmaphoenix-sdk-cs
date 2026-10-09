@@ -12,7 +12,7 @@ namespace PhantasmaPhoenix.Protocol;
 /// anything that does not authenticate is dropped without a reply (answering plaintext to an
 /// unauthenticated sender would leak).
 /// </summary>
-public sealed class LinkDeeplinkEndpoint
+public sealed class LinkDeeplinkEndpoint : IDisposable
 {
 	/// <summary>The largest <c>f</c> value of a result URL, in characters: the URL budget of spec
 	/// §6.3, which holds for the way back too.</summary>
@@ -42,6 +42,13 @@ public sealed class LinkDeeplinkEndpoint
 		// A pairing ends with its session (spec §18.3). The relay client ends the pairings it
 		// serves; this endpoint ends the others.
 		_dispatcher.SessionEnded += OnSessionEnded;
+	}
+
+	/// <summary>Stops listening to the dispatcher. A host that replaces the endpoint disposes the old
+	/// one, so that the end of a session is handled once.</summary>
+	public void Dispose()
+	{
+		_dispatcher.SessionEnded -= OnSessionEnded;
 	}
 
 	private void OnSessionEnded(string session, LinkSessionEndReason reason)

@@ -253,6 +253,26 @@ public class LinkDeeplinkEndpointTests
 		((int)answer["error"]!["data"]!["maxUrlChars"]!).ShouldBe(8192);
 	}
 
+	// A disposed endpoint no longer listens to the dispatcher: the end of a session reaches the
+	// endpoint that replaced it, not this one.
+	[Fact]
+	public void A_disposed_endpoint_no_longer_ends_pairings()
+	{
+		var (endpoint, _, pairings, dispatcher) = Build();
+		var key = new byte[32];
+		key[7] = 1;
+		var channel = new LinkChannel(key);
+		var topic = LinkTestTopics.Of("top-disposed");
+		string? opened = null;
+		endpoint.TryHandle(SymPairingUri(key, topic, "https://dapp.example/app", dappName: "disposed-dapp"), url => opened = url).ShouldBeTrue();
+		var sessionId = (string)JObject.Parse(OpenResponseFrame(channel, opened!))["session"]!;
+
+		endpoint.Dispose();
+		dispatcher.EndSession(sessionId, LinkSessionEndReason.Revoked);
+
+		pairings.Get(topic).ShouldNotBeNull();
+	}
+
 	[Fact]
 	public void A_pairing_gives_its_session_the_lifetime_the_user_picked()
 	{
