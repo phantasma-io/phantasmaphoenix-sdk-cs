@@ -181,6 +181,46 @@ public class LinkServerV5Tests
 		closed.ShouldBeTrue();
 	}
 
+	// A connection that a page drops without the close handshake is released: the server keeps no
+	// socket, and no receive buffer, of a page that went away.
+	[Fact]
+	public async Task A_connection_that_ends_abruptly_is_released()
+	{
+		var (server, _) = StartServer();
+		try
+		{
+			var client = await Open(server, "https://page.example");
+			await ConnectSession(client);
+			ActiveConnections(server).ShouldBe(1);
+
+			client.Abort();
+			client.Dispose();
+
+			var deadline = DateTime.UtcNow + Wait;
+			while (ActiveConnections(server) > 0 && DateTime.UtcNow < deadline)
+			{
+				await Task.Delay(20);
+			}
+			ActiveConnections(server).ShouldBe(0);
+		}
+		finally
+		{
+			server.Stop();
+		}
+	}
+
+	/// <summary>Returns how many connections the server holds; the list is private, and the test reads
+	/// it to see that a dropped connection was released.</summary>
+	private static int ActiveConnections(LinkServer server)
+	{
+		var field = typeof(LinkServer).GetField("_activeWebsockets", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+		var list = (System.Collections.ICollection)field.GetValue(server)!;
+		lock (list)
+		{
+			return list.Count;
+		}
+	}
+
 	[Fact]
 	public async Task The_events_of_a_session_reach_the_connection_that_holds_it_only()
 	{

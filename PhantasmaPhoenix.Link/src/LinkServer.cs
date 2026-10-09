@@ -629,10 +629,19 @@ public class LinkServer
 													webSocket.Dispose();
 													return;
 												}
-												handler(webSocket, request);
-												lock (_activeWebsockets)
+												// A connection that ends abruptly ends the handler with an exception. It is released
+												// all the same: kept in the list, Tick would ping it forever and its receive buffer
+												// would never be freed.
+												try
 												{
-													_activeWebsockets.Remove(webSocket);
+													handler(webSocket, request);
+												}
+												finally
+												{
+													lock (_activeWebsockets)
+													{
+														_activeWebsockets.Remove(webSocket);
+													}
 												}
 											}
 											else
