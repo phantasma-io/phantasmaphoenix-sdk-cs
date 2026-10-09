@@ -20,8 +20,8 @@
     {
       "id": "PhantasmaPhoenix.Protocol",
       "project": "PhantasmaPhoenix.Protocol/PhantasmaPhoenix.Protocol.csproj",
-      "version": "0.6.1",
-      "publish": false,
+      "version": "0.7.0",
+      "publish": true,
       "dependencies": {
         "PhantasmaPhoenix.Cryptography": "0.3.1"
       }
@@ -29,8 +29,8 @@
     {
       "id": "PhantasmaPhoenix.Protocol.Carbon",
       "project": "PhantasmaPhoenix.Protocol.Carbon/PhantasmaPhoenix.Protocol.Carbon.csproj",
-      "version": "0.6.0",
-      "publish": false,
+      "version": "0.6.1",
+      "publish": true,
       "dependencies": {
         "PhantasmaPhoenix.Core": "0.2.7",
         "PhantasmaPhoenix.Cryptography": "0.3.1"
@@ -39,32 +39,32 @@
     {
       "id": "PhantasmaPhoenix.RPC",
       "project": "PhantasmaPhoenix.RPC/PhantasmaPhoenix.RPC.csproj",
-      "version": "0.16.1",
+      "version": "0.17.0",
       "publish": true,
       "dependencies": {
         "PhantasmaPhoenix.Cryptography": "0.3.1",
-        "PhantasmaPhoenix.Protocol": "0.6.1",
-        "PhantasmaPhoenix.Protocol.Carbon": "0.6.0"
+        "PhantasmaPhoenix.Protocol": "0.7.0",
+        "PhantasmaPhoenix.Protocol.Carbon": "0.6.1"
       }
     },
     {
       "id": "PhantasmaPhoenix.VM",
       "project": "PhantasmaPhoenix.VM/PhantasmaPhoenix.VM.csproj",
-      "version": "0.1.7",
-      "publish": false,
+      "version": "0.1.8",
+      "publish": true,
       "dependencies": {
         "PhantasmaPhoenix.Core": "0.2.7",
         "PhantasmaPhoenix.Cryptography": "0.3.1",
-        "PhantasmaPhoenix.Protocol": "0.6.1"
+        "PhantasmaPhoenix.Protocol": "0.7.0"
       }
     },
     {
       "id": "PhantasmaPhoenix.Link",
       "project": "PhantasmaPhoenix.Link/PhantasmaPhoenix.Link.csproj",
-      "version": "0.3.4",
-      "publish": false,
+      "version": "0.4.0",
+      "publish": true,
       "dependencies": {
-        "PhantasmaPhoenix.Protocol": "0.6.1"
+        "PhantasmaPhoenix.Protocol": "0.7.0"
       }
     },
     {
@@ -89,12 +89,12 @@
     {
       "id": "PhantasmaPhoenix.NFT",
       "project": "PhantasmaPhoenix.NFT/PhantasmaPhoenix.NFT.csproj",
-      "version": "0.7.15",
+      "version": "0.7.16",
       "publish": true,
       "dependencies": {
-        "PhantasmaPhoenix.Protocol": "0.6.1",
-        "PhantasmaPhoenix.RPC": "0.16.1",
-        "PhantasmaPhoenix.VM": "0.1.7"
+        "PhantasmaPhoenix.Protocol": "0.7.0",
+        "PhantasmaPhoenix.RPC": "0.17.0",
+        "PhantasmaPhoenix.VM": "0.1.8"
       }
     }
   ],
