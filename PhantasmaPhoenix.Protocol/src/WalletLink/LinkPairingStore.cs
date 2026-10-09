@@ -14,8 +14,8 @@ public sealed class LinkPairingRecord
 	public byte[] Key { get; set; } = Array.Empty<byte>();
 	/// <summary>Where the wallet opens response deeplinks for this pairing.</summary>
 	public string CallbackUrl { get; set; } = "";
-	/// <summary>Relay WebSocket URL for this pairing (spec section 15); null/empty for a
-	/// deeplink-only pairing. Normalized from the pairing URI's `relay` field.</summary>
+	/// <summary>Relay WebSocket URL for this pairing (spec section 15): the pairing URI's `relay`
+	/// field, a `wss://` URL; null for a deeplink-only pairing.</summary>
 	public string? RelayUrl { get; set; }
 	public string DappName { get; set; } = "";
 	/// <summary>The dApp url from the pairing's <c>meta</c> (spec §15). Requests of the pairing carry
@@ -59,7 +59,10 @@ public sealed class LinkPairingRecord
 
 /// <summary>
 /// Wallet-side pairing storage. All calls happen on the wallet's dispatch thread, so
-/// implementations need no locking. It keeps every property of a record, such as
+/// implementations need no locking. A record holds the session key of its pairing: an
+/// implementation keeps it in the platform's protected storage (a keychain, a keystore or encrypted
+/// storage), never in plain files or plain preferences, and deletes it with the record
+/// (spec §18.3). It keeps every property of a record, such as
 /// <see cref="LinkPairingRecord.WalletPublicKey"/>.
 /// </summary>
 public interface ILinkPairingStore

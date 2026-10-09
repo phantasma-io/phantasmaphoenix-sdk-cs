@@ -9,8 +9,9 @@ namespace PhantasmaPhoenix.Protocol;
 /// routes <c>pha_*</c> methods to the clean <see cref="IWalletLinkV5Ops"/> contract. It shares no
 /// code path with the legacy v1-v4 string protocol (<see cref="WalletLink"/>) and carries no
 /// legacy shapes: every wallet outcome arrives as a structured <see cref="LinkFailure"/>, which the
-/// dispatcher maps to a v5 error code. The full pha_* method surface is routed to the
-/// contract; the capability handshake advertises exactly what the contract carries.
+/// dispatcher maps to a v5 error code. The methods of spec §9.2 are routed to the contract, except
+/// the signing permission of §9.8, which this dispatcher does not serve: those methods get -32601
+/// (§4), and the capability handshake advertises exactly the methods it serves.
 /// </summary>
 public class WalletLinkV5
 {

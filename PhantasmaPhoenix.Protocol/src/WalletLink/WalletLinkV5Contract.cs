@@ -176,6 +176,12 @@ public sealed class LinkInvokeResult
 /// The clean v5 wallet operations the dispatcher calls. Callback-based because a wallet marshals
 /// user-consent prompts onto its UI thread before completing. NOT related to the legacy
 /// <c>WalletLink</c> operation surface.
+///
+/// The dispatcher calls every member on the host's dispatch thread, the one that hands it requests.
+/// Each <c>done</c> callback runs once, on that thread too: the dispatcher answers through the
+/// transports from it, and the deeplink transport opens a URL. Requests are independent (spec §4),
+/// so a prompt may open while another one waits for the user; a wallet that shows one prompt at a
+/// time queues the others.
 /// </summary>
 public interface IWalletLinkV5Ops
 {
