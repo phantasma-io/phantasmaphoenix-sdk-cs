@@ -917,6 +917,35 @@ public class LinkRelayClientTests
 		socket.Sent.ShouldBeEmpty();
 	}
 
+	// Spec §6.3, §15: a deeplink request on a pairing without a callback is answered over the relay,
+	// and so is an answer whose URL would go past the budget of 8192 characters.
+	[Theory]
+	[InlineData(false, 10)]
+	[InlineData(true, 20_000)]
+	public void A_deeplink_answer_the_callback_cannot_carry_goes_over_the_relay(bool withCallback, int resultBytes)
+	{
+		var paired = PairOverRelay(withCallback ? "deeplink-big" : "deeplink-no-cb");
+		paired.AckAll();
+		var record = paired.Pairings.Get(paired.Topic)!;
+		if (withCallback)
+		{
+			record.CallbackUrl = "https://dapp.example/app";
+			paired.Pairings.Save(record);
+		}
+		paired.Ops.InvokeResults = new[] { new byte[resultBytes] };
+		var opened = new List<string>();
+		var request = $"{{\"plv\":5,\"id\":\"d1\",\"session\":\"{paired.SessionId}\",\"method\":\"pha_invokeScript\",\"params\":{{\"chain\":\"main\",\"script\":\"AA==\"}}}}";
+		var fb64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(paired.Channel.SealEnvelope(request))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+		var before = paired.Socket.Sent.Count;
+
+		paired.Endpoint.TryHandle($"https://link.phantasma.info/v5/req#t={paired.Topic}&f={fb64}", opened.Add).ShouldBeTrue();
+
+		opened.ShouldBeEmpty();
+		var answer = paired.Published(paired.Socket.SentFrames().Skip(before)).Single();
+		((string)answer["id"]!).ShouldBe("d1");
+		answer["result"].ShouldNotBeNull();
+	}
+
 	[Fact]
 	public void A_refused_key_hop_ends_the_pairing()
 	{

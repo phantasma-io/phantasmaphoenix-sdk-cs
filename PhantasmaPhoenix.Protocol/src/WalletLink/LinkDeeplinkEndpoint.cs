@@ -14,6 +14,10 @@ namespace PhantasmaPhoenix.Protocol;
 /// </summary>
 public sealed class LinkDeeplinkEndpoint
 {
+	/// <summary>The largest <c>f</c> value of a result URL, in characters: the URL budget of spec
+	/// §6.3, which holds for the way back too.</summary>
+	private const int UrlBudgetChars = 8192;
+
 	private readonly WalletLinkV5 _dispatcher;
 	private readonly IWalletLinkV5Ops _ops;
 	private readonly ILinkPairingStore _pairings;
@@ -249,8 +253,16 @@ public sealed class LinkDeeplinkEndpoint
 		}
 		else if (record.CallbackUrl.Length > 0)
 		{
+			var url = BuildResponseUrl(record.CallbackUrl, record.Topic, new LinkChannel(record.Key).SealEnvelope(envelopeJson));
+			// Spec §6.3: the URL budget holds for the way back. An event has no request to answer
+			// with 5001, so one above the budget is dropped.
+			if (url.Length - url.IndexOf("&f=", StringComparison.Ordinal) - 3 > UrlBudgetChars)
+			{
+				_log?.Invoke($"response drop {LinkRelayClient.Label(record.Topic)}: above the URL budget, no relay");
+				return;
+			}
 			_log?.Invoke($"response via callback host={CallbackHost(record.CallbackUrl)} {LinkRelayClient.Label(record.Topic)}");
-			openUrl(BuildResponseUrl(record.CallbackUrl, record.Topic, new LinkChannel(record.Key).SealEnvelope(envelopeJson)));
+			openUrl(url);
 		}
 	}
 
@@ -280,12 +292,52 @@ public sealed class LinkDeeplinkEndpoint
 		pairing.LastSeenUtc = DateTime.UtcNow;
 		_pairings.Save(pairing);
 
-		_dispatcher.HandleMessage(envelopeJson, responseJson =>
+		_dispatcher.HandleMessage(envelopeJson, responseJson => AnswerRequest(pairing, channel, responseJson, openUrl),
+			pairing.RequestContext(LinkTransportKind.Deeplink, _pairings));
+	}
+
+	/// <summary>
+	/// Sends the answer to a deeplink request back to the dApp (spec §6.3). It opens the callback of
+	/// the pairing with the sealed answer when the URL fits the budget. A pairing without a callback
+	/// has no way back by deeplink, and an answer above the budget does not go out as a URL: both go
+	/// over the pairing's relay. Without a relay an answer above the budget is replaced by 5001.
+	/// </summary>
+	private void AnswerRequest(LinkPairingRecord pairing, LinkChannel channel, string responseJson, Action<string> openUrl)
+	{
+		var label = LinkRelayClient.Label(pairing.Topic);
+		var relay = !string.IsNullOrEmpty(pairing.RelayUrl) ? _relay : null;
+		if (pairing.CallbackUrl.Length == 0)
 		{
-			_log?.Invoke($"req response via callback host={CallbackHost(pairing.CallbackUrl)} {LinkRelayClient.Label(topic)}");
-			var responseFrame = channel.SealEnvelope(responseJson);
-			openUrl(BuildResponseUrl(pairing.CallbackUrl, topic, responseFrame));
-		}, pairing.RequestContext(LinkTransportKind.Deeplink, _pairings));
+			if (relay == null)
+			{
+				_log?.Invoke($"req response drop {label}: no callback and no relay");
+				return;
+			}
+			_log?.Invoke($"req response via relay (no callback) {label}");
+			relay.PublishSealed(pairing, responseJson);
+			return;
+		}
+		var url = BuildResponseUrl(pairing.CallbackUrl, pairing.Topic, channel.SealEnvelope(responseJson));
+		if (url.Length - url.IndexOf("&f=", StringComparison.Ordinal) - 3 <= UrlBudgetChars)
+		{
+			_log?.Invoke($"req response via callback host={CallbackHost(pairing.CallbackUrl)} {label}");
+			openUrl(url);
+			return;
+		}
+		if (relay != null)
+		{
+			_log?.Invoke($"req response via relay (above the URL budget) {label}");
+			relay.PublishSealed(pairing, responseJson);
+			return;
+		}
+		var id = LinkRelayClient.ReadEnvelopeId(responseJson);
+		if (id == null)
+		{
+			return;
+		}
+		_log?.Invoke($"req response too large for a deeplink {label}: 5001");
+		openUrl(BuildResponseUrl(pairing.CallbackUrl, pairing.Topic,
+			channel.SealEnvelope(WalletLinkV5.BuildUrlTooLargeEnvelope(id, UrlBudgetChars))));
 	}
 
 	/// <summary>Build the wallet->dApp response URL (mirrors the TS SDK's buildResponseUrl).</summary>

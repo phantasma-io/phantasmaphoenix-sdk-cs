@@ -1439,6 +1439,15 @@ public class WalletLinkV5
 	}
 
 	/// <summary>Builds the (unsealed) error envelope that answers request <paramref name="id"/>
+	/// with 5001: the result does not fit the URL of a deeplink, and the pairing has no relay to
+	/// carry it (spec §6.3). <c>data.maxUrlChars</c> carries the URL budget (spec section 10).</summary>
+	internal static string BuildUrlTooLargeEnvelope(JToken id, int maxUrlChars)
+	{
+		return BuildError(id, ErrPayloadTooLarge, "The result does not fit a deeplink, and the pairing has no relay",
+			new JObject { ["maxUrlChars"] = maxUrlChars });
+	}
+
+	/// <summary>Builds the (unsealed) error envelope that answers request <paramref name="id"/>
 	/// with 5001: the response does not fit the transport. <c>data.maxPayloadBytes</c> carries
 	/// the largest transaction the transport takes (spec section 10).</summary>
 	internal string BuildPayloadTooLargeEnvelope(JToken id, int maxPayloadBytes)

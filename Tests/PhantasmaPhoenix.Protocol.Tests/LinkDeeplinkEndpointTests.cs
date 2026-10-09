@@ -228,6 +228,31 @@ public class LinkDeeplinkEndpointTests
 		dispatcher.IsSessionLive(sessionId).ShouldBeTrue();
 	}
 
+	// Spec §6.3: an answer whose URL would go past the budget of 8192 characters never goes out as
+	// a URL. A pairing without a relay gets 5001 with the budget instead.
+	[Fact]
+	public void An_answer_too_large_for_a_url_gets_5001_without_a_relay()
+	{
+		var (endpoint, ops, _, _) = Build();
+		var key = new byte[32];
+		key[6] = 2;
+		var channel = new LinkChannel(key);
+		var topic = LinkTestTopics.Of("top-url");
+		var opened = new List<string>();
+		endpoint.TryHandle(SymPairingUri(key, topic, "https://dapp.example/app", dappName: "url-dapp"), opened.Add).ShouldBeTrue();
+		var sessionId = (string)JObject.Parse(OpenResponseFrame(channel, opened.Single()))["session"]!;
+		ops.InvokeResults = new[] { new byte[20_000] };
+		var request = $"{{\"plv\":5,\"id\":\"u1\",\"session\":\"{sessionId}\",\"method\":\"pha_invokeScript\",\"params\":{{\"chain\":\"main\",\"script\":\"AA==\"}}}}";
+		var fb64 = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(channel.SealEnvelope(request))).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+		endpoint.TryHandle($"phantasma://v5/req#t={topic}&f={fb64}", opened.Add).ShouldBeTrue();
+
+		var answer = JObject.Parse(OpenResponseFrame(channel, opened.Last()));
+		((string)answer["id"]!).ShouldBe("u1");
+		((int)answer["error"]!["code"]!).ShouldBe(5001);
+		((int)answer["error"]!["data"]!["maxUrlChars"]!).ShouldBe(8192);
+	}
+
 	[Fact]
 	public void A_pairing_gives_its_session_the_lifetime_the_user_picked()
 	{

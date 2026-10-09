@@ -925,7 +925,7 @@ public sealed class LinkRelayClient : IDisposable
 	/// <summary>Returns the top-level <c>id</c> of an envelope, or null when it has none (an
 	/// event). It reads the text as a stream and stops at the id, so a huge result is never
 	/// built into objects.</summary>
-	private static JToken? ReadEnvelopeId(string envelopeJson)
+	internal static JToken? ReadEnvelopeId(string envelopeJson)
 	{
 		using var reader = new JsonTextReader(new StringReader(envelopeJson));
 		while (reader.Read())
