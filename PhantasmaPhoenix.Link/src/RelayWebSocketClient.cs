@@ -13,6 +13,8 @@ namespace PhantasmaPhoenix.Link;
 /// WebSocket class masks outgoing frames in client mode), so the wallet ships no new
 /// networking dependency and Unity keeps one battle-tested socket path. Supports plain
 /// ws:// (local testing) and wss:// via SslStream (production behind the reverse proxy).
+/// A socket reads on one background thread and writes on another, so <c>SendText</c> never
+/// waits for the network on the caller's thread (the wallet's UI thread).
 /// </summary>
 public sealed class RelayWebSocketClient : ILinkRelaySocketFactory
 {
@@ -31,7 +33,8 @@ public sealed class RelayWebSocketClient : ILinkRelaySocketFactory
 		private readonly Action _onOpen;
 		private readonly Action<string> _onText;
 		private readonly Action _onClosed;
-		private readonly object _sendGate = new object();
+		// The frames that wait for the writer thread, in the order they were given.
+		private readonly Queue<string> _outbox = new Queue<string>();
 		private TcpClient? _tcp;
 		private WebSocket? _webSocket;
 		private volatile bool _closed;
@@ -53,26 +56,60 @@ public sealed class RelayWebSocketClient : ILinkRelaySocketFactory
 			thread.Start();
 		}
 
+		/// <summary>Queues a frame for the writer thread and returns at once. A frame given after the
+		/// close is dropped: the owner sends it again on its next connection.</summary>
 		public void SendText(string text)
 		{
-			// The frame writer is not re-entrant; serialize writers. Failures surface in
-			// the read loop as a dead stream, which signals the close exactly once.
-			lock (_sendGate)
+			lock (_outbox)
 			{
+				if (_closed)
+				{
+					return;
+				}
+				_outbox.Enqueue(text);
+				Monitor.Pulse(_outbox);
+			}
+		}
+
+		/// <summary>Writes the queued frames in order until the socket closes. A failed write closes
+		/// the socket, which signals the close exactly once.</summary>
+		private void WriteLoop()
+		{
+			while (true)
+			{
+				string text;
+				lock (_outbox)
+				{
+					while (_outbox.Count == 0 && !_closed)
+					{
+						Monitor.Wait(_outbox);
+					}
+					if (_closed)
+					{
+						_outbox.Clear();
+						return;
+					}
+					text = _outbox.Dequeue();
+				}
 				try
 				{
-					_webSocket?.Send(text);
+					_webSocket!.Send(text);
 				}
 				catch
 				{
 					Close();
+					return;
 				}
 			}
 		}
 
 		public void Close()
 		{
-			_closed = true;
+			lock (_outbox)
+			{
+				_closed = true;
+				Monitor.PulseAll(_outbox);
+			}
 			try
 			{
 				_tcp?.Close();
@@ -124,6 +161,7 @@ public sealed class RelayWebSocketClient : ILinkRelaySocketFactory
 				// Same frame engine as the wallet's own server; isClient=true makes the
 				// writer mask outgoing frames as RFC 6455 requires of clients.
 				_webSocket = new WebSocket(() => new MemoryStream(), stream, 30000, null, false, true, null);
+				new Thread(WriteLoop) { IsBackground = true, Name = "phantasma-link-relay-ws-writer" }.Start();
 				_onOpen();
 
 				// Read loop: accumulate fragmented text frames into complete messages.
@@ -157,6 +195,11 @@ public sealed class RelayWebSocketClient : ILinkRelaySocketFactory
 			}
 			finally
 			{
+				lock (_outbox)
+				{
+					_closed = true;
+					Monitor.PulseAll(_outbox);
+				}
 				try
 				{
 					_tcp?.Close();
