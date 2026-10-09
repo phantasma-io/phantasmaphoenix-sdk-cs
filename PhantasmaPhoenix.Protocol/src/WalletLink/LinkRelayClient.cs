@@ -407,7 +407,29 @@ public sealed class LinkRelayClient : IDisposable
 			{
 				conn.Socket.SendText(new JObject { ["op"] = "unsubscribe", ["topic"] = relayTopic }.ToString(Formatting.None));
 			}
+			CloseIfIdle(conn);
 		}
+	}
+
+	/// <summary>Called under the gate: a connection that carries no topic and waits for no ack serves
+	/// no pairing, so it closes instead of reconnecting forever. The frames it still had to deliver
+	/// (the end notice of the last session) were acknowledged before.</summary>
+	private void CloseIfIdle(Connection conn)
+	{
+		if (conn.Topics.Count > 0 || conn.Pending.Count > 0 || !_connections.TryGetValue(conn.Url, out var current) || current != conn)
+		{
+			return;
+		}
+		_log?.Invoke($"relay connection idle, closed: {conn.Url}");
+		_connections.Remove(conn.Url);
+		// A late callback of the socket, or the reconnect timer, finds another generation.
+		conn.Generation++;
+		conn.ReconnectTimer?.Dispose();
+		conn.ReconnectTimer = null;
+		var socket = conn.Socket;
+		conn.Socket = null;
+		conn.Open = false;
+		socket?.Close();
 	}
 
 	/// <summary>Seal one envelope with the pairing key and publish it to the pairing's
@@ -582,6 +604,9 @@ public sealed class LinkRelayClient : IDisposable
 			conn.Open = true;
 			conn.ReconnectAttempt = 0;
 			stale = TakeStale(conn, DateTime.UtcNow);
+			// What was left to deliver may have gone stale while the relay was out of reach: a
+			// connection left with nothing to serve closes (the loops below then stop at once).
+			CloseIfIdle(conn);
 			// A send that fails closes the socket, and its close runs on this thread under the same
 			// gate: the loops stop as soon as the socket is no longer this one.
 			foreach (var topic in conn.Topics.ToArray())
@@ -612,6 +637,7 @@ public sealed class LinkRelayClient : IDisposable
 
 	private void OnClosed(Connection conn, int generation)
 	{
+		List<PendingPublish>? stale;
 		lock (_gate)
 		{
 			if (_disposed || conn.Generation != generation)
@@ -620,22 +646,31 @@ public sealed class LinkRelayClient : IDisposable
 			}
 			conn.Open = false;
 			conn.Socket = null;
-			var delay = _reconnectDelaysMs[Math.Min(conn.ReconnectAttempt, _reconnectDelaysMs.Length - 1)];
-			conn.ReconnectAttempt++;
-			_log?.Invoke($"relay disconnected: {conn.Url}; reconnect in {delay} ms (attempt {conn.ReconnectAttempt})");
-			conn.ReconnectTimer?.Dispose();
-			// One-shot timer; the next drop schedules the next attempt (ladder backoff).
-			conn.ReconnectTimer = new System.Threading.Timer(_ =>
+			// A publish the relay would no longer hold fails now, and a connection left with nothing
+			// to serve closes instead of dialing again for it.
+			stale = TakeStale(conn, DateTime.UtcNow);
+			CloseIfIdle(conn);
+			if (_connections.TryGetValue(conn.Url, out var registered) && registered == conn)
 			{
-				lock (_gate)
+				var delay = _reconnectDelaysMs[Math.Min(conn.ReconnectAttempt, _reconnectDelaysMs.Length - 1)];
+				conn.ReconnectAttempt++;
+				_log?.Invoke($"relay disconnected: {conn.Url}; reconnect in {delay} ms (attempt {conn.ReconnectAttempt})");
+				conn.ReconnectTimer?.Dispose();
+				// One-shot timer; the next drop schedules the next attempt (ladder backoff).
+				conn.ReconnectTimer = new System.Threading.Timer(_ =>
 				{
-					if (!_disposed && conn.Socket == null)
+					lock (_gate)
 					{
-						Dial(conn);
+						// A connection that closed as idle in the meantime stays closed.
+						if (!_disposed && conn.Socket == null && _connections.TryGetValue(conn.Url, out var current) && current == conn)
+						{
+							Dial(conn);
+						}
 					}
-				}
-			}, null, delay, System.Threading.Timeout.Infinite);
+				}, null, delay, System.Threading.Timeout.Infinite);
+			}
 		}
+		ReportFailedPublishes(stale, "no_ack", "The relay did not acknowledge the frame while it would hold it");
 	}
 
 	/// <summary>Called under the gate: keeps a publish until the relay acknowledges it, and sends it
@@ -748,6 +783,7 @@ public sealed class LinkRelayClient : IDisposable
 		lock (_gate)
 		{
 			conn.Topics.Remove(relayTopic);
+			CloseIfIdle(conn);
 		}
 		if (!relayTopic.EndsWith(".dapp", StringComparison.Ordinal))
 		{
@@ -811,6 +847,7 @@ public sealed class LinkRelayClient : IDisposable
 						{
 							SendNextChunk(conn, done.MessageId);
 						}
+						CloseIfIdle(conn);
 					}
 				}
 			}
@@ -896,6 +933,7 @@ public sealed class LinkRelayClient : IDisposable
 				failed = conn.Pending.Values.ToList();
 				conn.Pending.Clear();
 			}
+			CloseIfIdle(conn);
 		}
 		ReportFailedPublishes(failed, code, message);
 	}

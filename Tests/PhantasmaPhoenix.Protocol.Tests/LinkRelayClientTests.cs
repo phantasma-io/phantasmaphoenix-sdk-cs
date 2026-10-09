@@ -946,6 +946,23 @@ public class LinkRelayClientTests
 		answer["result"].ShouldNotBeNull();
 	}
 
+	// A relay connection that serves no pairing any more closes once the end notice of the last
+	// session was acknowledged, instead of reconnecting forever.
+	[Fact]
+	public void The_connection_closes_when_its_last_pairing_ended()
+	{
+		var paired = PairOverRelay("last-pairing");
+		paired.AckAll();
+
+		paired.Dispatcher.EndSession(paired.SessionId, LinkSessionEndReason.Revoked);
+		paired.Socket.Closed.ShouldBeFalse();
+		paired.AckAll();
+
+		paired.Socket.Closed.ShouldBeTrue();
+		paired.Endpoint.TryHandle("phantasma://v5/wake#s=x", _ => { }).ShouldBeTrue();
+		paired.Sockets.Sockets.Count.ShouldBe(1);
+	}
+
 	[Fact]
 	public void A_refused_key_hop_ends_the_pairing()
 	{
