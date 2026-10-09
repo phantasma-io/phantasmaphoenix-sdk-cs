@@ -24,6 +24,9 @@ public class LinkServer
 
 	private Dictionary<string, Action<WebSocket, HTTPRequest>> _websocketsHandlers = new Dictionary<string, Action<WebSocket, HTTPRequest>>();
 	private List<WebSocket> _activeWebsockets = new List<WebSocket>();
+	/// <summary>Set by <see cref="Stop"/> under the lock of <see cref="_activeWebsockets"/>: a
+	/// connection that finishes its upgrade after it is closed instead of served.</summary>
+	private bool _stopped;
 	/// <summary>The longest request id an answer repeats (spec §4).</summary>
 	private const int MaxRequestIdChars = 128;
 	// The v5 sessions each loopback connection carries, so that the events of a session reach the
@@ -61,6 +64,10 @@ public class LinkServer
 	public void Start()
 	{
 		var port = _port;
+		lock (_activeWebsockets)
+		{
+			_stopped = false;
+		}
 
 		// Log.Write("Starting websocket server for Phantasma wallet connector at port " + port);
 
@@ -167,6 +174,26 @@ public class LinkServer
 		var current = listener;
 		listener = null;
 		current?.Close();
+
+		// The pages connected before keep their connections otherwise, and their requests would still
+		// reach the wallet's prompts.
+		WebSocket[] open;
+		lock (_activeWebsockets)
+		{
+			_stopped = true;
+			open = _activeWebsockets.ToArray();
+		}
+		foreach (var socket in open)
+		{
+			try
+			{
+				socket.Dispose();
+			}
+			catch (Exception e)
+			{
+				System.Diagnostics.Debug.WriteLine("websocket close failure while stopping: " + e.Message);
+			}
+		}
 	}
 
 	/// <summary>
@@ -421,7 +448,9 @@ public class LinkServer
 
 			int requestCount = 0;
 
-			using (var stream = new NetworkStream(client))
+			// The stream owns the socket, so that disposing a connection closes it at once instead of
+			// when the peer answers the close frame.
+			using (var stream = new NetworkStream(client, ownsSocket: true))
 			{
 				using (var reader = new BinaryReader(stream))
 				{
@@ -584,9 +613,21 @@ public class LinkServer
 												}
 
 												var webSocket = new WebSocket(_bufferFactory, stream, keepAliveInterval, secWebSocketExtensions, includeExceptionInCloseResponse, false, targetProtocol);
+												bool stopped;
 												lock (_activeWebsockets)
 												{
-													_activeWebsockets.Add(webSocket);
+													// A connection accepted before Stop() that finishes its upgrade after it is
+													// not served: Stop() did not see it.
+													stopped = _stopped;
+													if (!stopped)
+													{
+														_activeWebsockets.Add(webSocket);
+													}
+												}
+												if (stopped)
+												{
+													webSocket.Dispose();
+													return;
 												}
 												handler(webSocket, request);
 												lock (_activeWebsockets)

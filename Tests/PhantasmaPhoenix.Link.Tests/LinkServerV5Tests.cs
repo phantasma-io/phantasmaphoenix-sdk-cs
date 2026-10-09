@@ -156,6 +156,31 @@ public class LinkServerV5Tests
 		}
 	}
 
+	// A stopped server serves no page: the connections made before close too, so no request of
+	// theirs reaches a prompt of the wallet.
+	[Fact]
+	public async Task Stopping_the_server_closes_its_connections()
+	{
+		var (server, _) = StartServer();
+		using var client = await Open(server, "https://page.example");
+		await ConnectSession(client);
+
+		server.Stop();
+
+		using var timeout = new CancellationTokenSource(Wait);
+		var closed = false;
+		try
+		{
+			var result = await client.ReceiveAsync(new ArraySegment<byte>(new byte[1024]), timeout.Token);
+			closed = result.MessageType == WebSocketMessageType.Close;
+		}
+		catch (WebSocketException)
+		{
+			closed = true;
+		}
+		closed.ShouldBeTrue();
+	}
+
 	[Fact]
 	public async Task The_events_of_a_session_reach_the_connection_that_holds_it_only()
 	{
