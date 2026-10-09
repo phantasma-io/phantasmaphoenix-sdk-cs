@@ -38,13 +38,13 @@ public enum LinkTxFormat
 	Carbon,
 }
 
-/// <summary>One token balance line as the wallet exposes it to a dApp.</summary>
+/// <summary>One token balance line as the wallet exposes it to a dApp. It has no NFT ids: one
+/// token can count millions of NFTs, so a dApp reads them from the chain's RPC (spec §9.5).</summary>
 public sealed class LinkBalance
 {
 	public string Symbol { get; set; } = "";
 	public string Value { get; set; } = "";
 	public int Decimals { get; set; }
-	public string[] Ids { get; set; } = Array.Empty<string>();
 }
 
 /// <summary>A wallet account as exposed to a dApp over v5.</summary>

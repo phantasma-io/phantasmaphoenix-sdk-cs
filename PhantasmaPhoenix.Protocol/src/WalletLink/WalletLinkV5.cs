@@ -932,9 +932,9 @@ public class WalletLinkV5
 		{
 			["wallet"] = new JObject { ["name"] = walletName, ["version"] = walletVersion },
 			["capabilities"] = BuildCapabilities(record, nexus),
-			// Spec §9.5: without the NFT ids, so that the result fits the way back of a deeplink;
-			// pha_getAccounts returns them.
-			["account"] = BuildAccount(account, false),
+			// Spec §9.5: without the NFT ids, as every account the wallet sends, so that the result
+			// fits the way back of a deeplink.
+			["account"] = BuildAccount(account),
 			// The end of the lifetime in Unix milliseconds, or null without a fixed end (spec §5).
 			["session"] = new JObject
 			{
@@ -1343,24 +1343,19 @@ public class WalletLinkV5
 		};
 	}
 
-	/// <summary>Returns the account object of spec §9.5, with the NFT ids of its balances when
-	/// <paramref name="withIds"/> is set.</summary>
-	private static JObject BuildAccount(LinkAccount account, bool withIds = true)
+	/// <summary>Returns the account object of spec §9.5. Its balances carry no NFT ids: one token can
+	/// count millions of NFTs, and a dApp reads them from the chain's RPC.</summary>
+	private static JObject BuildAccount(LinkAccount account)
 	{
 		var balances = new JArray();
 		foreach (var b in account.Balances)
 		{
-			var entry = new JObject
+			balances.Add(new JObject
 			{
 				["symbol"] = b.Symbol,
 				["value"] = b.Value,
 				["decimals"] = b.Decimals,
-			};
-			if (withIds && b.Ids != null && b.Ids.Length > 0)
-			{
-				entry["ids"] = new JArray(b.Ids);
-			}
-			balances.Add(entry);
+			});
 		}
 
 		return new JObject

@@ -49,22 +49,37 @@ public class WalletLinkV5Tests
 		((string)response["result"]!["capabilities"]!["chains"]![0]!).ShouldBe("phantasma:localnet");
 	}
 
-	// Spec §9.5: the connect result carries the balances without the NFT ids, so that it fits the
-	// way back of a deeplink; pha_getAccounts returns them.
+	// Spec §9.5: no account the wallet sends carries NFT ids, because one token can count millions
+	// of them: neither the connect result, nor pha_getAccounts, nor pha_accountsChanged. The NFT
+	// balance keeps its count.
 	[Fact]
-	public void The_connect_result_leaves_the_nft_ids_out()
+	public void No_account_the_wallet_sends_carries_nft_ids()
 	{
-		var ops = new FakeV5Ops { NftIds = new[] { "1", "2", "3" } };
+		var ops = new FakeV5Ops { NftCount = 3 };
 		var link = new WalletLinkV5(ops);
+		var events = new List<JObject>();
+		link.SessionEvent += (_, envelope) => events.Add(JObject.Parse(envelope));
 
 		var session = Connect(link, out var response);
-
-		var crown = response["result"]!["account"]!["balances"]!.Single(b => (string?)b["symbol"] == "CROWN");
-		crown["ids"].ShouldBeNull();
-		((string)crown["value"]!).ShouldBe("3");
 		var accounts = Send(link, $"{{\"plv\":5,\"id\":\"a1\",\"session\":\"{session}\",\"method\":\"pha_getAccounts\"}}");
-		accounts["result"]!["accounts"]![0]!["balances"]!.Single(b => (string?)b["symbol"] == "CROWN")["ids"]!
-			.Select(id => (string)id!).ShouldBe(new[] { "1", "2", "3" });
+		// Selecting another account and then the session's account again sends pha_accountsChanged.
+		ops.AccountAddress = "P2KOther";
+		link.SelectedAccountChanged();
+		ops.AccountAddress = "P2KTest";
+		link.SelectedAccountChanged();
+
+		var sent = new[]
+		{
+			response["result"]!["account"]!,
+			accounts["result"]!["accounts"]![0]!,
+			events.Single(e => (string?)e["event"] == "pha_accountsChanged")["data"]!["accounts"]![0]!,
+		};
+		foreach (var account in sent)
+		{
+			var crown = account["balances"]!.Single(b => (string?)b["symbol"] == "CROWN");
+			((string)crown["value"]!).ShouldBe("3");
+			crown["ids"].ShouldBeNull();
+		}
 	}
 
 	[Fact]
