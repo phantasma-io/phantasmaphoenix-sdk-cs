@@ -41,7 +41,8 @@ public enum LinkSessionEndReason
 public sealed class LinkSessionRecord
 {
 	public string Id { get; set; } = "";
-	/// <summary>The dApp name the user approved; resume requires an exact match.</summary>
+	/// <summary>The dApp name the user approved. A session bound to no origin resumes for this
+	/// name only (spec §7).</summary>
 	public string Dapp { get; set; } = "";
 	/// <summary>The dApp url the user approved (spec §7).</summary>
 	public string DappUrl { get; set; } = "";
@@ -50,6 +51,10 @@ public sealed class LinkSessionRecord
 	/// <summary>The origin the session is bound to (spec §6.2, §7), or null when the transport
 	/// reported none. A request from another origin is refused.</summary>
 	public string? Origin { get; set; }
+	/// <summary>The transport the session was made over (spec §7): a session made over deeplink or
+	/// relay is served over its pairing only. Null for a session stored before it was kept, which
+	/// is served as one made over loopback.</summary>
+	public LinkTransportKind? Transport { get; set; }
 	/// <summary>The account the session was authorized for; resume requires the same account.</summary>
 	public string Address { get; set; } = "";
 	/// <summary>The networks granted to the session, as CAIP-2 ids (spec §5). Null for a session
@@ -82,7 +87,9 @@ public sealed class LinkSeenRequest
 
 /// <summary>
 /// Wallet-side session storage. All calls happen on the wallet's dispatch thread (the same one
-/// that runs <see cref="WalletLinkV5.HandleMessage"/>), so implementations need no locking.
+/// that runs <see cref="WalletLinkV5.HandleMessage"/>), so implementations need no locking. An
+/// implementation keeps every property of a record: one it drops, such as
+/// <see cref="LinkSessionRecord.Transport"/>, loosens what the wallet checks.
 /// </summary>
 public interface ILinkSessionStore
 {

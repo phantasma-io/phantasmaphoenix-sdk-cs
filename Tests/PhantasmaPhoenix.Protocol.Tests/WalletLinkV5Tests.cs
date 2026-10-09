@@ -618,10 +618,10 @@ public class WalletLinkV5Tests
 		caller.Origin.ShouldBe("https://page.example");
 	}
 
-	// Spec §6.2, §7: a session is bound to the origin it was approved from. Another origin gets 4100
-	// and reaches no prompt; a request whose transport knows no origin is not refused for it.
+	// Spec §7: a session is served only on the channel it was made on. A session bound to an origin
+	// gets 4100 from another origin and from a caller without one, and reaches no prompt.
 	[Fact]
-	public void A_request_from_another_origin_is_refused()
+	public void A_session_bound_to_an_origin_serves_that_origin_only()
 	{
 		var ops = new FakeV5Ops();
 		var link = new WalletLinkV5(ops);
@@ -635,7 +635,36 @@ public class WalletLinkV5Tests
 		ops.SignedMessage.ShouldBeNull();
 
 		var unknown = Send(link, request, new LinkRequestContext());
-		unknown["error"].ShouldBeNull();
+		((int)unknown["error"]!["code"]!).ShouldBe(4100);
+		ops.SignedMessage.ShouldBeNull();
+
+		var own = Send(link, request.Replace("\"o2\"", "\"o3\""), new LinkRequestContext { Origin = "https://page.example" });
+		own["error"].ShouldBeNull();
+	}
+
+	// Spec §7: over deeplink and relay the channel is the pairing, which carries one session. A
+	// request that names another session gets 4100, and no connect moves the pairing to it. A
+	// resume over the pairing is decided by the pairing alone, whatever dApp name it carries.
+	[Fact]
+	public void A_pairing_serves_its_own_session_only()
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var other = Connect(link, out _);
+		var own = Connect(link, out _);
+		var moved = new List<string>();
+		LinkRequestContext Pairing() => new LinkRequestContext { Transport = LinkTransportKind.Relay, PairingSession = own, Channel = "pairing p", OnSession = moved.Add };
+
+		var foreign = Send(link, $"{{\"plv\":5,\"id\":\"p1\",\"session\":\"{other}\",\"method\":\"pha_getChains\"}}", Pairing());
+		((int)foreign["error"]!["code"]!).ShouldBe(4100);
+		var repoint = Send(link, $"{{\"plv\":5,\"id\":\"p2\",\"session\":\"{other}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}}}}", Pairing());
+		((int)repoint["error"]!["code"]!).ShouldBe(4100);
+		moved.ShouldBeEmpty();
+
+		var resume = Send(link, "{\"plv\":5,\"id\":\"p3\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"Renamed\",\"url\":\"https://t.example\"}}}", Pairing());
+		((string)resume["result"]!["session"]!["id"]!).ShouldBe(own);
+		var served = Send(link, $"{{\"plv\":5,\"id\":\"p4\",\"session\":\"{own}\",\"method\":\"pha_getChains\"}}", Pairing());
+		served["error"].ShouldBeNull();
 	}
 
 	// Spec §4: requests are independent by id, and there is no global single-in-flight flag. A
@@ -946,8 +975,10 @@ public class WalletLinkV5Tests
 		link.IsSessionLive(session).ShouldBeFalse();
 	}
 
+	// Spec §7, §9.5: a live session of another channel is neither unknown nor closed, so a disconnect
+	// that names it gets 4100 and leaves it.
 	[Fact]
-	public void A_disconnect_from_another_origin_leaves_the_session()
+	public void A_disconnect_from_another_origin_gets_4100_and_leaves_the_session()
 	{
 		var link = new WalletLinkV5(new FakeV5Ops());
 		var session = (string)Send(link,
@@ -957,8 +988,49 @@ public class WalletLinkV5Tests
 		var response = Send(link, $"{{\"plv\":5,\"id\":\"d1\",\"session\":\"{session}\",\"method\":\"pha_disconnect\"}}",
 			new LinkRequestContext { Origin = "https://other.example" });
 
-		((bool)response["result"]!["ok"]!).ShouldBeTrue();
+		((int)response["error"]!["code"]!).ShouldBe(4100);
 		link.IsSessionLive(session).ShouldBeTrue();
+	}
+
+	// Spec §9.5: a session of another channel that has ended is no live session there, so its
+	// disconnect is a success no-op, as for an unknown one.
+	[Fact]
+	public void A_disconnect_from_another_origin_of_an_ended_session_succeeds()
+	{
+		var sessions = new InMemoryLinkSessionStore();
+		var link = new WalletLinkV5(new FakeV5Ops(), sessions);
+		var session = (string)Send(link,
+			"{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}",
+			new LinkRequestContext { Origin = "https://page.example" })["result"]!["session"]!["id"]!;
+		sessions.Get(session)!.ExpiresUtc = DateTime.UtcNow.AddSeconds(-1);
+
+		var response = Send(link, $"{{\"plv\":5,\"id\":\"d1\",\"session\":\"{session}\",\"method\":\"pha_disconnect\"}}",
+			new LinkRequestContext { Origin = "https://other.example" });
+
+		((bool)response["result"]!["ok"]!).ShouldBeTrue();
+		// The request ends nothing: the sweep ends the session as expired, on its own channel.
+		sessions.Get(session).ShouldNotBeNull();
+	}
+
+	// Spec §7: a session made over a pairing is served over that pairing only, never over loopback,
+	// whatever origin the loopback caller names.
+	[Fact]
+	public void A_session_of_a_pairing_is_not_served_over_loopback()
+	{
+		var link = new WalletLinkV5(new FakeV5Ops());
+		var session = (string)Send(link,
+			"{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}",
+			new LinkRequestContext { Transport = LinkTransportKind.Relay, Origin = "https://t.example", Channel = "pairing p" })["result"]!["session"]!["id"]!;
+
+		foreach (var origin in new[] { "https://t.example", null })
+		{
+			var chains = Send(link, $"{{\"plv\":5,\"id\":\"g-{origin}\",\"session\":\"{session}\",\"method\":\"pha_getChains\"}}",
+				new LinkRequestContext { Transport = LinkTransportKind.Loopback, Origin = origin });
+			((int)chains["error"]!["code"]!).ShouldBe(4100);
+		}
+		var served = Send(link, $"{{\"plv\":5,\"id\":\"g2\",\"session\":\"{session}\",\"method\":\"pha_getChains\"}}",
+			new LinkRequestContext { Transport = LinkTransportKind.Relay, PairingSession = session, Channel = "pairing p" });
+		served["result"].ShouldNotBeNull();
 	}
 
 	// Spec §18.2: the connect that made a session of a pairing joins the ids of that session, so a
@@ -976,6 +1048,29 @@ public class WalletLinkV5Tests
 			new LinkRequestContext { Transport = LinkTransportKind.Relay, PairingSession = session, Channel = "pairing p" });
 
 		answers.Count.ShouldBe(1);
+	}
+
+	// Spec §7: a connect from another origin that names an expired session neither ends it nor
+	// opens a new one in its place: it gets 4100 like any request from another channel.
+	[Fact]
+	public void A_connect_from_another_origin_naming_an_expired_session_gets_4100()
+	{
+		var sessions = new InMemoryLinkSessionStore();
+		var link = new WalletLinkV5(new FakeV5Ops(), sessions);
+		var session = (string)Send(link,
+			"{\"plv\":5,\"id\":\"c1\",\"method\":\"pha_connect\",\"params\":{\"dapp\":{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}",
+			new LinkRequestContext { Origin = "https://page.example" })["result"]!["session"]!["id"]!;
+		sessions.Get(session)!.ExpiresUtc = DateTime.UtcNow.AddMinutes(-1);
+		var ended = new List<string>();
+		link.SessionEnded += (id, _) => ended.Add(id);
+
+		var response = Send(link,
+			$"{{\"plv\":5,\"id\":\"c2\",\"session\":\"{session}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"testdapp\",\"url\":\"https://t.example\"}}}}}}",
+			new LinkRequestContext { Origin = "https://other.example" });
+
+		((int)response["error"]!["code"]!).ShouldBe(4100);
+		ended.ShouldBeEmpty();
+		sessions.Get(session).ShouldNotBeNull();
 	}
 
 	[Fact]
@@ -1254,10 +1349,11 @@ public class WalletLinkV5Tests
 		((string)response["result"]!["session"]!["id"]!).ShouldNotBe("nope"); // fresh session
 	}
 
+	// Spec §7: a loopback session made by a caller without an origin is held to the dApp name it was
+	// approved for. Its resume with another dApp name gets 4100, and the session stays.
 	[Fact]
-	public void Resume_with_a_different_dapp_name_falls_back_to_the_consent_prompt()
+	public void An_originless_session_resumes_only_for_its_dapp_name()
 	{
-		// A session is bound to the dApp identity the user approved; another dApp cannot ride it.
 		var ops = new FakeV5Ops();
 		var link = new WalletLinkV5(ops);
 		var session = Connect(link, out _);
@@ -1265,8 +1361,9 @@ public class WalletLinkV5Tests
 		var response = Send(link,
 			$"{{\"plv\":5,\"id\":\"r1\",\"session\":\"{session}\",\"method\":\"pha_connect\",\"params\":{{\"dapp\":{{\"name\":\"OTHER\",\"url\":\"https://other.example\"}}}}}}");
 
-		ops.ConnectCalls.ShouldBe(2); // re-consent for the other dApp
-		((string)response["result"]!["session"]!["id"]!).ShouldNotBe(session);
+		((int)response["error"]!["code"]!).ShouldBe(4100);
+		ops.ConnectCalls.ShouldBe(1);
+		link.IsSessionLive(session).ShouldBeTrue();
 	}
 
 	[Fact]

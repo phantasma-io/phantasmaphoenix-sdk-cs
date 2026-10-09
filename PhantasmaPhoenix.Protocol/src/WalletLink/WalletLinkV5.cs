@@ -286,11 +286,11 @@ public class WalletLinkV5
 			respond(BuildError(id, ErrUnauthorized, "Invalid or missing session"));
 			return;
 		}
-		// Spec §6.2, §7: a session is bound to the origin it was approved from. This comes before
-		// the id memory, so that another origin cannot fill it.
-		if (!OriginMatches(record, context.Origin))
+		// Spec §7: a session is served only on the channel it was made on. This comes before the id
+		// memory, so that another channel cannot fill it.
+		if (!OnChannel(record, context))
 		{
-			respond(BuildError(id, ErrUnauthorized, "Origin mismatch"));
+			respond(BuildError(id, ErrUnauthorized, "The session belongs to another channel"));
 			return;
 		}
 		var now = DateTime.UtcNow;
@@ -333,11 +333,22 @@ public class WalletLinkV5
 		}
 	}
 
-	/// <summary>Returns true when <paramref name="origin"/> may use the session: the session or the
-	/// request has no known origin, or both are the same.</summary>
-	private static bool OriginMatches(LinkSessionRecord record, string? origin)
+	/// <summary>Returns true when the request came on the channel of the session (spec §7). Over
+	/// deeplink and relay the channel is the pairing, which carries one session, and a session made
+	/// over a pairing is served there only. Over loopback it is the page origin: a session bound to
+	/// an origin serves that origin only, never a caller without one, and a session made by a caller
+	/// without an origin serves whoever names it.</summary>
+	private static bool OnChannel(LinkSessionRecord record, LinkRequestContext context)
 	{
-		return record.Origin == null || origin == null || record.Origin == origin;
+		if (context.Transport == LinkTransportKind.Deeplink || context.Transport == LinkTransportKind.Relay)
+		{
+			return context.PairingSession == record.Id;
+		}
+		if (record.Transport == LinkTransportKind.Deeplink || record.Transport == LinkTransportKind.Relay)
+		{
+			return false;
+		}
+		return record.Origin == null || record.Origin == context.Origin;
 	}
 
 	/// <summary>
@@ -387,7 +398,7 @@ public class WalletLinkV5
 	}
 
 	/// <summary>Returns the caller of a request in the session <paramref name="record"/>: the
-	/// approved dApp, the origin of this request (or the session's), and the session's account.</summary>
+	/// approved dApp, the origin of this request, and the session's account.</summary>
 	private static LinkCaller CallerOf(LinkSessionRecord record, LinkRequestContext context)
 	{
 		return new LinkCaller
@@ -395,7 +406,7 @@ public class WalletLinkV5
 			DappName = record.Dapp,
 			DappUrl = record.DappUrl,
 			DappIcon = record.DappIcon,
-			Origin = context.Origin ?? record.Origin,
+			Origin = context.Origin,
 			Address = record.Address,
 			Transport = context.Transport,
 		};
@@ -567,8 +578,15 @@ public class WalletLinkV5
 
 		// Resume (spec §9.5): the session to resume rides in the envelope `session` field; over
 		// deeplink and relay a connect without one resumes the session of its pairing. A live
-		// session of the SAME dApp identity reconnects without a prompt while the wallet serves
+		// session on its own channel (spec §7) reconnects without a prompt while the wallet serves
 		// its account.
+		var paired = context.Transport == LinkTransportKind.Deeplink || context.Transport == LinkTransportKind.Relay;
+		if (paired && session != null && session != context.PairingSession)
+		{
+			// Spec §7: a pairing carries one session, and no request moves it to another one.
+			respond(BuildError(id, ErrUnauthorized, "The session belongs to another channel"));
+			return;
+		}
 		var resumeId = session ?? context.PairingSession;
 		if (resumeId != null)
 		{
@@ -577,8 +595,16 @@ public class WalletLinkV5
 			// loopback a session that ended or that the wallet does not know gets the full
 			// approval. A live session is never replaced because the wallet is locked (spec §7):
 			// its resume gets 4900 then, on every transport.
-			var paired = context.Transport == LinkTransportKind.Deeplink || context.Transport == LinkTransportKind.Relay;
 			var record = _sessions.Get(resumeId);
+			// Spec §7: over loopback a session bound to an origin resumes for that origin only, a
+			// session made without an origin only for the dApp name it was approved for, and a
+			// session of a pairing never. A request from another channel neither ends nor resumes it.
+			if (record != null && !paired
+				&& (!OnChannel(record, context) || (record.Origin == null && record.Dapp != caller.DappName)))
+			{
+				respond(BuildError(id, ErrUnauthorized, "The session belongs to another channel"));
+				return;
+			}
 			if (record != null && IsExpired(record, DateTime.UtcNow))
 			{
 				EndSession(record.Id, LinkSessionEndReason.Expired);
@@ -589,7 +615,7 @@ public class WalletLinkV5
 				}
 				record = null;
 			}
-			if (record != null && record.Dapp == caller.DappName && OriginMatches(record, context.Origin))
+			if (record != null)
 			{
 				if (!Remember(record, id!, DateTime.UtcNow, respond))
 				{
@@ -849,6 +875,7 @@ public class WalletLinkV5
 			DappUrl = caller.DappUrl,
 			DappIcon = caller.DappIcon,
 			Origin = caller.Origin,
+			Transport = caller.Transport,
 			Address = address,
 			Chains = chains,
 			Methods = methods,
@@ -925,7 +952,9 @@ public class WalletLinkV5
 	/// account, it silently delivers nothing: the dApp then falls back to the classic explicit
 	/// pha_connect (which prompts), so degradation is graceful, never an error. The session is
 	/// bound to the dApp and the origin of <paramref name="caller"/> and lasts the
-	/// <paramref name="lifetime"/> the user picked at the pairing.
+	/// <paramref name="lifetime"/> the user picked at the pairing. The caller's
+	/// <see cref="LinkCaller.Transport"/> names the pairing's transport, deeplink or relay: the
+	/// session is then served over that pairing only (spec §7).
 	/// </summary>
 	public void EstablishConsentedSession(LinkCaller caller, LinkSessionLifetime lifetime, Action<string> deliver)
 	{
@@ -956,10 +985,18 @@ public class WalletLinkV5
 
 	private void HandleDisconnect(JToken? id, string? session, LinkRequestContext context, Action<string> respond)
 	{
-		// A session of another origin is left alone: its id alone does not end it. An unknown
-		// session still ends, so that a channel that outlived it ends too.
+		// A live session of another channel is left alone, and the request gets 4100: its id alone
+		// does not end it (spec §7, §9.5). An ended one is a success no-op there; the sweep ends it
+		// as expired. An unknown session still ends, so that a channel that outlived it ends too.
 		var record = session == null ? null : _sessions.Get(session);
-		if (session != null && (record == null || OriginMatches(record, context.Origin)))
+		if (record != null && !OnChannel(record, context))
+		{
+			respond(IsExpired(record, DateTime.UtcNow)
+				? BuildResult(id, new JObject { ["ok"] = true })
+				: BuildError(id, ErrUnauthorized, "The session belongs to another channel"));
+			return;
+		}
+		if (session != null)
 		{
 			EndSession(session, LinkSessionEndReason.Disconnected);
 		}
