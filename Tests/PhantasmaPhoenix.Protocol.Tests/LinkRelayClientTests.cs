@@ -687,7 +687,7 @@ public class LinkRelayClientTests
 		Should.NotThrow(() => dispatcher.EndSession("sess-dl", LinkSessionEndReason.Revoked));
 		pairings.Get("top-dl").ShouldBeNull();   // the pairing is forgotten
 		sockets.Sockets.ShouldBeEmpty();         // no relay connection was ever opened
-		endpoint.ShouldNotBeNull();
+		GC.KeepAlive(endpoint);                  // the endpoint ends the deeplink-only pairing
 	}
 
 	// Spec §7, §18.3: when a session ends, its dApp gets the notice that fits over the pairing, and

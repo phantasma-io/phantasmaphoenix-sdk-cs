@@ -34,6 +34,8 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 	public LinkFailure FailInvoke = LinkFailure.None;
 	public LinkTxFormat? SentFormat;
 	public byte[]? SentTx;
+	/// <summary>The signature kind the last broadcast was asked for.</summary>
+	public SignatureKind? SentKind;
 
 	/// <summary>The NFT ids of an NFT balance of the account, when set.</summary>
 	public string[]? NftIds;
@@ -102,6 +104,7 @@ internal sealed class FakeV5Ops : IWalletLinkV5Ops
 		LastCaller = caller;
 		SentFormat = format;
 		SentTx = serializedTx;
+		SentKind = kind;
 		if (FailSend != LinkFailure.None) { done(LinkSendResult.Fail(FailSend, FailSendMessage)); return; }
 		var hashBytes = new byte[32];
 		hashBytes[0] = 1;

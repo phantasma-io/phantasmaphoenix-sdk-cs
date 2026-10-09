@@ -93,6 +93,25 @@ public class WalletLinkV5Tests
 		((string)response["result"]!["hash"]!).ShouldNotBeNullOrEmpty();
 	}
 
+	// Spec §9.7: the broadcast path honors the requested signature kind and never falls back to the
+	// default key; without one it signs with Ed25519.
+	[Theory]
+	[InlineData(",\"signatureKind\":\"ECDSA\"", SignatureKind.ECDSA)]
+	[InlineData(",\"signatureKind\":\"Ed25519\"", SignatureKind.Ed25519)]
+	[InlineData("", SignatureKind.Ed25519)]
+	public void SendTransaction_passes_the_signature_kind_to_the_wallet(string kindParam, SignatureKind expected)
+	{
+		var ops = new FakeV5Ops();
+		var link = new WalletLinkV5(ops);
+		var session = Connect(link, out _);
+
+		var response = Send(link,
+			$"{{\"plv\":5,\"id\":\"k1\",\"session\":\"{session}\",\"method\":\"pha_sendTransaction\",\"params\":{{\"format\":\"script\",\"tx\":\"qrvM\"{kindParam}}}}}");
+
+		response["error"].ShouldBeNull();
+		ops.SentKind.ShouldBe(expected);
+	}
+
 	[Theory]
 	[InlineData(LinkFailure.UserRejected, 4001)]
 	[InlineData(LinkFailure.InvalidTransaction, -32602)]
